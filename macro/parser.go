@@ -10,12 +10,12 @@ import (
 )
 
 type StmtMacro interface {
-	Init(interface{})
+	Init(Parser)
 	Main(Parser) ast.Stmt
 }
 
 type ExprMacro interface {
-	Init(interface{})
+	Init(Parser)
 	Main(Parser) ast.Expr
 }
 
@@ -27,6 +27,13 @@ type Scanner interface{
 	Error(int, string)
 }
 
+// Parsing modes for ParseSimpleStmt.
+const (
+	Basic = iota
+	LabelOk
+	RangeOk
+)
+
 type Parser interface{
 	Pos() token.Pos
 	Tok() token.Token
@@ -37,6 +44,11 @@ type Parser interface{
 	SetTok(token.Token)
 	Next()
 	CheckExpr(ast.Expr) ast.Expr
+
+	OpenScope()
+	CloseScope()
+	CheckOrConvertIdentifier()
+	ParseSimpleStmt(mode int) (ast.Stmt, bool)
 
 	TryIdentOrType() ast.Expr
 	ParseExpr(bool) ast.Expr
@@ -52,5 +64,7 @@ type Parser interface{
 	DeleteSpecialUnary(token.Token)
 	DeleteSpecialBinary(token.Token)
 	DeleteSpecialRuneProc()
+
+	ProcBlacklist(string)
 }
 

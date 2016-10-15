@@ -10,7 +10,7 @@ Distributed under the same BSD-style license as Go that can be found in the LICE
 
 ## Status
 
-Version 0.4.
+Version 0.5.
 
 All documented functionality is implemented.
 
@@ -18,7 +18,7 @@ All documented functionality is implemented.
 
 ### Installation
 
-First, make sure Go is already installed.
+First, make sure Go is already installed. Gro has tested successfully on Go 1.7.
 
 Run `go get github.com/grolang/gro` to get the command and packages.
 
@@ -38,15 +38,11 @@ Run `gro prepare src/github.com/grolang/samples/goByEg1.gro` to format one of th
 
 Run `gro execute src/github.com/grolang/samples/goByEg1.gro` to both format one of the supplied gro code samples, and run it..
 
-Run `gro repl` to run the REPL.
+Run `gro repl` to run the rudimentary REPL.
 
 ## Rationale
 
-The Gro syntax is an extension of Go's, parsed by a modified edition of the new recursive descent parser shipped in Go 1.6. The `parser`, `scanner`, and `cmd/gofmt` packages were copied and modified, and the `golang.org/x/tools/go/ast/astutil` package copied.
+The Gro syntax is an extension of Go's, parsed by a modified edition of the recursive descent parser shipped in Go 1.6. The `parser`, `scanner`, and `cmd/gofmt` packages were cloned and modified, and the `golang.org/x/tools/go/ast/astutil` package copied.
 
-Because Go source is an unambiguous LR(1)-parsed context-free syntax and Go's regexp library is a strict regular expression syntax, we generate Go and regexp source rather than a lower level target such as an AST.
-
-Cloning parts of this code (while adhering to the license restrictions) to create other scripting languages for Go is encouraged. The primary focus for my own work on this fork of the codebase (i.e. Gro) remains that of showcasing Unicode in the language grammar.
-
-Gro has the purpose of generating discussion on which Unihan should map to which keyword, special identifier, and package in Go, in both China and Japan. If one standard repertoire of Unihan is eventually adopted under the control of some other party/s, then the author encourages others to clone, modify, and promote their own editions and clones of Gro. My choice of Unihan are only interim because native Chinese and Japanese speakers will make the final choices.
+Cloning parts of this code (while adhering to the license restrictions) to create other scripting languages for Go is encouraged. The primary focus for my own work on this fork of the codebase (i.e. Gro) remains that of showcasing Unihan, and later other Unicode characters, in the language grammar.
 

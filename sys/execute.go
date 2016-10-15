@@ -34,6 +34,7 @@ func groExecute(cmd *Command, cmds []*Command, args []string) {
 
 	extLen:= len(filepath.Ext(args[0]))
 	outfile:= args[0][:len(args[0])-extLen] + ".go"
+
 	if wantMsgs {
 		fmt.Fprintf(os.Stderr, ">>> running %s\n", outfile)
 	}
@@ -42,10 +43,7 @@ func groExecute(cmd *Command, cmds []*Command, args []string) {
 		fmt.Fprintf(os.Stderr, "Error: %s executing %s\n%s", err, outfile, out)
 		return
 	}
-	fmt.Fprintf(os.Stderr, "%s", out)
-
-
-
+	fmt.Fprintf(os.Stdout, "%s", out)
 }
 
 // ============================================================================

@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// Command grot provides testing utilities to complement those in the Gro command.
 package main
 
 import (

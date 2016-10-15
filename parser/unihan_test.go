@@ -375,7 +375,7 @@ _zx:
 
 // ========== ========== ========== ==========
 //test keywords: 掉
-//test keyword scoping: 择,事,别,面
+//test keyword scoping: 考,事,别,面
 //test specids: 双,空,绝,绝8,绝16,绝32,绝64
 6:{`package main;入"fmt"
 type _uint16 uint16
@@ -394,7 +394,7 @@ type D面{
 func abc()*双{回空}
 func main(){
 	_a:=2
-	择a{
+	考a{
 	事1:
 		fmt.Print('a');
 	事2:
@@ -771,8 +771,9 @@ func main(){
   形Println(整64(a))
   var b A
   var c这A
-  鲜 //macro needs filling in
   形Println(b, c)
+  鲜d:='d'
+  形Println(a,d)
 }
 `,
 
@@ -790,8 +791,11 @@ func main() {
 	fmt.Println(int64(_a))
 	var b A
 	var c A
-
 	fmt.Println(b, c)
+	{
+		_d := 'd'
+		fmt.Println(_a, _d)
+	}
 }
 `},""},
 
@@ -884,7 +888,7 @@ func main() {
 
 import (
 	fmt "fmt"
-	exec "os/exec"
+	command "github.com/grolang/gro/macro/command"
 )
 
 type B int
@@ -892,14 +896,8 @@ type B int
 func _hello() {
 	_b := 789
 	fmt.Println(int64(_b))
-	func() {
-		x, _ := exec.Command("gro", "prepare", "src/github.com/grolang/qutests/goByEg4.qu").Output()
-		fmt.Println(string(x))
-	}()
-	func() {
-		x, _ := exec.Command("go", "run", "src/github.com/grolang/qutests/goByEg4.go").Output()
-		fmt.Println(string(x))
-	}()
+	command.FunPrep("src/github.com/grolang/qutests/goByEg4.qu")
+	command.FunRun("src/github.com/grolang/qutests/goByEg4.go")
 
 }
 `},""},
@@ -1116,20 +1114,11 @@ Normal,
 map[string]string{"cmds.go":
 `package main
 
-import (
-	fmt "fmt"
-	exec "os/exec"
-)
+import command "github.com/grolang/gro/macro/command"
 
 func main() {
-	func() {
-		x, _ := exec.Command("gro", "prepare", "src/github.com/grolang/qutests/goByEg4.qu").Output()
-		fmt.Println(string(x))
-	}()
-	func() {
-		x, _ := exec.Command("go", "run", "src/github.com/grolang/qutests/goByEg4.go").Output()
-		fmt.Println(string(x))
-	}()
+	command.FunPrep("src/github.com/grolang/qutests/goByEg4.qu")
+	command.FunRun("src/github.com/grolang/qutests/goByEg4.go")
 
 }
 `},""},
@@ -1148,20 +1137,11 @@ Normal,
 map[string]string{"cmds.go":
 `package main
 
-import (
-	fmt "fmt"
-	exec "os/exec"
-)
+import command "github.com/grolang/gro/macro/command"
 
 func main() {
-	func() {
-		x, _ := exec.Command("gro", "prepare", "src/github.com/grolang/qutests/goByEg4.qu").Output()
-		fmt.Println(string(x))
-	}()
-	func() {
-		x, _ := exec.Command("go", "run", "src/github.com/grolang/qutests/goByEg4.go").Output()
-		fmt.Println(string(x))
-	}()
+	command.FunPrep("src/github.com/grolang/qutests/goByEg4.qu")
+	command.FunRun("src/github.com/grolang/qutests/goByEg4.go")
 
 }
 `},""},
@@ -1179,20 +1159,11 @@ Normal,
 map[string]string{"main.go":
 `package main
 
-import (
-	fmt "fmt"
-	exec "os/exec"
-)
+import command "github.com/grolang/gro/macro/command"
 
 func main() {
-	func() {
-		x, _ := exec.Command("gro", "prepare", "src/github.com/grolang/qutests/goByEg4.qu").Output()
-		fmt.Println(string(x))
-	}()
-	func() {
-		x, _ := exec.Command("go", "run", "src/github.com/grolang/qutests/goByEg4.go").Output()
-		fmt.Println(string(x))
-	}()
+	command.FunPrep("src/github.com/grolang/qutests/goByEg4.qu")
+	command.FunRun("src/github.com/grolang/qutests/goByEg4.go")
 
 }
 `},""},
@@ -1208,20 +1179,11 @@ Normal,
 map[string]string{"main.go":
 `package main
 
-import (
-	fmt "fmt"
-	exec "os/exec"
-)
+import command "github.com/grolang/gro/macro/command"
 
 func main() {
-	func() {
-		x, _ := exec.Command("gro", "prepare", "src/github.com/grolang/qutests/goByEg4.qu").Output()
-		fmt.Println(string(x))
-	}()
-	func() {
-		x, _ := exec.Command("go", "run", "src/github.com/grolang/qutests/goByEg4.go").Output()
-		fmt.Println(string(x))
-	}()
+	command.FunPrep("src/github.com/grolang/qutests/goByEg4.qu")
+	command.FunRun("src/github.com/grolang/qutests/goByEg4.go")
 }
 `,
 
@@ -1258,20 +1220,11 @@ Normal,
 map[string]string{"main.go":
 `package main
 
-import (
-	fmt "fmt"
-	exec "os/exec"
-)
+import command "github.com/grolang/gro/macro/command"
 
 func main() {
-	func() {
-		x, _ := exec.Command("gro", "prepare", "src/github.com/grolang/qutests/goByEg4.qu").Output()
-		fmt.Println(string(x))
-	}()
-	func() {
-		x, _ := exec.Command("go", "run", "src/github.com/grolang/qutests/goByEg4.go").Output()
-		fmt.Println(string(x))
-	}()
+	command.FunPrep("src/github.com/grolang/qutests/goByEg4.qu")
+	command.FunRun("src/github.com/grolang/qutests/goByEg4.go")
 
 }
 `,
@@ -1299,7 +1252,7 @@ func main() {
 
 // ========== ========== ========== ==========
 24:{`
-用㗢"github.com/grolang/dyn/macro"
+用㗢"github.com/grolang/groo/macro"
 功正(){
 	形Println('a')
 	㗢{
@@ -1315,7 +1268,7 @@ map[string]string{"main.go":
 
 import (
 	fmt "fmt"
-	ops "github.com/grolang/dyn/ops"
+	ops "github.com/grolang/groo/ops"
 )
 
 func main() {
@@ -1332,7 +1285,7 @@ import (
 	"github.com/grolang/gro/macro"
 	"github.com/grolang/gro/parser"
 	"github.com/grolang/gro/sys"
-	_macro "github.com/grolang/dyn/macro"
+	_macro "github.com/grolang/groo/macro"
 )
 var aliases = map[rune]macro.StmtMacro {
 	'㗢': _macro.Struct{},
@@ -1340,7 +1293,10 @@ var aliases = map[rune]macro.StmtMacro {
 func main () {
 	flag.Parse()
 	args := flag.Args()
-	sys.ProcessFileWithMacros(aliases, args, parser.IgnoreUsesClause)
+	err := sys.ProcessFileWithMacros(aliases, args, parser.IgnoreUsesClause)
+	if err != nil {
+		sys.Report(err)
+	}
 }
 `},
 
@@ -1418,7 +1374,10 @@ var aliases = map[rune]macro.StmtMacro {
 func main () {
 	flag.Parse()
 	args := flag.Args()
-	sys.ProcessFileWithMacros(aliases, args, parser.IgnoreUsesClause)
+	err := sys.ProcessFileWithMacros(aliases, args, parser.IgnoreUsesClause)
+	if err != nil {
+		sys.Report(err)
+	}
 }
 `},
 
@@ -1498,9 +1457,45 @@ var aliases = map[rune]macro.StmtMacro {
 func main () {
 	flag.Parse()
 	args := flag.Args()
-	sys.ProcessFileWithMacros(aliases, args, parser.IgnoreUsesClause)
+	err := sys.ProcessFileWithMacros(aliases, args, parser.IgnoreUsesClause)
+	if err != nil {
+		sys.Report(err)
+	}
 }
 `},
+
+// ========== ========== ========== ==========
+28:{`
+用㗢"github.com/grolang/gro/macro/whitelist"
+源"whitelist.go"
+func main() {
+	回
+}
+`,
+
+// ---------- ---------- ---------- ----------
+Normal,
+map[string]string{},
+`package main
+import (
+	"flag"
+	"github.com/grolang/gro/macro"
+	"github.com/grolang/gro/parser"
+	"github.com/grolang/gro/sys"
+	_whitelist "github.com/grolang/gro/macro/whitelist"
+)
+var aliases = map[rune]macro.StmtMacro {
+	'㗢': _whitelist.Struct{},
+}
+func main () {
+	flag.Parse()
+	args := flag.Args()
+	err := sys.ProcessFileWithMacros(aliases, args, parser.IgnoreUsesClause)
+	if err != nil {
+		sys.Report(err)
+	}
+}
+`,},
 
 // ========== ========== ========== ==========
 999:{`
@@ -1563,17 +1558,6 @@ func main() {
 
 // ---------- ---------- ---------- ----------
 `4:12: Unihan special identifier 串 on left hand side (and 1 more errors)`},
-
-// ========== ========== ========== ==========
-1003:{`
-白如
-func main() {
-	回
-}
-`,
-
-// ---------- ---------- ---------- ----------
-`4:2: Unihan 回 encountered when prohibited by whitelist`},
 
 // ========== ========== ========== ==========
 1999:{`

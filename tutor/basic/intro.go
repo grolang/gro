@@ -31,7 +31,6 @@ Intro is a tutorial to introduce the basics of Gro.
 		introRule6,
 		introImpliedPack,
 		introMultipack,
-		introSyntacticMacros,
 		introExample,
 	},
 }
@@ -42,9 +41,9 @@ var introMain = &tutor.Page{
 	English: []string{`
 What Gro Is
 
-Gro is both a syntax that extends that of Go's, and a tool that generates Go code from Gro's.
+Gro is both a syntax that extends Go's, and a tool that generates Go code from Gro's.
 
-Gro uses single Unihan characters as optional substitutes for keywords, special identifiers, and common package names, and as the names for hygienic macros. It does so by introducing one small prohibition to Go's syntax: prohibiting the use of Unihan in identifier names. Because all Unihan have an implied space both before and after it in the Gro grammar, using Unihan enables Gro source code to not have any whitespace, just as using semicolons enables Go code not to have any newlines.
+Gro uses single Unihan characters as optional substitutes for keywords, special identifiers, and common package names, and as the names for hygienic macros. It does so by introducing one small prohibition to Go's syntax: prohibiting the use of Unihan in identifier names. Because every Unihan has an implied space both before and after it in the Gro grammar, using Unihan enables Gro source code to not have any whitespace, just as using semicolons enables Go code not to have any newlines.
 
 Gro code and Unihan-free Go code can be mixed freely in the same source file. But when a program is written using Unihan in all the places it can be in the code, any of the 25 Go keywords can be used as identifier or label names, so a dedicated Gro programmer doesn't need to know any Go-specific naming exceptions to write Gro code. The Unihan, unlike other non-Ascii characters, are easily enterable via the many IME's (input method editors) available for Chinese and Japanese that ship for free on OS's such as Linux and Windows, so Gro code can be typed in quickly.
 
@@ -89,10 +88,10 @@ After getting the source the hierarchy should be:
 	  |   |   |   +--LICENSE.txt, etc
 	  |   |   +--samples
 	  |   +--[put your own directories and files here]
-	  +-tmp (i.e. temporary files used by the repl)
+	  +-tmp (i.e. temporary files used by gro)
 
 Build the gro runtime with "go install src/github.com/grolang/gro/cmd/gro.go".
-You can add your own projects anywhere under the src/ directory.
+You can add your own projects anywhere else under the src/ directory.
 
 `},
 }
@@ -175,7 +174,7 @@ The 25 keywords of Go can be substituted by any of their respective Unihan below
 	"包" package, "入" import
 	"变" var, "久" const, "种" type, "功" func
 	"构" struct, "图" map, "面" interface, "通" chan
-	"择" switch, "事" case, "别" default, "掉" fallthrough
+	"考" switch, "事" case, "别" default, "掉" fallthrough
 	"如" if, "否" else, "为" for, "围" range
 	"选" select, "去" go, "终" defer
 	"回" return, "破" break, "继" continue, "跳" goto
@@ -294,7 +293,7 @@ The rules for Unihan acting as a header for Gro code are:
 	"入"import, "变"var, "久"const, "种"type each head everything they define.
 	"功"func heads everything in the receiver, parameters, results, and block after it.
 	"构"struct, "图"map, "面"interface, "通"chan each head the types after them. They also head the literal data when used that way, as also do slices and arrays.
-	"择"switch, "如"if, "否"else, "为"for, "选"select, "去"go, "终"defer each head everything up to the end of the following block.
+	"考"switch, "如"if, "否"else, "为"for, "选"select, "去"go, "终"defer each head everything up to the end of the following block.
 	"事"case, "别"default each head the block of statements afterwards.
 	"围"range, "回"return each head the expression immediately following it.
 	"破"break, "继"continue, "跳"goto each head any labels that follow them.
@@ -510,81 +509,6 @@ Code beginning with a statement or a label can appear outside a function in Gro.
 It's a common idiom to write a quick script consisting only of statements, which will be wrapped inside "func main()", given package name "main", and put in file "main.go". Because the "gro execute" command runs the "main.go" file after preparing the given ".gro" file, such statement-only code can be run with "gro execute". Such statements can act as build code for packages following it in the same ".gro" file, though because of Go's simple builds, that's usually not necessary.
 
 A directory can be specified in the package command, either before or instead of the package name.
-
-`,
-
-`
-Packages defined within a ".gro" file can also be aliased with Unihan. Use "包吧thinking", or 包"someDir"吧thinking if the directory is specified.
-
-TODO: Packages can be pre-declared with the "预" Unihan. Put "预吧thinking" at the top level somewhere before its first use, followed up with 包"someDir"thinking or 包"someDir"thinking at the package definition.
-
-There are thus 3 ways to use packages in Gro:
-
-	use the globally known Unihan alias, e.g. "形" for "fmt"
-	import it explicitly at the top of the source just like in Go
-	define it in the same source file
-
-`},
-}
-
-//================================================================================
-
-var introSyntacticMacros = &tutor.Page{
-	Code: []string{`
-	准"src/github.com/grolang/samples/goByEg4.gro" //runs "gro prepare" command
-	跑"src/github.com/grolang/samples/goByEg4.go" //runs "go run" command
-`,
-`
-	用㕧"github.com/grolang/samples/moremacs" //before the package; directory must be used
-	用㕨"github.com/grolang/samples/somemacs"
-	包正       //package
-	源"hey.go" //源(source)
-	入"fmt"    //import
-	种A整;     //type
-	功正(){    //func main()
-		㕧a:=9 //macro could head a statement
-		㕧{    //macro could enclose a block
-			a=123
-		}
-		fmt.Println(㕨(a)) //macro could act like a builtin function
-	}
-`},
-
-	English: []string{`
-Syntactic macros
-
-Gro brings hygienic macros to Go. The 2 ways to use macros are:
-
-	use a globally known Unihan alias
-	import it explicitly from another directory at the top of the source
-
-Besides the Unihan for Go keywords and special identifiers, there are many more that can be used for defining statements, built-in functions, and built-in types, and they are specified with macros.
-
-Two of these are "准" and "跑", used for building Go and Gro source files:
-
-`,
-
-`
-The "用"(use) command is for importing a macro for use in a package. It must be used with a temporary Unihan, any with the "口" radical on the left. The macro Unihan could be used like a statement keyword, a built-in function name, or a built-in type name.
-
-`,
-
-`
-TODO: Macros as Statements:
-
-Macro syntax should follow the syntactic style of elements already in the Go language. For statements, they typically begin with a keyword (e.g. "为"for, "去"go),perhaps followed by an expression (e.g. 回"abc"), then perhaps a curly-enclosed block. Perhaps there's many semicolon-separated expressions or simple statements (e.g. "为i:=0;i<10;i++{}") before the curlies, or perhaps there's many statements following (e.g. case's "事789: f(x); g(y); h(z)"). Perhaps another keyword follows the curlies (e.g. if-else's "如a==b{回1}否{回2}").
-
-Optional Unihan 让let (TODO: and 叫call) help bring consistency to this syntactic style.
-
-TODO: Macros as Built-in Expressions:
-
-Built-in expressions typically begin with a function name followed by other expressions or types within parens (e.g. append's "加(x,a,b)"). Sometimes the parens are omitted (e.g. range's "围x"), empty (e.g. recover's "抓()"), or both (e.g. "毫"iota). Because Gro's Unihan syntax blurs the line between keywords and special identifiers, "range" is considered a built-in expression.
-
-TODO: Macros as Built-in Types:
-
-Built-in types typically begin with a name (e.g. "串"string), and can be followed by brackets (e.g. map's "图[X]Y"), curlies (e.g. structs "构{X节}"), a number (e.g. int's "整8"), or something even more complicated (e.g. func's "功(串)双").
-
-Optional Unihan 这 for same-package names helps bring consistency to this syntactic style. (TODO: Optional Unihan 切 for slices and arrays also helps this.)
 
 `},
 }

@@ -13,7 +13,7 @@ import (
 
 type Call struct{}
 
-func (m Call) Init(p interface{}) {
+func (m Call) Init(p macro.Parser) {
 }
 
 func (m Call) Main(p macro.Parser) ast.Expr {

@@ -3,7 +3,7 @@
 // license as Go that can be found in the LICENSE file.
 
 /*
-Package assert adds asserts to the go testing package and is used for testing kern.
+Package assert adds asserts to the go testing package.
 
 This package must be used in conjunction with the go testing package.
 It provides an automatically incremented counter and some assertion functions.

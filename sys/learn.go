@@ -91,6 +91,7 @@ func AddTutorial (t *tutor.Tutorial) {
 var tutorials = []*tutor.Tutorial{
 	basic.TutIntro,
 	basic.TutStmts,
+	basic.TutTodo,
 }
 
 func Tutorials() []*tutor.Tutorial {

@@ -24,7 +24,7 @@ var Keywords = map[rune]string {
 	'通': "chan",
 	'如': "if",
 	'否': "else",
-	'择': "switch",
+	'考': "switch",
 	'事': "case",
 	'别': "default",
 	'掉': "fallthrough",
@@ -107,6 +107,7 @@ var Packages = map[rune]string {
 var StmtMacros = map[rune]macro.StmtMacro {
 	'鲜': fresh.Fresh{},
 	'准': command.Prepare{},
+	'执': command.Execute{},
 	'跑': command.Run{},
 }
 
@@ -116,7 +117,6 @@ var ExprMacros = map[rune]macro.ExprMacro {
 
 var Transitional = map[rune]string {
 	'用': "use",
-	'白': "whitelist",
 	'源': "source",
 
 	'英': "ascii",
@@ -137,21 +137,19 @@ var Transitional = map[rune]string {
 
 var Tentatives = map[rune]string {
 	'显': "vars",
-	'虑': "switch", //i.e. "consider"
 	'预': "prepack",
 	'先': "first",
 	'开': "init",
 	'黑': "blacklist",
+	'白': "whitelist",
 	'特': "special",
 	'试': "try",
 	'具': "until",
 	'指': "spec",
 	'羔': "lamb",
 	'程': "proc",
-	'执': "execute",
 	'冲': "flush",
 	'建': "build",
-	'考': "test",
 	'洗': "clean",
 	'解': "parse",
 	'类': "class",
@@ -168,6 +166,11 @@ var Tentatives = map[rune]string {
 	'长': "long",
 	'除': "exception",
 	'摸': "pattern",
+	'田': "array",
+	'片': "slice",
+	'尖': "pointer",
+
+	//'甲乙丙丁戊己庚辛壬癸'
 }
 
 var KouRadicalChars =
@@ -233,7 +236,7 @@ const (
 	U通 //channel
 	U如 //if
 	U否 //else
-	U择 //switch
+	U考 //switch
 	U事 //case
 	U别 //default
 	U掉 //fallthrough
@@ -307,6 +310,7 @@ const (
 
 	U鲜 //fresh
 	U准 //prepare
+	U执 //execute
 	U跑 //run
 	U叫 //call
 
@@ -314,7 +318,6 @@ const (
 
 	//tentative Unihan that should already be categorized as something else
 	U用 //use
-	U白 //whitelist
 	U源 //source
 
 	U英 //ascii
@@ -339,16 +342,15 @@ const (
 	U先 //first
 	U开 //init
 	U黑 //blacklist
+	U白 //whitelist
 	U特 //special
 	U试 //try
 	U具 //util
 	U指 //spec
 	U羔 //lamb
 	U程 //proc
-	U执 //execute
 	U冲 //flush
 	U建 //build
-	U考 //test
 	U洗 //clean
 	U解 //parse
 	U类 //class
@@ -365,6 +367,9 @@ const (
 	U长 //long
 	U除 //exception
 	U摸 //pattern
+	U田 //array
+	U片 //slice
+	U尖 //pointer
 )
 
 
