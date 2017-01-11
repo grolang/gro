@@ -7,8 +7,8 @@ package command
 
 import (
 	"fmt"
-	"go/ast"
-	"go/token"
+	"github.com/grolang/gro/ast"
+	"github.com/grolang/gro/token"
 	"github.com/grolang/gro/macro"
 	"os/exec"
 )

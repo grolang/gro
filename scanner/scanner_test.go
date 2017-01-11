@@ -5,12 +5,13 @@
 package scanner
 
 import (
-	"go/token"
+	"github.com/grolang/gro/token"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+	errs "github.com/grolang/gro/errors"
 )
 
 var fset = token.NewFileSet()
@@ -592,7 +593,7 @@ func TestStdErrorHander(t *testing.T) {
 		"//line File1:1\n" +
 		"@ @ @" // original file, line 1 again
 
-	var list ErrorList
+	var list errs.ErrorList
 	eh := func(pos token.Position, msg string) { list.Add(pos, msg) }
 
 	var s Scanner
@@ -609,19 +610,19 @@ func TestStdErrorHander(t *testing.T) {
 
 	if len(list) != 9 {
 		t.Errorf("found %d raw errors, expected 9", len(list))
-		PrintError(os.Stderr, list)
+		errs.PrintError(os.Stderr, list)
 	}
 
 	list.Sort()
 	if len(list) != 9 {
 		t.Errorf("found %d sorted errors, expected 9", len(list))
-		PrintError(os.Stderr, list)
+		errs.PrintError(os.Stderr, list)
 	}
 
 	list.RemoveMultiples()
 	if len(list) != 4 {
 		t.Errorf("found %d one-per-line errors, expected 4", len(list))
-		PrintError(os.Stderr, list)
+		errs.PrintError(os.Stderr, list)
 	}
 }
 

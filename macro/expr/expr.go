@@ -6,8 +6,8 @@
 package expr
 
 import (
-	"go/ast"
-	"go/token"
+	"github.com/grolang/gro/ast"
+	"github.com/grolang/gro/token"
 	"github.com/grolang/gro/macro"
 )
 

@@ -81,14 +81,17 @@ After getting the source the hierarchy should be:
 	  +--pkg
 	  +--src
 	  |   +--github.com
-	  |   |   +--grolang
-	  |   |   +--dyn (i.e. sample dynamic language addon for gro)
-	  |   |   +--gro
-	  |   |   |   +--[various libraries of go source code for gro]
-	  |   |   |   +--LICENSE.txt, etc
-	  |   |   +--samples
-	  |   +--[put your own directories and files here]
-	  +-tmp (i.e. temporary files used by gro)
+	  |       +--grolang
+	  |           +--gro
+	  |           |   +--[various libraries of go source code for gro]
+	  |           |   +--LICENSE.txt, etc
+	  |           +--groo (i.e. sample dynamic language addon for gro)
+	  |           +--vy (i.e. sample IDE for groo)
+	  |           +--samples
+	  |               +--gro10
+	  |               +--gro11
+	  |               +--groo
+	  +-tmp (i.e. temporary files used by grolang)
 
 Build the gro runtime with "go install src/github.com/grolang/gro/cmd/gro.go".
 You can add your own projects anywhere else under the src/ directory.
@@ -103,6 +106,7 @@ var introCommands = &tutor.Page{
 Gro Commands
 
 "gro prepare" translates Gro code and Unihan-free Go code mixed together into standard Go code.
+"gro execute" translates the code into Go code then runs it.
 
 `},
 }

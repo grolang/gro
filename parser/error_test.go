@@ -23,13 +23,14 @@
 package parser
 
 import (
-	"github.com/grolang/gro/scanner"
-	"go/token"
+	"github.com/grolang/gro/token"
 	"io/ioutil"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"github.com/grolang/gro/scanner"
+	"github.com/grolang/gro/errors"
 )
 
 const testdata = "testdata"
@@ -107,7 +108,7 @@ func expectedErrors(t *testing.T, fset *token.FileSet, filename string, src []by
 // compareErrors compares the map of expected error messages with the list
 // of found errors and reports discrepancies.
 //
-func compareErrors(t *testing.T, fset *token.FileSet, expected map[token.Pos]string, found scanner.ErrorList) {
+func compareErrors(t *testing.T, fset *token.FileSet, expected map[token.Pos]string, found errors.ErrorList) {
 	for _, error := range found {
 		// error.Pos is a token.Position, but we want
 		// a token.Pos so we can do a map lookup
@@ -152,7 +153,7 @@ func checkErrors(t *testing.T, filename string, input interface{}) {
 
 	fset := token.NewFileSet()
 	_, _, err = ParseMultiFile(fset, filename, src, nil, DeclarationErrors|AllErrors)
-	found, ok := err.(scanner.ErrorList)
+	found, ok := err.(errors.ErrorList)
 	if err != nil && !ok {
 		t.Error(err)
 		return

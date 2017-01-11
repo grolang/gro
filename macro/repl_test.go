@@ -2,18 +2,18 @@
 // Use of this source code is governed by the same BSD-style
 // license as Go that can be found in the LICENSE file.
 
-package parser_test
+package macro_test
 
 import (
 	"bytes"
 	"fmt"
 	"github.com/grolang/gro/parser"
-	"go/ast"
-	"go/format"
-	"go/importer"
+	"github.com/grolang/gro/ast"
+	"github.com/grolang/gro/format"
+	"github.com/grolang/gro/importer"
 	"github.com/grolang/gro/printer"
-	"go/token"
-	"go/types"
+	"github.com/grolang/gro/token"
+	"github.com/grolang/gro/types"
 	"testing"
 )
 

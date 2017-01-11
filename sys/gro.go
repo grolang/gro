@@ -21,7 +21,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 	"github.com/grolang/gro/macro"
-	"github.com/grolang/gro/scanner"
+	errs "github.com/grolang/gro/errors"
 )
 
 // ============================================================================
@@ -430,7 +430,7 @@ func errorf(format string, args ...interface{}) {
 
 // ============================================================================
 func Report(err error) {
-	scanner.PrintError(os.Stderr, err)
+	errs.PrintError(os.Stderr, err)
 	SetExitStatus(2)
 }
 

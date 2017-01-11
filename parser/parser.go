@@ -18,16 +18,17 @@ package parser
 
 import (
 	"fmt"
-	"go/ast"
-	"go/token"
+	"github.com/grolang/gro/ast"
+	"github.com/grolang/gro/astutil"
+	"github.com/grolang/gro/errors"
+	"github.com/grolang/gro/macro"
+	"github.com/grolang/gro/scanner"
+	"github.com/grolang/gro/token"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
-	"path/filepath"
-	"github.com/grolang/gro/scanner"
-	"github.com/grolang/gro/astutil"
-	"github.com/grolang/gro/macro"
 )
 
 // ----------------------------------------------------------------------------
@@ -36,7 +37,7 @@ import (
 type parser struct {
 	fset    *token.FileSet
 	file    *token.File
-	errors  scanner.ErrorList
+	errors  errors.ErrorList
 	scanner scanner.Scanner
 
 	// Tracing/debugging
@@ -103,6 +104,7 @@ type parser struct {
 	replConsts           map[string]bool
 
 	usesFrag             string
+	syntaxMode           string
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -115,6 +117,7 @@ func (p *parser) init(fset *token.FileSet, filename string, src []byte, aliases 
 	}
 	eh := func(pos token.Position, msg string) { p.errors.Add(pos, msg) }
 
+	//TODO: add 英 etc ???
 	//TODO: add 图通面构, and other types (i.e. arrays, slices, pointers) ???
 	p.stmtPermits = map[rune]bool{}
 	for _, stmt:= range "包源入久变种功" +
@@ -122,7 +125,7 @@ func (p *parser) init(fset *token.FileSet, filename string, src []byte, aliases 
 		p.stmtPermits[stmt] = true
 	}
 
-	//TODO: add 真假空毫复叫正 etc ???
+	//TODO: add 真假空毫复叫正开 etc ???
 	p.exprPermits = map[rune]bool{}
 	for _, expr:= range "能度实虚造新关加副删丢抓写线" {
 		p.exprPermits[expr] = true
@@ -134,6 +137,7 @@ func (p *parser) init(fset *token.FileSet, filename string, src []byte, aliases 
 
 	p.mode = mode
 	p.trace = mode&Trace != 0 // for convenience (p.trace is used frequently)
+	p.syntaxMode = "gro"
 
 	p.unihanImportAliases = map[rune]string{}
 	p.macroModes = map[rune]bool{}
@@ -616,10 +620,10 @@ func assert(cond bool, msg string) {
 func syncStmt(p *parser) {
 	for {
 		switch p.tok {
-		case token.BREAK, token.CONST, token.CONTINUE, token.DEFER,
-			token.FALLTHROUGH, token.FOR, token.GO, token.GOTO,
-			token.IF, token.RETURN, token.SELECT, token.SWITCH,
-			token.TYPE, token.VAR:
+		case token.BREAK, token.U破, token.CONST, token.U久, token.CONTINUE, token.U继, token.DEFER, token.U终, 
+			token.FALLTHROUGH, token.U掉, token.FOR, token.U为, token.GO, token.U去, token.GOTO, token.U跳, 
+			token.IF, token.U如, token.RETURN, token.U回, token.SELECT, token.U选, token.SWITCH, token.U考,
+			token.TYPE, token.U种, token.VAR, token.U变:
 			// Return only if parser made some progress since last
 			// sync or if it has not reached 10 sync calls without
 			// progress. Otherwise consume at least one token to
@@ -655,7 +659,7 @@ func syncStmt(p *parser) {
 func syncDecl(p *parser) {
 	for {
 		switch p.tok {
-		case token.CONST, token.TYPE, token.VAR:
+		case token.CONST, token.U久, token.TYPE, token.U种, token.VAR, token.U变:
 			// see comments in syncStmt
 			if p.pos == p.syncPos && p.syncCnt < 10 {
 				p.syncCnt++
@@ -700,25 +704,37 @@ func (p *parser) safePos(pos token.Pos) (res token.Pos) {
 func (p *parser) parseIdent() *ast.Ident {
 	pos := p.pos
 	name := "_"
-	if p.tok == token.IDENT {
-		name = p.lit
-		p.prevIdentIsUnihan = true
+	if p.tok == token.IDENT || p.tok == token.U引 {
+		if p.tok == token.U引 {
+			p.Next()
+			if p.tok == token.STRING {
+				name = filepath.Base(p.lit[1:len(p.lit)-1])
+			} else {
+				p.expect(token.STRING)
+				return &ast.Ident{NamePos: pos, Name: name} //TODO: better error needed
+			}
+		} else {
+			name = p.lit
+			p.prevIdentIsUnihan = true
+		}
 
 		r, _:= utf8.DecodeRune([]byte(name))
 		idLookup:= ""
 		pkgLookup:= ""
 		pkgAlias:= ""
-		if kanWord, isIdentifier:= scanner.Identifiers[r]; isIdentifier {
+
+		if kanWord, isIdentifier:= token.Identifiers[r]; isIdentifier {
 			idLookup = kanWord
-		} else if kanWord, isPackage:= scanner.Packages[r]; isPackage {
+		} else if kanWord, isPackage:= token.PackageNames[name]; isPackage {
 			pkgLookup = kanWord
 		} else if ss:= p.unihanImportAliases[r]; ss != "" {
 			pkgAlias = ss
-		} else if k:= scanner.SuffixedIdents[name]; k != "" {
+		} else if k:= token.SuffixedIdents[name]; k != "" {
 			idLookup = k
 		} else {
 			p.prevIdentIsUnihan = false
 		}
+
 		if pkgLookup != "" {
 			name = filepath.Base(pkgLookup[:])
 			p.unihanImports = append(p.unihanImports, &ast.ImportSpec{
@@ -744,25 +760,6 @@ func (p *parser) parseIdent() *ast.Ident {
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-func (p *parser) parseNonUnihanIdent() *ast.Ident {
-	pos := p.pos
-	name := "_"
-
-	if p.tok == token.IDENT {
-		name = p.lit
-		r, _:= utf8.DecodeRune([]byte(name))
-		if unicode.IsLetter(r) && unicode.In(r, unicode.Han) {
-			p.ErrorExpected(pos, "non-Unihan identifier")
-		} else {
-			p.Next()
-		}
-	} else {
-		p.expect(token.IDENT) // use expect() error handling
-	}
-	return &ast.Ident{NamePos: pos, Name: name}
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 func (p *parser) parseIdentList() (list []*ast.Ident) {
 	if p.trace {
 		defer un(trace(p, "IdentList"))
@@ -778,23 +775,8 @@ func (p *parser) parseIdentList() (list []*ast.Ident) {
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-func (p *parser) parseNonUnihanIdentList() (list []*ast.Ident) {
-	if p.trace {
-		defer un(trace(p, "NonUnihanIdentList"))
-	}
-
-	list = append(list, p.parseIdent())
-	for p.tok == token.COMMA {
-		p.Next()
-		list = append(list, p.parseIdent())
-	}
-
-	return
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 func (p *parser) parseIdentOrAlias() (*ast.Ident, *ast.InterfaceType) {
-	if p.tok == token.IDENT && p.lit == "任" {
+	if p.tok == token.U任 {
 		pos := p.pos
 		p.Next()
 		return nil, &ast.InterfaceType{
@@ -819,25 +801,17 @@ func (p *parser) parseExprList(lhs bool) (list []ast.Expr) {
 		defer un(trace(p, "ExpressionList"))
 	}
 	if p.unihanMode && p.tok.IsKeyword() {
-		r, _:= utf8.DecodeRune([]byte(p.lit))
-		if _, isKeyword:= scanner.Keywords[r]; !isKeyword {
-			p.tok = token.IDENT
-		}
+		p.tok = token.IDENT
 	}
 	list = append(list, p.CheckExpr(p.ParseExpr(lhs)))
 
 	for p.tok == token.COMMA {
 		p.Next()
 		if p.unihanMode && p.tok.IsKeyword() {
-			r, _:= utf8.DecodeRune([]byte(p.lit))
-			if _, isKeyword:= scanner.Keywords[r]; !isKeyword {
-				p.tok = token.IDENT
-			}
+			p.tok = token.IDENT
 		}
-
 		list = append(list, p.CheckExpr(p.ParseExpr(lhs)))
 	}
-
 	return
 }
 
@@ -933,7 +907,7 @@ func (p *parser) parseTypeName() ast.Expr {
 		defer un(trace(p, "TypeName"))
 	}
 
-	if p.tok == token.IDENT && p.lit == "这" {
+	if p.tok == token.U这 {
 		p.Next()
 		return p.parseIdent()
 	}
@@ -1087,15 +1061,15 @@ func (p *parser) parseStructType() *ast.StructType {
 	}
 
 	oldUnihanMode:= p.unihanMode
-	if p.lit == "构" && ! oldUnihanMode {
+	if p.tok == token.U构 && ! oldUnihanMode {
 		p.unihanMode = true
 	}
 
-	pos := p.expect(token.STRUCT)
+	pos := p.expect(p.tok)
 	lbrace := p.expect(token.LBRACE)
 	scope := ast.NewScope(nil) // struct scope
 	var list []*ast.Field
-	for p.tok == token.IDENT || p.tok == token.MUL || p.tok == token.LPAREN {
+	for p.tok == token.IDENT || p.tok == token.U引 || p.tok == token.MUL || p.tok == token.LPAREN {
 		// a field declaration cannot start with a '(' but we accept
 		// it here for more robust parsing and better error messages
 		// (parseFieldDecl will check and complain if necessary)
@@ -1120,7 +1094,13 @@ func (p *parser) parsePointerType() *ast.StarExpr {
 		defer un(trace(p, "PointerType"))
 	}
 
-	star := p.expect(token.MUL)
+	star := token.NoPos
+	if p.tok == token.U尖 {
+		star = p.pos
+		p.Next()
+	} else {
+		star = p.expect(token.MUL)
+	}
 	base := p.parseType()
 
 	return &ast.StarExpr{Star: star, X: base}
@@ -1241,15 +1221,15 @@ func (p *parser) parseFuncType() (*ast.FuncType, *ast.Scope) {
 	}
 
 	var unihanFuncKeyword bool
-	if p.lit == "功" {
+	if p.tok == token.U功 {
 		unihanFuncKeyword = true
 	}
 	oldUnihanMode := p.unihanMode
-	if p.lit == "功" && ! oldUnihanMode {
+	if p.tok == token.U功 && ! oldUnihanMode {
 		p.unihanMode = true
 	}
 
-	pos := p.expect(token.FUNC)
+	pos := p.expect(p.tok)
 	scope := ast.NewScope(p.topScope) // function scope
 	params, results := p.parseSignature(scope)
 
@@ -1299,15 +1279,15 @@ func (p *parser) parseInterfaceType() *ast.InterfaceType {
 	}
 
 	oldUnihanMode:= p.unihanMode
-	if p.lit == "面" && ! oldUnihanMode {
+	if p.tok == token.U面 && ! oldUnihanMode {
 		p.unihanMode = true
 	}
 
-	pos := p.expect(token.INTERFACE)
+	pos := p.expect(p.tok)
 	lbrace := p.expect(token.LBRACE)
 	scope := ast.NewScope(nil) // interface scope
 	var list []*ast.Field
-	for p.tok == token.IDENT {
+	for p.tok == token.IDENT || p.tok == token.U引 {
 		list = append(list, p.parseMethodSpec(scope))
 	}
 	rbrace := p.expect(token.RBRACE)
@@ -1330,15 +1310,15 @@ func (p *parser) parseMapType() *ast.MapType {
 	}
 
 	var unihanMapKeyword bool
-	if p.lit == "图" {
+	if p.tok == token.U图 {
 		unihanMapKeyword = true
 	}
 	oldUnihanMode:= p.unihanMode
-	if p.lit == "图" && ! oldUnihanMode {
+	if p.tok == token.U图 && ! oldUnihanMode {
 		p.unihanMode = true
 	}
 
-	pos := p.expect(token.MAP)
+	pos := p.expect(p.tok)
 	p.expect(token.LBRACK)
 	key := p.parseType()
 	p.expect(token.RBRACK)
@@ -1366,8 +1346,8 @@ func (p *parser) parseChanType() *ast.ChanType {
 
 	oldUnihanMode:= p.unihanMode
 
-	if p.tok == token.CHAN {
-		if p.lit == "通" && ! oldUnihanMode {
+	if p.tok == token.CHAN || p.tok == token.U通 {
+		if p.tok == token.U通 && ! oldUnihanMode {
 			p.unihanMode = true
 		}
 		p.Next()
@@ -1378,10 +1358,10 @@ func (p *parser) parseChanType() *ast.ChanType {
 		}
 	} else {
 		arrow = p.expect(token.ARROW)
-		if p.lit == "通" && ! oldUnihanMode {
+		if p.tok == token.U通 && ! oldUnihanMode {
 			p.unihanMode = true
 		}
-		p.expect(token.CHAN)
+		p.expect(p.tok)
 		dir = ast.RECV
 	}
 	value := p.parseType()
@@ -1394,22 +1374,24 @@ func (p *parser) parseChanType() *ast.ChanType {
 // If the result is an identifier, it is not resolved.
 func (p *parser) TryIdentOrType() ast.Expr {
 	switch p.tok {
-	case token.IDENT:
+	case token.IDENT, token.U这, token.U任, token.U引:
 		return p.parseTypeName()
+	case token.U尖:
+		return p.parsePointerType()
 	case token.LBRACK:
 		return p.parseArrayType()
-	case token.STRUCT:
+	case token.STRUCT, token.U构:
 		return p.parseStructType()
 	case token.MUL:
 		return p.parsePointerType()
-	case token.FUNC:
+	case token.FUNC, token.U功:
 		typ, _ := p.parseFuncType()
 		return typ
-	case token.INTERFACE:
+	case token.INTERFACE, token.U面:
 		return p.parseInterfaceType()
-	case token.MAP:
+	case token.MAP, token.U图:
 		return p.parseMapType()
-	case token.CHAN, token.ARROW:
+	case token.CHAN, token.U通, token.ARROW:
 		return p.parseChanType()
 	case token.LPAREN:
 		lparen := p.pos
@@ -1431,7 +1413,7 @@ func (p *parser) parseStmtList() (list []ast.Stmt) {
 		defer un(trace(p, "StatementList"))
 	}
 
-	for p.tok != token.CASE && p.tok != token.DEFAULT && p.tok != token.RBRACE && p.tok != token.EOF {
+	for p.tok != token.CASE && p.tok != token.U事 && p.tok != token.DEFAULT && p.tok != token.U别 && p.tok != token.RBRACE && p.tok != token.EOF {
 		list = append(list, p.ParseStmt())
 	}
 
@@ -1510,7 +1492,7 @@ func (p *parser) parseOperand(lhs bool) ast.Expr {
 	}
 
 	switch p.tok {
-	case token.IDENT:
+	case token.IDENT, token.U引:
 
 		r, _:= utf8.DecodeRune([]byte(p.lit))
 		if _, isMacro:= scanner.ExprMacros[r]; isMacro {
@@ -1555,7 +1537,7 @@ func (p *parser) parseOperand(lhs bool) ast.Expr {
 		rparen := p.expect(token.RPAREN)
 		return &ast.ParenExpr{Lparen: lparen, X: x, Rparen: rparen}
 
-	case token.FUNC:
+	case token.FUNC, token.U功:
 		return p.parseFuncTypeOrLit()
 	}
 
@@ -1592,7 +1574,7 @@ func (p *parser) parseTypeAssertion(x ast.Expr) ast.Expr {
 
 	lparen := p.expect(token.LPAREN)
 	var typ ast.Expr
-	if p.tok == token.TYPE {
+	if ( p.tok == token.TYPE || p.tok == token.U种 ) {
 		// type switch: typ == nil
 		p.Next()
 	} else {
@@ -1909,7 +1891,7 @@ L:
 				p.resolve(x)
 			}
 			switch p.tok {
-			case token.IDENT:
+			case token.IDENT, token.U引:
 				x = p.parseSelector(p.checkExprOrType(x))
 			case token.LPAREN:
 				x = p.parseTypeAssertion(p.CheckExpr(x))
@@ -2077,10 +2059,7 @@ func (p *parser) ParseExpr(lhs bool) ast.Expr {
 	}
 
 	if p.unihanMode && p.tok.IsKeyword() {
-		r, _:= utf8.DecodeRune([]byte(p.lit))
-		if _, isKeyword:= scanner.Keywords[r]; !isKeyword {
-			p.tok = token.IDENT
-		}
+		p.tok = token.IDENT
 	}
 
 	return p.parseBinaryExpr(lhs, token.LowestPrec+1)
@@ -2147,9 +2126,9 @@ func (p *parser) ParseSimpleStmt(mode int) (ast.Stmt, bool) {
 		p.Next()
 		var y []ast.Expr
 		isRange := false
-		if mode == macro.RangeOk && p.tok == token.RANGE && (tok == token.DEFINE || tok == token.ASSIGN) {
+		if mode == macro.RangeOk && ( p.tok == token.RANGE || p.tok == token.U围 ) && (tok == token.DEFINE || tok == token.ASSIGN) {
 			oldUnihanMode := p.unihanMode
-			if p.lit == "围" && ! oldUnihanMode {
+			if p.tok == token.U围 && ! oldUnihanMode {
 				p.unihanMode = true
 			}
 			pos := p.pos
@@ -2245,7 +2224,7 @@ func (p *parser) parseGoStmt() ast.Stmt {
 	}
 
 	oldUnihanMode:= p.unihanMode
-	if p.lit == "去" && ! oldUnihanMode {
+	if p.tok == token.U去 && ! oldUnihanMode {
 		p.unihanMode = true
 	}
 
@@ -2253,7 +2232,7 @@ func (p *parser) parseGoStmt() ast.Stmt {
 	if p.stmtBlacklistProhibit('去') {
 		return &ast.BadStmt{From: pos, To: p.pos}
 	}
-	pos = p.expect(token.GO)
+	pos = p.expect(p.tok)
 	call := p.parseCallExpr("go")
 	p.unihanMode = oldUnihanMode
 	p.expectSemi()
@@ -2271,7 +2250,7 @@ func (p *parser) parseDeferStmt() ast.Stmt {
 	}
 
 	oldUnihanMode:= p.unihanMode
-	if p.lit == "终" && ! oldUnihanMode {
+	if p.tok == token.U终 && ! oldUnihanMode {
 		p.unihanMode = true
 	}
 
@@ -2279,7 +2258,7 @@ func (p *parser) parseDeferStmt() ast.Stmt {
 	if p.stmtBlacklistProhibit('终') {
 		return &ast.BadStmt{From: pos, To: p.pos}
 	}
-	pos = p.expect(token.DEFER)
+	pos = p.expect(p.tok)
 	call := p.parseCallExpr("defer")
 	p.unihanMode = oldUnihanMode
 	p.expectSemi()
@@ -2297,7 +2276,7 @@ func (p *parser) parseReturnStmt() ast.Stmt {
 	}
 
 	oldUnihanMode:= p.unihanMode
-	if p.lit == "回" && ! oldUnihanMode {
+	if p.tok == token.U回 && ! oldUnihanMode {
 		p.unihanMode = true
 	}
 
@@ -2305,7 +2284,7 @@ func (p *parser) parseReturnStmt() ast.Stmt {
 	if p.stmtBlacklistProhibit('回') {
 		return &ast.BadStmt{From: pos, To: p.pos}
 	}
-	p.expect(token.RETURN)
+	p.expect(p.tok)
 	var x []ast.Expr
 	if p.tok != token.SEMICOLON && p.tok != token.RBRACE {
 		x = p.parseRhsList()
@@ -2323,15 +2302,23 @@ func (p *parser) parseBranchStmt(tok token.Token) ast.Stmt {
 
 	oldUnihanMode:= p.unihanMode
 	pos := p.pos
-	if ( p.lit == "跳" || p.lit == "破" || p.lit == "继" || p.lit == "掉" ) && ! oldUnihanMode {
+	if ( p.tok == token.U跳 || p.tok == token.U破 || p.tok == token.U继 || p.tok == token.U掉 ) && ! oldUnihanMode {
 		p.unihanMode = true
 	}
 	if p.stmtBlacklistProhibit('跳') || p.stmtBlacklistProhibit('破') || p.stmtBlacklistProhibit('继') || p.stmtBlacklistProhibit('掉') {
 		return &ast.BadStmt{From: pos, To: p.pos}
 	}
 	pos = p.expect(tok)
+
+	switch tok {
+	case token.U跳: tok = token.GOTO
+	case token.U破: tok = token.BREAK
+	case token.U继: tok = token.CONTINUE
+	case token.U掉: tok = token.FALLTHROUGH
+	}
+
 	var label *ast.Ident
-	if tok != token.FALLTHROUGH && p.tok == token.IDENT {
+	if tok != token.FALLTHROUGH && tok != token.U掉 && p.tok == token.IDENT {
 		label = p.parseIdent()
 		// add to list of unresolved targets
 		n := len(p.targetStack) - 1
@@ -2363,14 +2350,14 @@ func (p *parser) parseIfStmt() ast.Stmt {
 	}
 
 	oldUnihanMode:= p.unihanMode
-	if p.lit == "如" && ! oldUnihanMode {
+	if p.tok == token.U如 && ! oldUnihanMode {
 		p.unihanMode = true
 	}
 	pos := p.pos
 	if p.stmtBlacklistProhibit('如') {
 		return &ast.BadStmt{From: pos, To: p.pos}
 	}
-	pos = p.expect(token.IF)
+	pos = p.expect(p.tok)
 	p.OpenScope()
 	defer p.CloseScope()
 
@@ -2397,13 +2384,13 @@ func (p *parser) parseIfStmt() ast.Stmt {
 
 	body := p.ParseBlockStmt()
 	var else_ ast.Stmt
-	if p.tok == token.ELSE {
+	if p.tok == token.ELSE || p.tok == token.U否 {
 		p.Next()
-		if p.lit == "否" && ! oldUnihanMode {
+		if p.tok == token.U否 && ! oldUnihanMode {
 			p.unihanMode = true
 		}
 		switch p.tok {
-		case token.IF:
+		case token.IF, token.U如:
 			else_ = p.parseIfStmt()
 			p.unihanMode = oldUnihanMode
 		case token.LBRACE:
@@ -2444,12 +2431,12 @@ func (p *parser) parseCaseClause(typeSwitch bool) *ast.CaseClause {
 	}
 
 	oldUnihanMode:= p.unihanMode
-	if ( p.lit == "事" || p.lit == "别" ) && ! oldUnihanMode {
+	if ( p.tok == token.U事 || p.tok == token.U别 ) && ! oldUnihanMode {
 		p.unihanMode = true
 	}
 	pos := p.pos
 	var list []ast.Expr
-	if p.tok == token.CASE {
+	if p.tok == token.CASE || p.tok == token.U事 {
 		p.Next()
 		if typeSwitch {
 			list = p.parseTypeList()
@@ -2457,7 +2444,7 @@ func (p *parser) parseCaseClause(typeSwitch bool) *ast.CaseClause {
 			list = p.parseRhsList()
 		}
 	} else {
-		p.expect(token.DEFAULT)
+		p.expect(p.tok)
 	}
 
 	colon := p.expect(token.COLON)
@@ -2504,14 +2491,14 @@ func (p *parser) parseSwitchStmt() ast.Stmt {
 	}
 
 	oldUnihanMode:= p.unihanMode
-	if p.lit == "考" && ! oldUnihanMode {
+	if p.tok == token.U考 && ! oldUnihanMode {
 		p.unihanMode = true
 	}
 	pos := p.pos
 	if p.stmtBlacklistProhibit('考') {
 		return &ast.BadStmt{From: pos, To: p.pos}
 	}
-	pos = p.expect(token.SWITCH)
+	pos = p.expect(p.tok)
 	p.OpenScope()
 	defer p.CloseScope()
 
@@ -2550,7 +2537,7 @@ func (p *parser) parseSwitchStmt() ast.Stmt {
 	typeSwitch := p.isTypeSwitchGuard(s2)
 	lbrace := p.expect(token.LBRACE)
 	var list []ast.Stmt
-	for p.tok == token.CASE || p.tok == token.DEFAULT {
+	for p.tok == token.CASE || p.tok == token.U事 || p.tok == token.DEFAULT || p.tok == token.U别 {
 		list = append(list, p.parseCaseClause(typeSwitch))
 	}
 	rbrace := p.expect(token.RBRACE)
@@ -2575,7 +2562,7 @@ func (p *parser) parseCommClause() *ast.CommClause {
 	p.OpenScope()
 	pos := p.pos
 	var comm ast.Stmt
-	if p.tok == token.CASE {
+	if p.tok == token.CASE || p.tok == token.U事 {
 		p.Next()
 		lhs := p.parseLhsList()
 		if p.tok == token.ARROW {
@@ -2615,7 +2602,7 @@ func (p *parser) parseCommClause() *ast.CommClause {
 			}
 		}
 	} else {
-		p.expect(token.DEFAULT)
+		p.expect(p.tok)
 	}
 
 	colon := p.expect(token.COLON)
@@ -2632,7 +2619,7 @@ func (p *parser) parseSelectStmt() ast.Stmt {
 	}
 
 	oldUnihanMode:= p.unihanMode
-	if p.lit == "选" && ! oldUnihanMode {
+	if p.tok == token.U选 && ! oldUnihanMode {
 		p.unihanMode = true
 	}
 
@@ -2640,10 +2627,10 @@ func (p *parser) parseSelectStmt() ast.Stmt {
 	if p.stmtBlacklistProhibit('选') {
 		return &ast.BadStmt{From: pos, To: p.pos}
 	}
-	pos = p.expect(token.SELECT)
+	pos = p.expect(p.tok)
 	lbrace := p.expect(token.LBRACE)
 	var list []ast.Stmt
-	for p.tok == token.CASE || p.tok == token.DEFAULT {
+	for p.tok == token.CASE || p.tok == token.U事 || p.tok == token.DEFAULT || p.tok == token.U别 {
 		list = append(list, p.parseCommClause())
 	}
 	rbrace := p.expect(token.RBRACE)
@@ -2662,7 +2649,7 @@ func (p *parser) parseForStmt() ast.Stmt {
 	}
 
 	oldUnihanMode:= p.unihanMode
-	if p.lit == "为" && ! oldUnihanMode {
+	if p.tok == token.U为 && ! oldUnihanMode {
 		p.unihanMode = true
 	}
 
@@ -2670,7 +2657,7 @@ func (p *parser) parseForStmt() ast.Stmt {
 	if p.stmtBlacklistProhibit('为') {
 		return &ast.BadStmt{From: pos, To: p.pos}
 	}
-	pos = p.expect(token.FOR)
+	pos = p.expect(p.tok)
 	p.OpenScope()
 	defer p.CloseScope()
 
@@ -2680,8 +2667,8 @@ func (p *parser) parseForStmt() ast.Stmt {
 		prevLev := p.exprLev
 		p.exprLev = -1
 		if p.tok != token.SEMICOLON {
-			if p.tok == token.RANGE {
-				if p.lit == "围" && ! oldUnihanMode {
+			if p.tok == token.RANGE || p.tok == token.U围 {
+				if p.tok == token.U围 && ! oldUnihanMode {
 					p.unihanMode = true
 				}
 				// "for range x" (nil lhs in assignment)
@@ -2756,12 +2743,115 @@ func (p *parser) parseForStmt() ast.Stmt {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 func (p *parser) CheckOrConvertIdentifier() {
-	if p.tok.IsKeyword() {
+	if p.tok.IsKeyword() && p.unihanMode {
 		p.tok = token.IDENT
-	} else if p.tok != token.IDENT {
+	} else if p.tok != token.IDENT && p.tok != token.U引 {
 		p.ErrorExpected(p.pos, "identifier")
 	}
 	return
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+func (p *parser) parseDoStmt(oldUnihanMode bool) ast.Stmt {
+	if p.trace {
+		defer un(trace(p, "DoStmt"))
+	}
+
+	p.CheckOrConvertIdentifier()
+	p.unihanOnLhs = ""
+	x := p.parseLhsList()
+
+	switch p.tok {
+	case token.DEFINE:
+		if p.replMode {
+			for _, n:= range x {
+				if ident, isIdent:= n.(*ast.Ident); isIdent {
+					p.replVars[ident.Name]= true
+				}
+			}
+		}
+
+		p.OpenScope()
+
+		pos, tok := p.pos, p.tok
+		if p.unihanOnLhs != "" {
+			p.error(pos, "Unihan special identifier " + p.unihanOnLhs + " on left hand side")
+			p.Next()
+			return &ast.BadStmt{From: pos, To: p.pos}
+		}
+		p.Next()
+
+		var y []ast.Expr
+		y = p.parseRhsList()
+		as := &ast.AssignStmt{Lhs: x, TokPos: pos, Tok: tok, Rhs: y}
+		p.shortVarDecl(as, x)
+
+		var list []ast.Stmt
+		list = append(list, as)
+		p.unihanMode = oldUnihanMode
+		for p.Tok() != token.CASE && p.Tok() != token.U事 && p.Tok() != token.DEFAULT && p.Tok() != token.U别 &&
+				p.Tok() != token.RBRACE && p.Tok() != token.EOF {
+			list = append(list, p.ParseStmt())
+		}
+		p.CloseScope()
+		return &ast.BlockStmt{Lbrace: token.NoPos, List: list, Rbrace: token.NoPos}
+
+	case
+		token.ASSIGN, token.ADD_ASSIGN,
+		token.SUB_ASSIGN, token.MUL_ASSIGN, token.QUO_ASSIGN,
+		token.REM_ASSIGN, token.AND_ASSIGN, token.OR_ASSIGN,
+		token.XOR_ASSIGN, token.SHL_ASSIGN, token.SHR_ASSIGN, token.AND_NOT_ASSIGN:
+
+		pos, tok := p.pos, p.tok
+		if p.unihanOnLhs != "" {
+			p.error(pos, "Unihan special identifier " + p.unihanOnLhs + " on left hand side")
+			p.Next()
+			return &ast.BadStmt{From: pos, To: p.pos}
+		}
+		p.Next()
+
+		var y []ast.Expr
+		y = p.parseRhsList()
+		as := &ast.AssignStmt{Lhs: x, TokPos: pos, Tok: tok, Rhs: y}
+		p.unihanMode = oldUnihanMode
+		return as
+	}
+
+	if len(x) > 1 {
+		p.ErrorExpected(x[0].Pos(), "1 expression")
+		// continue with first expression
+	}
+
+	switch p.tok {
+	case token.ARROW:
+		// send statement
+		if p.unihanOnLhs != "" {
+			p.error(p.pos, "Unihan special identifier " + p.unihanOnLhs + " on left hand side")
+			p.Next()
+			return &ast.BadStmt{From: p.pos, To: p.pos}
+		}
+		arrow := p.pos
+		p.Next()
+		y := p.parseRhs()
+		p.unihanMode = oldUnihanMode
+		return &ast.SendStmt{Chan: x[0], Arrow: arrow, Value: y}
+
+	case token.INC, token.DEC:
+		// increment or decrement
+		if p.unihanOnLhs != "" {
+			p.error(p.pos, "Unihan special identifier " + p.unihanOnLhs + " on left hand side")
+			p.Next()
+			return &ast.BadStmt{From: p.pos, To: p.pos}
+		}
+		s := &ast.IncDecStmt{X: x[0], TokPos: p.pos, Tok: p.tok}
+		p.Next()
+		p.unihanMode = oldUnihanMode
+		return s
+	}
+
+	// expression
+	p.unihanMode = oldUnihanMode
+	return &ast.ExprStmt{X: x[0]}
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2771,27 +2861,18 @@ func (p *parser) ParseStmt() (s ast.Stmt) {
 	}
 
 	switch p.tok {
-	case token.CONST, token.TYPE, token.VAR:
+	case token.CONST, token.U久, token.TYPE, token.U种, token.VAR, token.U变:
 		s = &ast.DeclStmt{Decl: p.parseDecl(syncStmt)}
 	case
 		// tokens that may start an expression
-		token.IDENT, token.INT, token.FLOAT, token.IMAG, token.CHAR, token.STRING, token.FUNC, token.LPAREN, // operands
-		token.LBRACK, token.STRUCT, token.MAP, token.CHAN, token.INTERFACE, // composite types
-		token.ADD, token.SUB, token.MUL, token.AND, token.XOR, token.ARROW, token.NOT: // unary operators
+		token.IDENT, token.U引, token.INT, token.FLOAT, token.IMAG, token.CHAR, token.STRING, token.FUNC, token.U功, token.LPAREN, // operands
+		token.LBRACK, token.STRUCT, token.U构, token.MAP, token.U图, token.CHAN, token.U通, token.INTERFACE, token.U面, // composite types
+		token.ADD, token.SUB, token.MUL, token.AND, token.XOR, token.ARROW, token.NOT,
+		token.U出, token.U后, token.U前, token.U学,
+		token.U英, token.U做, token.U对: // unary operators
 
 		r, _:= utf8.DecodeRune([]byte(p.lit))
-
-		if p.tok == token.IDENT && p.lit == "让" && ! p.stmtBlacklistProhibit('让') {
-			oldUnihanMode:= p.unihanMode
-			if ! oldUnihanMode {
-				p.unihanMode = true
-			}
-			p.Next()
-			p.CheckOrConvertIdentifier()
-			s, _ = p.ParseSimpleStmt(macro.Basic)
-			p.unihanMode = oldUnihanMode
-
-		} else if _, isMacro:= p.stmtMacros[r]; p.tok == token.IDENT && isMacro {
+		if _, isMacro:= p.stmtMacros[r]; p.tok == token.IDENT && isMacro {
 			oldUnihanMode:= p.unihanMode
 			if ! oldUnihanMode {
 				p.unihanMode = true
@@ -2804,22 +2885,22 @@ func (p *parser) ParseStmt() (s ast.Stmt) {
 			p.macroModes[r] = oldMacroMode
 			p.unihanMode = oldUnihanMode
 
-		} else if p.tok == token.IDENT && p.lit == "出" && p.replMode {
+		} else if p.tok == token.U出 && p.replMode {
 			p.Next()
 			s = &ast.EmptyStmt{Semicolon: p.Pos(), Implicit: true}
 			p.replState.CmdFound = ExitCmd
 
-		} else if p.tok == token.IDENT && p.lit == "前" && p.replMode {
+		} else if p.tok == token.U前 && p.replMode {
 			p.Next()
 			s = &ast.EmptyStmt{Semicolon: p.Pos(), Implicit: true}
 			p.replState.CmdFound = PrevCmd
 
-		} else if p.tok == token.IDENT && p.lit == "后" && p.replMode {
+		} else if p.tok == token.U后 && p.replMode {
 			p.Next()
 			s = &ast.EmptyStmt{Semicolon: p.Pos(), Implicit: true}
 			p.replState.CmdFound = NextCmd
 
-		} else if p.tok == token.IDENT && p.lit == "学" && p.replMode {
+		} else if p.tok == token.U学 && p.replMode {
 			p.Next()
 			if p.tok == token.STRING {
 				raw, _ := strconv.Unquote(p.lit)
@@ -2831,16 +2912,20 @@ func (p *parser) ParseStmt() (s ast.Stmt) {
 			s = &ast.EmptyStmt{Semicolon: p.Pos(), Implicit: true}
 			p.replState.CmdFound = LearnCmd
 
-		} else if p.tok == token.IDENT && p.lit == "做" && ! p.stmtBlacklistProhibit('做') {
+		} else if p.tok == token.U做 && ! p.stmtBlacklistProhibit('做') {
 			oldUnihanMode:= p.unihanMode
 			if ! oldUnihanMode {
 				p.unihanMode = true
 			}
 			p.Next()
-			s = p.ParseBlockStmt()
-			p.unihanMode = oldUnihanMode
+			if p.tok == token.LBRACE {
+				s = p.ParseBlockStmt()
+				p.unihanMode = oldUnihanMode
+			} else {
+				s = p.parseDoStmt(oldUnihanMode)
+			}
 
-		} else if p.tok == token.IDENT && p.lit == "英" {
+		} else if p.tok == token.U英 {
 			oldUnihanMode:= p.unihanMode
 			if oldUnihanMode {
 				p.unihanMode = false
@@ -2849,7 +2934,7 @@ func (p *parser) ParseStmt() (s ast.Stmt) {
 			s = p.ParseBlockStmt()
 			p.unihanMode = oldUnihanMode
 
-		} else if p.tok == token.IDENT && p.lit == "对" && ! p.stmtBlacklistProhibit('对') {
+		} else if p.tok == token.U对 && ! p.stmtBlacklistProhibit('对') {
 			oldUnihanMode:= p.unihanMode
 			if ! oldUnihanMode {
 				p.unihanMode = true
@@ -2871,6 +2956,18 @@ func (p *parser) ParseStmt() (s ast.Stmt) {
 
 			p.unihanMode = oldUnihanMode
 
+		} else if p.tok == token.IDENT && p.lit == "do" && p.syntaxMode == "gro" {
+			p.Next()
+			if p.tok == token.COLON { //if "do" is a label
+				colon := p.pos
+				p.Next()
+				label := &ast.Ident{NamePos: p.pos, Name: "do"}
+				s = &ast.LabeledStmt{Label: label, Colon: colon, Stmt: p.ParseStmt()}
+				p.declare(s, nil, p.labelScope, ast.Lbl, label)
+			} else {
+				s, _ = p.ParseSimpleStmt(macro.Basic)
+			}
+
 		} else {
 			s, _ = p.ParseSimpleStmt(macro.LabelOk)
 		}
@@ -2881,24 +2978,25 @@ func (p *parser) ParseStmt() (s ast.Stmt) {
 		if _, isLabeledStmt := s.(*ast.LabeledStmt); !isLabeledStmt {
 			p.expectSemi()
 		}
-	case token.GO:
+
+	case token.GO, token.U去:
 		s = p.parseGoStmt()
-	case token.DEFER:
+	case token.DEFER, token.U终:
 		s = p.parseDeferStmt()
-	case token.RETURN:
+	case token.RETURN, token.U回:
 		s = p.parseReturnStmt()
-	case token.BREAK, token.CONTINUE, token.GOTO, token.FALLTHROUGH:
+	case token.BREAK, token.U破, token.CONTINUE, token.U继, token.GOTO, token.U跳, token.FALLTHROUGH, token.U掉:
 		s = p.parseBranchStmt(p.tok)
 	case token.LBRACE:
 		s = p.ParseBlockStmt()
 		//p.expectSemi()
-	case token.IF:
+	case token.IF, token.U如:
 		s = p.parseIfStmt()
-	case token.SWITCH:
+	case token.SWITCH, token.U考:
 		s = p.parseSwitchStmt()
-	case token.SELECT:
+	case token.SELECT, token.U选:
 		s = p.parseSelectStmt()
-	case token.FOR:
+	case token.FOR, token.U为:
 		s = p.parseForStmt()
 	case token.SEMICOLON:
 		// Is it ever possible to have an implicit semicolon
@@ -2947,7 +3045,7 @@ func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) as
 	outer: for r, _:= utf8.DecodeRune([]byte(p.lit));
 			p.tok == token.IDENT && r >= 0x80 && unicode.IsLetter(r) && unicode.In(r, unicode.Han);
 			r, _= utf8.DecodeRune([]byte(p.lit)) {
-		for _, n:= range scanner.KouRadicalChars {
+		for _, n:= range token.KouRadicalChars {
 			if r == n {
 				aliases = append(aliases, r)
 				p.Next()
@@ -3013,7 +3111,7 @@ func (p *parser) parseValueSpec(doc *ast.CommentGroup, keyword token.Token, iota
 
 	pos := p.pos
 
-	//ident := p.parseNonUnihanIdentList() //TODO: Unihan not allowed
+	p.CheckOrConvertIdentifier() //FIX: looks like it only checks for first ident in ident list
 	idents := p.parseIdentList()
 
 	typ := p.tryType()
@@ -3026,11 +3124,11 @@ func (p *parser) parseValueSpec(doc *ast.CommentGroup, keyword token.Token, iota
 	p.expectSemi() // call before accessing p.linecomment
 
 	switch keyword {
-	case token.VAR:
+	case token.VAR, token.U变:
 		if typ == nil && values == nil {
 			p.error(pos, "missing variable type or initialization")
 		}
-	case token.CONST:
+	case token.CONST, token.U久:
 		if values == nil && (iota == 0 || typ != nil) {
 			p.error(pos, "missing constant value")
 		}
@@ -3048,15 +3146,15 @@ func (p *parser) parseValueSpec(doc *ast.CommentGroup, keyword token.Token, iota
 		Comment: p.lineComment,
 	}
 	kind := ast.Con
-	if keyword == token.VAR {
+	if ( keyword == token.VAR || keyword == token.U变 ) {
 		kind = ast.Var
 	}
 	p.declare(spec, iota, p.topScope, kind, idents...)
 
 	for _, ident:= range idents {
-		if keyword == token.VAR {
+		if ( keyword == token.VAR || keyword == token.U变 ) {
 			p.replVars[ident.Name]= true
-		} else if keyword == token.CONST {
+		} else if ( keyword == token.CONST || keyword == token.U久 ) {
 			p.replConsts[ident.Name]= true
 		}
 	}
@@ -3070,7 +3168,7 @@ func (p *parser) parseTypeSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.
 		defer un(trace(p, "TypeSpec"))
 	}
 
-	//ident := p.parseNonUnihanIdent() //TODO: Unihan not allowed
+	p.CheckOrConvertIdentifier()
 	ident := p.parseIdent()
 
 	// Go spec: The scope of a type identifier declared inside a function begins
@@ -3095,6 +3193,14 @@ func (p *parser) parseGenDecl(keyword token.Token, f parseSpecFunction, oldUniha
 
 	doc := p.leadComment
 	pos := p.expect(keyword)
+
+	switch keyword {
+	case token.U入: keyword = token.IMPORT
+	case token.U久: keyword = token.CONST
+	case token.U变: keyword = token.VAR
+	case token.U种: keyword = token.TYPE
+	}
+
 	var lparen, rparen token.Pos
 	var list []ast.Spec
 	if p.tok == token.LPAREN {
@@ -3122,7 +3228,6 @@ func (p *parser) parseGenDecl(keyword token.Token, f parseSpecFunction, oldUniha
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-//func (p *parser) parseFuncDecl() *ast.FuncDecl {
 func (p *parser) parseFuncDecl() ast.Decl {
 	if p.trace {
 		defer un(trace(p, "FunctionDecl"))
@@ -3136,11 +3241,11 @@ func (p *parser) parseFuncDecl() ast.Decl {
 		return &ast.BadDecl{From: pos, To: p.pos}
 	}
 	oldUnihanMode:= p.unihanMode
-	if p.lit == "功" && ! oldUnihanMode {
+	if p.tok == token.U功 && ! oldUnihanMode {
 		p.unihanMode = true
 	}
 
-	pos := p.expect(token.FUNC)
+	pos := p.expect(p.tok)
 	scope := ast.NewScope(p.topScope) // function scope
 
 	var recv *ast.FieldList
@@ -3148,7 +3253,7 @@ func (p *parser) parseFuncDecl() ast.Decl {
 		recv = p.parseParameters(scope, false)
 	}
 
-	//ident := p.parseNonUnihanIdent() //TODO: Unihan not allowed
+	p.CheckOrConvertIdentifier()
 	ident := p.parseIdent()
 
 	params, results := p.parseSignature(scope)
@@ -3194,31 +3299,30 @@ func (p *parser) parseDecl(sync func(*parser)) ast.Decl {
 
 	oldUnihanMode:= p.unihanMode
 
-	var f parseSpecFunction
 	switch p.tok {
-	case token.CONST, token.VAR:
+	case token.CONST, token.U久, token.VAR, token.U变:
 		if p.stmtBlacklistProhibit('久') || p.stmtBlacklistProhibit('变') {
 			pos := p.pos
 			sync(p)
 			return &ast.BadDecl{From: pos, To: p.pos}
 		}
-		if ( p.lit == "久" || p.lit == "变" ) && ! oldUnihanMode {
+		if ( p.tok == token.U久 || p.tok == token.U变 ) && ! oldUnihanMode {
 			p.unihanMode = true
 		}
-		f = p.parseValueSpec
+		return p.parseGenDecl(p.tok, p.parseValueSpec, oldUnihanMode)
 
-	case token.TYPE:
+	case token.TYPE, token.U种:
 		if p.stmtBlacklistProhibit('种') {
 			pos := p.pos
 			sync(p)
 			return &ast.BadDecl{From: pos, To: p.pos}
 		}
-		if p.lit == "种" && ! oldUnihanMode {
+		if p.tok == token.U种 && ! oldUnihanMode {
 			p.unihanMode = true
 		}
-		f = p.parseTypeSpec
+		return p.parseGenDecl(p.tok, p.parseTypeSpec, oldUnihanMode)
 
-	case token.FUNC:
+	case token.FUNC, token.U功:
 		return p.parseFuncDecl()
 
 	default:
@@ -3227,8 +3331,6 @@ func (p *parser) parseDecl(sync func(*parser)) ast.Decl {
 		sync(p)
 		return &ast.BadDecl{From: pos, To: p.pos}
 	}
-
-	return p.parseGenDecl(p.tok, f, oldUnihanMode)
 }
 
 // ----------------------------------------------------------------------------
@@ -3248,23 +3350,23 @@ func (p *parser) parseSource(doc *ast.CommentGroup, pos token.Pos, ident *ast.Id
 	if p.mode&PackageClauseOnly == 0 {
 
 		// import decls
-		for p.tok == token.IMPORT {
+		for p.tok == token.IMPORT || p.tok == token.U入 {
 			if p.stmtBlacklistProhibit('入') {
 				return &ast.File{}
 			}
 			oldUnihanMode:= p.unihanMode
-			if p.lit == "入" && ! oldUnihanMode {
+			if p.tok == token.U入 && ! oldUnihanMode {
 				p.unihanMode = true
 			}
-			decls = append(decls, p.parseGenDecl(token.IMPORT, p.parseImportSpec, false))
+			decls = append(decls, p.parseGenDecl(p.tok, p.parseImportSpec, false))
 			p.unihanMode = oldUnihanMode
 		}
 
 		if p.mode&ImportsOnly == 0 {
 			// rest of package body
-			for p.tok != token.EOF && p.lit != "源" && p.tok != token.PACKAGE {
+			for p.tok != token.EOF && p.tok != token.U源 && p.lit != "source" && p.tok != token.PACKAGE && p.tok != token.U包 {
 				switch p.tok {
-				case token.CONST, token.VAR, token.TYPE, token.FUNC:
+				case token.CONST, token.U久, token.VAR, token.U变, token.TYPE, token.U种, token.FUNC, token.U功:
 					decl:= p.parseDecl(syncDecl)
 					decls = append(decls, decl)
 					if fd, isFuncDecl := decl.(*ast.FuncDecl); isFuncDecl && fd.Name.Name == "main" {
@@ -3273,10 +3375,12 @@ func (p *parser) parseSource(doc *ast.CommentGroup, pos token.Pos, ident *ast.Id
 					}
 				case
 					// tokens that may start an expression
-					token.IDENT, token.INT, token.FLOAT, token.IMAG, token.CHAR, token.STRING, token.LPAREN, // operands
-					token.LBRACK, token.STRUCT, token.MAP, token.CHAN, token.INTERFACE, // composite types
+					token.IDENT, token.U引, token.INT, token.FLOAT, token.IMAG, token.CHAR, token.STRING, token.LPAREN, // operands
+					token.LBRACK, token.STRUCT, token.U构, token.MAP, token.U图, token.CHAN, token.U通, token.INTERFACE, token.U面, // composite types
 					token.ADD, token.SUB, token.MUL, token.AND, token.XOR, token.ARROW, token.NOT, // unary operators
-					token.GO, token.DEFER, token.RETURN, token.LBRACE, token.IF, token.SWITCH, token.SELECT, token.FOR, // statements
+					token.GO, token.U去, token.DEFER, token.U终, token.RETURN, token.U回, token.LBRACE, 
+						token.IF, token.U如, token.SWITCH, token.U考, token.SELECT, token.U选, token.FOR, token.U为, // statements
+						token.U英, token.U做, token.U对, token.U出, token.U后, token.U前, token.U学,
 					token.SEMICOLON, token.RBRACE: // terminators
 						s:= p.ParseStmt()
 						if _, isLabeledStmt := s.(*ast.LabeledStmt); isLabeledStmt {
@@ -3287,7 +3391,7 @@ func (p *parser) parseSource(doc *ast.CommentGroup, pos token.Pos, ident *ast.Id
 						}
 						stmts = append(stmts, s)
 				default:
-					//don't want token.BREAK, token.CONTINUE, token.GOTO, token.FALLTHROUGH
+					//don't want token.BREAK, token.U破, token.CONTINUE, token.U继, token.GOTO, token.U跳, token.FALLTHROUGH, token.U掉
 					pos := p.pos
 					p.ErrorExpected(pos, "declaration or non-branching statement")
 					syncStmt(p)
@@ -3358,7 +3462,7 @@ func (p *parser) parseUseSpec(doc *ast.CommentGroup) (imports, vars string) {
 	outer: for r, _:= utf8.DecodeRune([]byte(p.lit));
 			p.tok == token.IDENT && r >= 0x80 && unicode.IsLetter(r) && unicode.In(r, unicode.Han);
 			r, _= utf8.DecodeRune([]byte(p.lit)) {
-		for _, n:= range scanner.KouRadicalChars {
+		for _, n:= range token.KouRadicalChars {
 			if r == n {
 				aliases = append(aliases, r)
 				p.Next()
@@ -3408,7 +3512,7 @@ func (p *parser) parseUseDecl() string {
 	if doc.Text() != "" { imports += doc.Text() + "\n" }
 	vars:= ""
 
-	p.expect(token.IDENT) //and expect p.lit to be "用"
+	p.expect(token.U用)
 	if p.tok == token.LPAREN {
 		p.Next()
 		for ; p.tok != token.RPAREN && p.tok != token.EOF; count++ {
@@ -3556,12 +3660,24 @@ func (p *parser) parseMultiFile() map[string]*ast.File {
 		return map[string]*ast.File{}
 	}
 
-	for p.tok == token.IDENT && p.lit == "用" {
+	if p.tok == token.IDENT && p.lit == "syntax" {
+		p.Next()
+		if p.tok == token.STRING && len(p.lit) == 4 && p.lit[1:3] == "go" {
+			p.Next()
+			p.expectSemi()
+			p.syntaxMode = "go"
+		} else {
+			p.error(p.pos, "invalid syntax declaration: " + p.lit)
+			return map[string]*ast.File{}
+		}
+	}
+
+	for p.tok == token.U用 {
 		oldUnihanMode:= p.unihanMode
 		if ! oldUnihanMode {
 			p.unihanMode = true
 		}
-		if p.lit == "用" {
+		if p.tok == token.U用 {
 			p.usesFrag = p.parseUseDecl() //TODO: make it work with 2 or more Use declarations ???
 		}
 		p.unihanMode = oldUnihanMode
@@ -3572,30 +3688,44 @@ func (p *parser) parseMultiFile() map[string]*ast.File {
 		return map[string]*ast.File{}
 	}
 
+	buildComment := &ast.Comment{Slash: token.NoPos, Text: "// +build ignore\n\n"}
+	p.comments = append(p.comments, &ast.CommentGroup{List: []*ast.Comment{buildComment}})
+	/*if len(p.comments) > 1 {
+		for n, c:= range p.comments {
+			for _, cl:= range c.List {
+				fmt.Println("###", n, ":", cl.Text, "#", cl.Slash)
+			}
+		}
+	}*/
+
 	srcs:= map[string]*ast.File{}
 	for p.tok != token.EOF {
 		// package clause
 		doc := p.leadComment
+
 		pos := token.NoPos + 1 //pos default when there's no package clause: must be 1 (not NoPos) for "go/printer" package to work properly
 		ident := &ast.Ident{NamePos: token.NoPos, Name: "main"} //ident default when there's no package clause
+
+		fnRoot :=  ""
 		oldUnihanMode := p.unihanMode
 		dirName := ""
 		pkgName := ""
-		if p.tok == token.PACKAGE && ! p.stmtBlacklistProhibit('包') {
-			pkgLit := p.lit
-			pos = p.expect(token.PACKAGE)
+		if ( p.tok == token.PACKAGE || p.tok == token.U包 ) && ! p.stmtBlacklistProhibit('包') {
+			unihanMode:= false
+			if p.tok == token.U包 {
+				unihanMode = true
+			}
+			pos = p.expect(p.tok)
 			// Go spec: The package clause is not a declaration;
 			// the package name does not appear in any scope.
 			if p.tok == token.STRING {
 				dirName = p.lit[1:len(p.lit)-1]
 				p.Next()
-			}
-			if p.tok == token.IDENT {
+		}
+			if p.tok == token.IDENT || p.tok == token.U引 {
 				ident = p.parseIdent()
 				pkgName = ident.Name
-				if pkgLit == "包" { //don't want Unihan mode for the ident
-					p.unihanMode = true
-				}
+				p.unihanMode = unihanMode //don't want Unihan mode for the ident
 				if ident.Name == "_" && p.mode&DeclarationErrors != 0 {
 					p.error(p.pos, "invalid package name _")
 				}
@@ -3607,6 +3737,9 @@ func (p *parser) parseMultiFile() map[string]*ast.File {
 				dirName += "/" //TODO: check if "/" already there
 			}
 			p.expectSemi()
+		} else {
+			fnBase := filepath.Base(p.file.Name())
+			fnRoot =  fnBase[:len(fnBase)-len(filepath.Ext(p.file.Name()))]
 		}
 
 		// Don't bother parsing the rest if we had errors parsing the package clause.
@@ -3614,20 +3747,26 @@ func (p *parser) parseMultiFile() map[string]*ast.File {
 			return map[string]*ast.File{}
 		}
 
-		for p.tok != token.EOF && p.tok != token.PACKAGE {
+		for p.tok != token.EOF && p.tok != token.PACKAGE && p.tok != token.U包 {
 			srcName:= ident.Name + ".go"
-			if p.tok == token.IDENT && p.lit == "源" && ! p.stmtBlacklistProhibit('源') { //TODO: set Unihan mode
-				p.expect(token.IDENT)
+			if fnRoot != "" {
+				srcName = fnRoot + ".go"
+			}
+
+			if p.tok == token.U源 && ! p.stmtBlacklistProhibit('源') || //TODO: set Unihan mode if 源
+				p.tok == token.IDENT && p.lit == "source" {
+
+				p.expect(p.tok)
 				if p.tok == token.STRING {
-					srcName = p.lit[1:len(p.lit)-1]
+					srcName = p.lit[1:len(p.lit)-1] + ".go"
 					p.Next()
 				}
 				p.expectSemi()
 			}
+
 			srcName = dirName + srcName
 			p.initSource(srcName)
-
-			parsed:= p.parseSource(doc, pos, ident)
+			parsed:= p.parseSource(doc, pos+1, ident)
 			for _, ki := range p.unihanImports {
 				astutil.AddNamedImport(p.fset, parsed, ki.Name.Name, ki.Path.Value)
 			}
@@ -3699,7 +3838,7 @@ func (p *parser) parseUsesOnly() string {
 	}
 
 	// use decls
-	for p.tok == token.IDENT && p.lit == "用" {
+	for p.tok == token.U用 {
 		oldUnihanMode:= p.unihanMode
 		if ! oldUnihanMode {
 			p.unihanMode = true

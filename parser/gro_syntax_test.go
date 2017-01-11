@@ -8,12 +8,12 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/grolang/gro/parser"
-	"go/ast"
-	"go/format"
-	"go/importer"
+	"github.com/grolang/gro/ast"
+	"github.com/grolang/gro/format"
+	"github.com/grolang/gro/importer"
 	"github.com/grolang/gro/printer"
-	"go/token"
-	"go/types"
+	"github.com/grolang/gro/token"
+	"github.com/grolang/gro/types"
 	"testing"
 )
 
@@ -24,20 +24,17 @@ func (sw *StringWriter) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-func TestUnihan(t *testing.T) {
-	for i, tst:= range unihanTests {
+func TestGroSyntax(t *testing.T) {
+	for i, tst:= range groSyntaxTests {
 		src:= tst.key
 		dst:= tst.val
 		dbug:= tst.debug
-		expFrag:= tst.frag
 		fset := token.NewFileSet() // positions are relative to fset
-		fm, frag, err := parser.ParseMultiFile(fset, "", src, nil, 0)
+		fm, frag, err := parser.ParseMultiFile(fset, "suppliedName.gro", src, nil, 0)
 		if err != nil {
 			t.Errorf("parse error in run %d: %q", i, err)
 		} else if frag != "" {
-			if frag != expFrag {
-				t.Errorf("unexpected fragment returned in run %d:\nreceived:%q\nexpected:%q\n", i, frag, expFrag)
-			}
+			t.Errorf("unexpected fragment returned in run %d:\nreceived:%q\n", i, frag)
 		} else {
 			for k, f:= range fm {
 				var conf = types.Config{
@@ -80,51 +77,41 @@ const (
 	Tree
 )
 
-var unihanTests = map[int]struct{
+var groSyntaxTests = map[int]struct{
 	key   string
 	debug int
 	val   map[string]string
-	frag  string
 } {
 
 // ========== ========== ========== ==========
-//test keywords: 功
-//test keyword scoping: 入
+//test keyword with scoping: 功入
 1:{`
 package main;入"fmt"
 功main(){
-  fmt.Printf("Hi!\n") // comment here
+  do fmt.Printf("Hi!\n") // comment here
 }`,
 
 // ---------- ---------- ---------- ----------
 Normal,
 map[string]string{"main.go":
-`package main
+`// +build ignore
+package main
 
 import _fmt "fmt"
 
 func _main() {
 	_fmt.Printf("Hi!\n")
 }
-`,
-"dud":`
-/*2:1*/package /*2:9*/main
-
-/*2:14*/import /*2:17*/_fmt /*2:17*/"fmt"
-
-/*3:1*/func /*3:4*/_main/*3:8*/(/*3:9*/) /*3:10*/{
-        /*4:3*/_fmt/*4:7*/./*4:7*/Printf/*4:13*/(/*4:14*/"Hi!\n"/*4:21*/)
-/*5:1*/}
-`},""},
+`}},
 
 // ========== ========== ========== ==========
-//test keyword: 回
-//test keyword scoping: 功
-//test specids: 度,串,整,整64,漂32,漂64,复,复64,复128
+//test keyword with scoping: 功
+//test keyword without scoping: 回
+//test specids: 度,串,整,整64, 漂32,漂64,复,复64,复128(i.e. all float and complex specids)
 2:{`
 package main;入"fmt";
 功main(){
-  fmt.Printf("Len: %d\n", 度(fs("abcdefg")))
+  do fmt.Printf("Len: %d\n", 度(fs("abcdefg")))
 }
 功fs(a串)串{回a+"xyz"}
 功ff(a漂32)漂64{回漂64(a)}
@@ -135,7 +122,8 @@ package main;入"fmt";
 // ---------- ---------- ---------- ----------
 Normal,
 map[string]string{"main.go":
-`package main
+`// +build ignore
+package main
 
 import _fmt "fmt"
 
@@ -146,10 +134,10 @@ func _fs(_a string) string        { return _a + "xyz" }
 func _ff(_a float32) float64      { return float64(_a) }
 func _fc(_a complex64) complex128 { return complex128(_a) + complex(1, 1) }
 func _fi(_a int) int64            { return int64(_a) }
-`},""},
+`}},
 
 // ========== ========== ========== ==========
-//test keyword scoping: 变,如,否
+//test keyword with scoping: 变,如,否
 //test specids: 真,假
 3:{`
 package main;入"fmt"
@@ -175,9 +163,9 @@ func deputy(){
   }否{
     hij.Printf("Len: %d\n", 度("hi") + p)
   }
-  fr,_:= _utf8.DecodeRune([]byte("lmnop"))
-  fmt.Printf("1st rune: %s; Len: %d\n", fr, len("lmnop") + n)
-  让_,_=kl.DecodeRune([]节("lmnop"))
+  do fr,_:= _utf8.DecodeRune([]byte("lmnop"))
+  do fmt.Printf("1st rune: %s; Len: %d\n", fr, len("lmnop") + n)
+  做_,_=kl.DecodeRune([]节("lmnop"))
   㕤Printf("Fifty: %d\n", n)
   哪Printf("Fifty: %d\n", n)
   吧Printf("Fifty: %d\n", n)
@@ -187,7 +175,8 @@ func deputy(){
 // ---------- ---------- ---------- ----------
 Normal,
 map[string]string{"main.go":
-`package main
+`// +build ignore
+package main
 
 import _fmt "fmt"
 import "fmt"
@@ -221,20 +210,20 @@ func deputy() {
 	_fg.Printf("Fifty: %d\n", n)
 	fmt.Printf("Fifty: %d\n", n)
 }
-`},""},
+`}},
 
 // ========== ========== ========== ==========
-//test keyword: 构
-//test keyword scoping: 种,久
+//test keywords with scoping: 种,久,构
 //test specids: 整8,整16,整32
 4:{`
 package main
 type _string string
 种A struct{a string; b 整8}
-种B struct{a string; b 整16}
+种littleB struct{a string; b 整16}
 种C构{a string; b 整32}
-type D struct{a string; b 整32}
+type D struct{a string; b *整32}
 种E构{a串;b整32}
+type F构{a串;b整32}
 久a=3.1416
 const b=2.72
 `,
@@ -242,14 +231,15 @@ const b=2.72
 // ---------- ---------- ---------- ----------
 Normal,
 map[string]string{"main.go":
-`package main
+`// +build ignore
+package main
 
 type _string string
 type A struct {
 	_a _string
 	_b int8
 }
-type B struct {
+type _littleB struct {
 	_a _string
 	_b int16
 }
@@ -259,20 +249,24 @@ type C struct {
 }
 type D struct {
 	a string
-	b int32
+	b *int32
 }
 type E struct {
+	_a string
+	_b int32
+}
+type F struct {
 	_a string
 	_b int32
 }
 
 const _a = 3.1416
 const b = 2.72
-`},""},
+`}},
 
 // ========== ========== ========== ==========
-//test keywords: 围,为,继,破
-//test keyword scoping: 入,图
+//test keywords with scoping: 入,图,为,继,破
+//test keyword without scoping: 围
 //test specids: 节,字
 //TODO: fix scoping for 图 and slices/arrays
 5:{`
@@ -300,12 +294,12 @@ func main(){
 		如 i== 17{继zx}
 		fmt.Print(i," ")
 	}
-	fmt.Println("abc")
+	do fmt.Println("abc")
 	为i:=围a{fmt.Print(i," ")}
 	for i:= 0; i<28; i++ {
 		if i==3 { continue }
 		if i==6 { break }
-		fmt.Print(i, " ")
+		do fmt.Print(i, " ")
 	}
 }
 `,
@@ -313,7 +307,8 @@ func main(){
 // ---------- ---------- ---------- ----------
 Normal,
 map[string]string{"main.go":
-`package main
+`// +build ignore
+package main
 
 import _fmt "fmt"
 import "fmt"
@@ -371,11 +366,11 @@ _zx:
 		fmt.Print(i, " ")
 	}
 }
-`},""},
+`}},
 
 // ========== ========== ========== ==========
-//test keywords: 掉
-//test keyword scoping: 考,事,别,面
+//test unscoped keyword: 掉
+//test keywords with scoping: 面,考,事,别
 //test specids: 双,空,绝,绝8,绝16,绝32,绝64
 6:{`package main;入"fmt"
 type _uint16 uint16
@@ -393,10 +388,10 @@ type D面{
 }
 func abc()*双{回空}
 func main(){
-	_a:=2
+	do _a:=2
 	考a{
 	事1:
-		fmt.Print('a');
+		fmt.Print('a')
 	事2:
 		fmt.Print('b')
 		掉
@@ -411,7 +406,8 @@ func main(){
 // ---------- ---------- ---------- ----------
 Normal,
 map[string]string{"main.go":
-`package main
+`// +build ignore
+package main
 
 import _fmt "fmt"
 
@@ -444,11 +440,13 @@ func main() {
 		_fmt.Print('d')
 	}
 }
-`},""},
+`}},
 
 // ========== ========== ========== ==========
-//test keyword scoping: 选,去,通
-//test special identifier: 正
+//test keyword with scoping: 通
+//test keyword without scoping: 选,去
+//test special name: 正
+//test using keyword "range" as id in LHS Unihan-context of "做", and in RHS
 7:{`包正;入("math/rand";"sync/atomic")
 种readOp构{key整;resp通整}
 种writeOp构{key整;val整;resp通双}
@@ -458,9 +456,10 @@ func main() {
     writes:=造(通*writeOp)
     去功(){
         变state=造(图[整]整)
-        为{选{事read:=<-reads:read.resp<-state[read.key]
-              事write:=<-writes:state[write.key]=write.val;write.resp<-真
-             }}}()
+        为{选{
+          事read:=<-reads:read.resp<-state[read.key]
+          事write:=<-writes:state[write.key]=write.val;write.resp<-真
+          }}}()
     为r:=0;r<100;r++{
         去功(){
             为{read:=&readOp{key:rand.Intn(5),resp:造(通整)}
@@ -479,16 +478,18 @@ func main() {
     opsFinal:=atomic.LoadInt64(&ops)
     形Println("ops:",opsFinal)
 
-    让range:="abc" //when used with 让, Go keywords like "range" can be used as identifiers
-    让range="abcdefg"
+    做range:="abc" //when used with 做, Go keywords like "range" can be used as identifiers
+    做range="abcdefg"
 	形Printf("range: %v\n",range)
 }
 `,
 
 // ---------- ---------- ---------- ----------
 Normal,
-map[string]string{"main.go":
-`package main
+map[string]string{"main.go": //FIX: should only have one "// +build ignore" comment
+`// +build ignore
+// +build ignore
+package main
 
 import (
 	fmt "fmt"
@@ -546,46 +547,48 @@ func main() {
 	time.Sleep(time.Second)
 	_opsFinal := _atomic.LoadInt64(&_ops)
 	fmt.Println("ops:", _opsFinal)
+	{
 
-	_range := "abc"
-	_range = "abcdefg"
-	fmt.Printf("range: %v\n", _range)
+		_range := "abc"
+		_range = "abcdefg"
+		fmt.Printf("range: %v\n", _range)
+	}
 }
-`},""},
+`}},
 
 // ========== ========== ========== ==========
-//test keyword scoping: 围
-//test special keyword: 做
+//test keyword with scoping: 围
+//test special name: 做
 8:{`package main
 
 import (
 	//"fmt"
 	"github.com/grolang/gro/parser"
-	"go/token"
-	"go/format"
-	//"go/ast"
+	"github.com/grolang/gro/token"
+	"github.com/grolang/gro/format"
+	//"github.com/grolang/gro/ast"
 	//"os"
 )
 
 func main() {
 	形Printf("Hi!\n")
 
-	fset := token.NewFileSet() // positions are relative to fset
+	do fset := token.NewFileSet() // positions are relative to fset
 
-	_f, err := parser.ParseFile(fset, "", src, 0)
+	do _f, err := parser.ParseFile(fset, "", src, 0)
 	if err != nil {
-		fmt.Println(err)
+		do fmt.Println(err)
 		return
 	}
 
 	for _, s := 围 f.Imports {
-		fmt.Println(s.Path.Value)
+		do fmt.Println(s.Path.Value)
 	}
 
-	{	sw:= StringWriter{""}
-		_= format.Node(&sw, fset, _f)
-		fmt.Println(sw.data)
-		fmt.Println(sw.data == dst)
+	{	do sw:= StringWriter{""}
+		do _= format.Node(&sw, fset, _f)
+		do fmt.Println(sw.data)
+		do fmt.Println(sw.data == dst)
 	}
 	做{ abc:= "abc"
 		_ = abc
@@ -594,7 +597,7 @@ func main() {
 
 type StringWriter struct{ data string }
 func (sw *StringWriter) Write(b []byte) (int, error) {
-	sw.data += string(b)
+	do sw.data += string(b)
 	return len(b), nil
 }
 
@@ -603,14 +606,16 @@ var dst string = "package main"`,
 
 // ---------- ---------- ---------- ----------
 Normal,
-map[string]string{"main.go":
-`package main
+map[string]string{"main.go": //FIX: should only have one "// +build ignore" comment
+`// +build ignore
+// +build ignore
+package main
 
 import (
 	fmt "fmt"
+	"github.com/grolang/gro/format"
 	"github.com/grolang/gro/parser"
-	"go/format"
-	"go/token"
+	"github.com/grolang/gro/token"
 )
 
 func main() {
@@ -649,33 +654,36 @@ func (sw *StringWriter) Write(b []byte) (int, error) {
 
 var src string = "package main"
 var dst string = "package main"
-`},""},
+`}},
 
 // ========== ========== ========== ==========
-//test keyword scoping: 包
-//test special keywords: 让,任
-//test using keyword as id in Unihan-context (both LHS and RHS)
+//test special names: 做,任,英,引
+//test using keyword "func" as id in LHS Unihan-context of "做", and in RHS
+//test using "source" as identifier name is OK
 9:{`
 package main;入"fmt"
 import "fmt"
 const a=6
 功main(){
-  让b:=7
-  让func:=8
+  做引"b":=7
+  做func:=8
   fmt.Printf("Hi, nos.%s and %s!\n", b, func)
   英{
     fmt.Printf("Hi, no. %s.\n", a)
   }
 }
 func baba(){
+  do source:="abc"
+  do fmt.Printf("Hi, %s!\n", source)
   变b任= 17
-  fmt.Printf("Hi, no.%s!\n", _b)
+  do fmt.Printf("Hi, no.%s!\n", _b)
 }`,
 
 // ---------- ---------- ---------- ----------
 Normal,
 map[string]string{"main.go":
-`package main
+`// +build ignore
+package main
 
 import _fmt "fmt"
 import "fmt"
@@ -683,56 +691,68 @@ import "fmt"
 const a = 6
 
 func _main() {
-	_b := 7
-	_func := 8
-	_fmt.Printf("Hi, nos.%s and %s!\n", _b, _func)
 	{
-		fmt.Printf("Hi, no. %s.\n", a)
+		_b := 7
+		{
+			_func := 8
+			_fmt.Printf("Hi, nos.%s and %s!\n", _b, _func)
+			{
+				fmt.Printf("Hi, no. %s.\n", a)
+			}
+		}
 	}
 }
 func baba() {
+	source := "abc"
+	fmt.Printf("Hi, %s!\n", source)
 	var _b interface{} = 17
 	fmt.Printf("Hi, no.%s!\n", _b)
 }
-`},""},
+`}},
 
 // ========== ========== ========== ==========
+//test special name: 做
+//test 源 with defaulted option
 10:{`
 包main;源;入"fmt"
 功main(){
-  让b:=7
-  让func:=8
+  做b:=7
+  做func:=8
   fmt.Printf("Hi, nos.%s and %s!\n", b, func) // different comment here
 }`,
 
 // ---------- ---------- ---------- ----------
 Normal,
 map[string]string{"main.go":
-`package main
+`// +build ignore
+package main
 
 import _fmt "fmt"
 
 func _main() {
-	_b := 7
-	_func := 8
-	_fmt.Printf("Hi, nos.%s and %s!\n", _b, _func)
+	{
+		_b := 7
+		{
+			_func := 8
+			_fmt.Printf("Hi, nos.%s and %s!\n", _b, _func)
+		}
+	}
 }
-`},""},
+`}},
 
 // ========== ========== ========== ==========
-//test prohibited Unihan use on LHS
+//test 源 with specified filename
 11:{`package main
-源"mySource.go"
+源"mySource"
 func main() {
 	a:= true
 	b:= 真
 	nil:= true
 	iota:= 真
-	//假:= true //parse error
 	形Printf("a: %v, b: %v, nil: %v, iota: %v\n", a, b, nil, iota)
 
 	变abc图[串]整;
-	让abc[串("def")]=789
+	做abc[串("def")]=789
 
 	var _z= "abc"
 	形Println(串(z))
@@ -742,7 +762,8 @@ func main() {
 // ---------- ---------- ---------- ----------
 Normal,
 map[string]string{"mySource.go":
-`package main
+`// +build ignore
+package main
 
 import fmt "fmt"
 
@@ -751,7 +772,6 @@ func main() {
 	b := true
 	nil := true
 	iota := true
-
 	fmt.Printf("a: %v, b: %v, nil: %v, iota: %v\n", a, b, nil, iota)
 
 	var _abc map[string]int
@@ -760,27 +780,30 @@ func main() {
 	var _z = "abc"
 	fmt.Println(string(_z))
 }
-`},""},
+`}},
 
 // ========== ========== ========== ==========
+//test special name: 做,引
 12:{`
 package main
 type A int
 func main(){
-  _a:=123
-  形Println(整64(a))
+  引"_a":=123
+  形Println(整64(a)) //why does this translate as _a when I don't think I've put in the code to detect Unihan used as type converters ???
   var b A
   var c这A
   形Println(b, c)
-  鲜d:='d'
-  形Println(a,d)
+  做d:='d'
+  形Println(_a,_d)
 }
 `,
+
 
 // ---------- ---------- ---------- ----------
 Normal,
 map[string]string{"main.go":
-`package main
+`// +build ignore
+package main
 
 import fmt "fmt"
 
@@ -797,34 +820,39 @@ func main() {
 		fmt.Println(_a, _d)
 	}
 }
-`},""},
+`}},
 
 // ========== ========== ========== ==========
-13:{`包正;种A整;功正(){a:=123;形Println(整64(a));变b这A;变c这A;形Println(b,c)}`, //example of totally spaceless code
+//test example of totally spaceless code
+13:{`包正;种A整;功正(){a:=123;形Println(整64(a));变b这A;变c这A;形Println(b,c)}`,
 
 // ---------- ---------- ---------- ----------
 Normal,
 map[string]string{"main.go":
-`package main
+`// +build ignore
+package main
 
 import fmt "fmt"
 
 type A int
 
 func main() { _a := 123; fmt.Println(int64(_a)); var _b A; var _c A; fmt.Println(_b, _c) }
-`},""},
+`}},
 
 // ========== ========== ========== ==========
+//test special name: 这,开,尖
+//test adding standalone stmts to func main()
 14:{`
 包正
 源
 形Println("abcdefg") //added to func main(), with extra newline afterwards
 种A整; //TOFIX: semi required here but shouldn't be
+功开(){形Println("init running")}
 功正(){
 	a:=123
 	形Println(整64(a))
 	变b这A
-	变c这A
+	变c尖A
 	形Println(b,c)
 }
 `,
@@ -832,24 +860,28 @@ func main() { _a := 123; fmt.Println(int64(_a)); var _b A; var _c A; fmt.Println
 // ---------- ---------- ---------- ----------
 Normal,
 map[string]string{"main.go":
-`package main
+`// +build ignore
+package main
 
 import fmt "fmt"
 
 type A int
 
+func init() { fmt.Println("init running") }
 func main() {
 	_a := 123
 	fmt.Println(int64(_a))
 	var _b A
-	var _c A
+	var _c *A
 	fmt.Println(_b, _c)
 	fmt.Println("abcdefg")
 
 }
-`},""},
+`}},
 
 // ========== ========== ========== ==========
+//test special names: 准,跑
+//test multi-source use of 源 (with both specified and implied)
 15:{`
 包正
 种A整;
@@ -857,7 +889,7 @@ func main() {
 	a:=123
 	形Println(整64(a))
 }
-源"beau.go"
+源"beau"
 种B整;
 功hello(){
 	b:=789
@@ -870,7 +902,8 @@ func main() {
 // ---------- ---------- ---------- ----------
 Normal,
 map[string]string{"main.go":
-`package main
+`// +build ignore
+package main
 
 import fmt "fmt"
 
@@ -883,8 +916,10 @@ func main() {
 `,
 
 // ---------- ----------
-"beau.go":
-`package main
+"beau.go": //FIX: should only have one "// +build ignore" comment
+`// +build ignore
+// +build ignore
+package main
 
 import (
 	fmt "fmt"
@@ -900,34 +935,37 @@ func _hello() {
 	command.FunRun("src/github.com/grolang/qutests/goByEg4.go")
 
 }
-`},""},
+`}},
 
 // ========== ========== ========== ==========
+//test single standalone statement
 16:{`形Println("Hello, world!")`,
 
 // ---------- ---------- ---------- ----------
 Normal,
 map[string]string{
-"main.go":
-`package main
+"suppliedName.go":
+`// +build ignore
+package main
 
 import fmt "fmt"
 
 func main() {
 	fmt.Println("Hello, world!")
 }
-`},""},
+`}},
 
 // ========== ========== ========== ==========
+//test multi-package use of 包 and multi-source use of 源
 17:{`
 包正 //two explicit sources
-源"tiful.go"
+源"tiful"
 种A整;
 功正(){
 	a:=123
 	形Println(整64(a))
 }
-源"beau.go"
+源"beau"
 种B整;
 功hello(){
 	b:=789
@@ -943,13 +981,15 @@ func main() {
 	e:= -12345
 	形Println(整8(e))
 }
-源"psyche.go"
+源"psyche" //one explicit func and one implied init function
+gg:=90909
+形Println(整64(gg))
 功psycheGo(){
 	g:= 54321
 	形Println(整8(g))
 }
 包bye //one explicit source
-源"booyah.go"
+源"booyah"
 功cherio(){
 	d:= -99
 	形Println(整16(d))
@@ -959,7 +999,8 @@ func main() {
 // ---------- ---------- ---------- ----------
 Normal,
 map[string]string{"tiful.go":
-`package main
+`// +build ignore
+package main
 
 import fmt "fmt"
 
@@ -972,24 +1013,66 @@ func main() {
 `,
 
 // ---------- ----------
-"hi.go":
-"package hi\n\nimport fmt \"fmt\"\n\nfunc _hoorah() {\n\t_c := 666\n\tfmt.Println(int32(_c))\n}\n",
+"hi.go": //FIX: don't want "// +build ignore" here
+`// +build ignore
+package hi
+
+import fmt "fmt"
+
+func _hoorah() {
+	_c := 666
+	fmt.Println(int32(_c))
+}
+`,
 
 // ---------- ----------
-"thinking.go":
-"package thinking\n\nimport fmt \"fmt\"\n\nfunc _mind() {\n\t_e := -12345\n\tfmt.Println(int8(_e))\n}\n",
+"thinking.go": //FIX: don't want "// +build ignore" here
+`// +build ignore
+package thinking
+
+import fmt "fmt"
+
+func _mind() {
+	_e := -12345
+	fmt.Println(int8(_e))
+}
+`,
 
 // ---------- ----------
-"psyche.go":
-"package thinking\n\nimport fmt \"fmt\"\n\nfunc _psycheGo() {\n\t_g := 54321\n\tfmt.Println(int8(_g))\n}\n",
+"psyche.go": //FIX: don't want "// +build ignore" here
+`// +build ignore
+package thinking
+
+import fmt "fmt"
+
+func _psycheGo() {
+	_g := 54321
+	fmt.Println(int8(_g))
+}
+
+func main() {
+	_gg := 90909
+	fmt.Println(int64(_gg))
+}
+`,
 
 // ---------- ----------
-"booyah.go":
-"package bye\n\nimport fmt \"fmt\"\n\nfunc _cherio() {\n\t_d := -99\n\tfmt.Println(int16(_d))\n}\n",
+"booyah.go": //FIX: don't want "// +build ignore" here
+`// +build ignore
+package bye
+
+import fmt "fmt"
+
+func _cherio() {
+	_d := -99
+	fmt.Println(int16(_d))
+}
+`,
 
 // ---------- ----------
 "beau.go":
-`package main
+`// +build ignore
+package main
 
 import fmt "fmt"
 
@@ -999,19 +1082,20 @@ func _hello() {
 	_b := 789
 	fmt.Println(int64(_b))
 }
-`},""},
+`}},
 
 // ========== ========== ========== ==========
+//further test multi-package use of 包 and multi-source use of 源
 18:{`
-形Println("Hey, world!") //dangling stmts for pkg:main, dir:<curr>, src:main.go
+形Println("Hey, world!") //dangling stmts for pkg:main, dir:<curr>, src:suppliedName.go
 包正 //two explicit src-names for pkg:main, dir:<curr>, srcs:tiful.go & beau.go
-源"tiful.go"
+源"tiful"
 种A整;
 功正(){
 	a:=123
 	形Println(整64(a))
 }
-源"beau.go"
+源"beau"
 种B整;
 功hello(){
 	b:=789
@@ -1027,13 +1111,13 @@ func _hello() {
 	e:= -12345
 	形Println(整8(e))
 }
-源"psyche.go"
+源"psyche"
 功psycheGo(){
 	g:= 54321
 	形Println(整8(g))
 }
 包"lets/wave"bye //one explicit src-name with specified pkg-name and string for pkg:bye, dir:lets/wave, src:booyah.go
-源"booyah.go"
+源"booyah"
 功cherio(){
 	d:= -99
 	形Println(整16(d))
@@ -1042,8 +1126,9 @@ func _hello() {
 
 // ---------- ---------- ---------- ----------
 Normal,
-map[string]string{"main.go":
-`package main
+map[string]string{"suppliedName.go":
+`// +build ignore
+package main
 
 import fmt "fmt"
 
@@ -1054,7 +1139,8 @@ func main() {
 
 // ---------- ----------
 "tiful.go":
-`package main
+`// +build ignore
+package main
 
 import fmt "fmt"
 
@@ -1068,7 +1154,8 @@ func main() {
 
 // ---------- ----------
 "beau.go":
-`package main
+`// +build ignore
+package main
 
 import fmt "fmt"
 
@@ -1081,28 +1168,65 @@ func _hello() {
 `,
 
 // ---------- ----------
-"oneLib/hi/hi.go":
-"package hi\n\nimport fmt \"fmt\"\n\nfunc _hoorah() {\n\t_c := 666\n\tfmt.Println(int32(_c))\n}\n",
+"oneLib/hi/hi.go": //FIX: don't want "// +build ignore" here
+`// +build ignore
+package hi
+
+import fmt "fmt"
+
+func _hoorah() {
+	_c := 666
+	fmt.Println(int32(_c))
+}
+`,
 
 // ---------- ----------
-"someDir/thinking.go":
-"package thinking\n\nimport fmt \"fmt\"\n\nfunc _mind() {\n\t_e := -12345\n\tfmt.Println(int8(_e))\n}\n",
+"someDir/thinking.go": //FIX: don't want "// +build ignore" here
+`// +build ignore
+package thinking
+
+import fmt "fmt"
+
+func _mind() {
+	_e := -12345
+	fmt.Println(int8(_e))
+}
+`,
 
 // ---------- ----------
-"someDir/psyche.go":
-"package thinking\n\nimport fmt \"fmt\"\n\nfunc _psycheGo() {\n\t_g := 54321\n\tfmt.Println(int8(_g))\n}\n",
+"someDir/psyche.go": //FIX: don't want "// +build ignore" here
+`// +build ignore
+package thinking
+
+import fmt "fmt"
+
+func _psycheGo() {
+	_g := 54321
+	fmt.Println(int8(_g))
+}
+`,
 
 // ---------- ----------
-"lets/wave/booyah.go":
-"package bye\n\nimport fmt \"fmt\"\n\nfunc _cherio() {\n\t_d := -99\n\tfmt.Println(int16(_d))\n}\n",
+"lets/wave/booyah.go": //FIX: don't want "// +build ignore" here
+`// +build ignore
+package bye
+
+import fmt "fmt"
+
+func _cherio() {
+	_d := -99
+	fmt.Println(int16(_d))
+}
+`,
 
 // ---------- ----------
-},""},
+}},
 
 // ========== ========== ========== ==========
+//further test special names: 准,跑
 19:{`
 包正
-源"cmds.go"
+源"cmds"
 功正(){
   准"src/github.com/grolang/qutests/goByEg4.qu"
   跑"src/github.com/grolang/qutests/goByEg4.go"
@@ -1112,7 +1236,8 @@ func _hello() {
 // ---------- ---------- ---------- ----------
 Normal,
 map[string]string{"cmds.go":
-`package main
+`// +build ignore
+package main
 
 import command "github.com/grolang/gro/macro/command"
 
@@ -1121,11 +1246,12 @@ func main() {
 	command.FunRun("src/github.com/grolang/qutests/goByEg4.go")
 
 }
-`},""},
+`}},
 
 // ========== ========== ========== ==========
+//further test special names: 准,跑
 20:{`
-源"cmds.go"
+源"cmds"
 功正(){
   准"src/github.com/grolang/qutests/goByEg4.qu"
   跑"src/github.com/grolang/qutests/goByEg4.go"
@@ -1135,7 +1261,8 @@ func main() {
 // ---------- ---------- ---------- ----------
 Normal,
 map[string]string{"cmds.go":
-`package main
+`// +build ignore
+package main
 
 import command "github.com/grolang/gro/macro/command"
 
@@ -1144,9 +1271,10 @@ func main() {
 	command.FunRun("src/github.com/grolang/qutests/goByEg4.go")
 
 }
-`},""},
+`}},
 
 // ========== ========== ========== ==========
+//further test special names: 准,跑
 21:{`
 功正(){
   准"src/github.com/grolang/qutests/goByEg4.qu"
@@ -1156,8 +1284,9 @@ func main() {
 
 // ---------- ---------- ---------- ----------
 Normal,
-map[string]string{"main.go":
-`package main
+map[string]string{"suppliedName.go":
+`// +build ignore
+package main
 
 import command "github.com/grolang/gro/macro/command"
 
@@ -1166,9 +1295,10 @@ func main() {
 	command.FunRun("src/github.com/grolang/qutests/goByEg4.go")
 
 }
-`},""},
+`}},
 
 // ========== ========== ========== ==========
+//further test special names: 准,跑
 22:{`
 准"src/github.com/grolang/qutests/goByEg4.qu"
 跑"src/github.com/grolang/qutests/goByEg4.go"
@@ -1176,8 +1306,9 @@ func main() {
 
 // ---------- ---------- ---------- ----------
 Normal,
-map[string]string{"main.go":
-`package main
+map[string]string{"suppliedName.go":
+`// +build ignore
+package main
 
 import command "github.com/grolang/gro/macro/command"
 
@@ -1185,28 +1316,10 @@ func main() {
 	command.FunPrep("src/github.com/grolang/qutests/goByEg4.qu")
 	command.FunRun("src/github.com/grolang/qutests/goByEg4.go")
 }
-`,
-
-"dud":`/*1:1*/package /*1:8*/main
-
-/*1:1*/import /*1:1*/(
-        /*1:1*/exec /*1:1*/"os/exec"
-        /*1:1*/fmt /*1:1*/"fmt"
-/*1:1*/)
-
-/*1:2*/func /*1:6*/main/*1:10*/(/*1:11*/) /*1:12*/{
-        /*1:13*/func/*1:17*/(/*1:18*/) /*1:19*/{
-                /*1:20*/x/*1:21*/, /*1:22*/_ /*1:23*/:= /*1:25*/exec/*1:29*/./*1:30*/Command/*1:37*/(/*1:38*/"gro"/*1:43*/, /*1:44*/"src/github.com/grolang/qutests/goByEg4.qu"/*1:87*/)/*1:88*/./*1:89*/Output/*1:95*/(/*1:96*/)
-                /*1:97*/fmt/*1:100*/./*1:101*/Println/*1:108*/(/*1:109*/string/*1:115*/(/*1:116*/x/*1:117*/)/*1:118*/)
-        /*1:119*/}/*1:120*/(/*1:121*/)
-        /*1:122*/func/*1:126*/(/*1:127*/) /*1:128*/{
-                /*1:129*/x/*1:130*/, /*1:131*/_ /*1:132*/:= /*1:134*/exec/*1:138*/./*1:139*/Command/*1:146*/(/*1:147*/"go"/*1:151*/, /*1:152*/"run"/*1:157*/, /*1:158*/"src/github.com/grolang/qutests/goByEg4.go"/*1:201*/)/*1:202*/./*1:203*/Output/*1:209*/(/*1:210*/)
-                /*1:211*/fmt/*1:214*/./*1:215*/Println/*1:222*/(/*1:223*/string/*1:229*/(/*1:230*/x/*1:231*/)/*1:232*/)
-        /*1:233*/}/*1:234*/(/*1:235*/)
-/*1:236*/}
-`},""},
+`}},
 
 // ========== ========== ========== ==========
+//further test special names: 准,跑
 23:{`
 //import "fmt"
 功正(){
@@ -1217,8 +1330,9 @@ func main() {
 
 // ---------- ---------- ---------- ----------
 Normal,
-map[string]string{"main.go":
-`package main
+map[string]string{"suppliedName.go":
+`// +build ignore
+package main
 
 import command "github.com/grolang/gro/macro/command"
 
@@ -1227,170 +1341,20 @@ func main() {
 	command.FunRun("src/github.com/grolang/qutests/goByEg4.go")
 
 }
-`,
-
-"dud":`
-/*1:1*/package /*1:8*/main
-
-/*2:1*/import /*2:8*/(
-        /*2:8*/"fmt"
-        /*2:8*/exec /*2:8*/"os/exec"
-/*2:8*/)
-
-/*3:1*/func /*3:4*/main/*3:7*/(/*3:8*/) /*3:9*/{
-        /*3:10*/func/*3:14*/(/*3:15*/) /*3:16*/{
-                /*3:17*/x/*3:18*/, /*3:19*/_ /*3:20*/:= /*3:22*/exec/*3:26*/./*3:27*/Command/*3:34*/(/*3:35*/"gro"/*3:40*/, /*3:41*/"src/github.com/grolang/qutests/goByEg4.qu"/*3:84*/)/*3:85*/./*3:86*/Output/*3:92*/(/*3:93*/)
-                /*3:94*/fmt/*3:97*/./*3:98*/Println/*3:105*/(/*3:106*/string/*3:112*/(/*3:113*/x/*3:114*/)/*3:115*/)
-        /*3:116*/}/*3:117*/(/*3:118*/)
-        /*3:119*/func/*3:123*/(/*3:124*/) /*3:125*/{
-                /*3:126*/x/*3:127*/, /*3:128*/_ /*3:129*/:= /*3:131*/exec/*3:135*/./*3:136*/Command/*3:143*/(/*3:144*/"go"/*3:148*/, /*3:149*/"run"/*3:154*/, /*3:155*/"src/github.com/grolang/qutests/goByEg4.go"/*3:198*/)/*3:199*/./*3:200*/Output/*3:206*/(/*3:207*/)
-                /*3:208*/fmt/*3:211*/./*3:212*/Println/*3:219*/(/*3:220*/string/*3:226*/(/*3:227*/x/*3:228*/)/*3:229*/)
-        /*3:230*/}/*3:231*/(/*3:232*/)
-
-/*6:1*/}
-`},""},
+`}},
 
 // ========== ========== ========== ==========
+//test special name: 叫
 24:{`
-用㗢"github.com/grolang/groo/macro"
-功正(){
-	形Println('a')
-	㗢{
-		形Println('a')
-	}
-}
-`,
-
-// ---------- ---------- ---------- ----------
-Normal,
-map[string]string{"main.go":
-`package main
-
-import (
-	fmt "fmt"
-	ops "github.com/grolang/groo/ops"
-)
-
-func main() {
-	fmt.Println('a')
-	{
-		fmt.Println(ops.Runex("a"))
-	}
-}
-`},
-
-`package main
-import (
-	"flag"
-	"github.com/grolang/gro/macro"
-	"github.com/grolang/gro/parser"
-	"github.com/grolang/gro/sys"
-	_macro "github.com/grolang/groo/macro"
-)
-var aliases = map[rune]macro.StmtMacro {
-	'㗢': _macro.Struct{},
-}
-func main () {
-	flag.Parse()
-	args := flag.Args()
-	err := sys.ProcessFileWithMacros(aliases, args, parser.IgnoreUsesClause)
-	if err != nil {
-		sys.Report(err)
-	}
-}
-`},
-
-// ========== ========== ========== ==========
-25:{`
-用㗢"github.com/grolang/dyn/macro"
-功正(){
-	形Println('a')
-	形Println(+6)
-	形Println(-7)
-	形Println(13+7)
-	形Println(13-7)
-	形Println(13*7)
-	形Println(13/7)
-	形Println(14/7)
-	㗢{
-		形Println('a')
-		形Println('ab')
-		形Println(!'ab')
-		形Println(+6)
-		形Println(-7)
-		形Println(13+7)
-		形Println(13-7)
-		形Println(13*7)
-		形Println(13/7)
-		形Println(14/7)
-	}
-}
-`,
-
-// ---------- ---------- ---------- ----------
-Normal,
-map[string]string{"main.go":
-`package main
-
-import (
-	fmt "fmt"
-	ops "github.com/grolang/dyn/ops"
-)
-
-func main() {
-	fmt.Println('a')
-	fmt.Println(+6)
-	fmt.Println(-7)
-	fmt.Println(13 + 7)
-	fmt.Println(13 - 7)
-	fmt.Println(13 * 7)
-	fmt.Println(13 / 7)
-	fmt.Println(14 / 7)
-	{
-		fmt.Println(ops.Runex("a"))
-		fmt.Println(ops.Runex("ab"))
-		fmt.Println(ops.Not(ops.Runex("ab")))
-		fmt.Println(ops.Identity(6))
-		fmt.Println(ops.Negate(7))
-		fmt.Println(ops.Plus(13, 7))
-		fmt.Println(ops.Minus(13, 7))
-		fmt.Println(ops.Mult(13, 7))
-		fmt.Println(ops.Divide(13, 7))
-		fmt.Println(ops.Divide(14, 7))
-	}
-}
-`},
-`package main
-import (
-	"flag"
-	"github.com/grolang/gro/macro"
-	"github.com/grolang/gro/parser"
-	"github.com/grolang/gro/sys"
-	_macro "github.com/grolang/dyn/macro"
-)
-var aliases = map[rune]macro.StmtMacro {
-	'㗢': _macro.Struct{},
-}
-func main () {
-	flag.Parse()
-	args := flag.Args()
-	err := sys.ProcessFileWithMacros(aliases, args, parser.IgnoreUsesClause)
-	if err != nil {
-		sys.Report(err)
-	}
-}
-`},
-
-// ========== ========== ========== ==========
-26:{`
 a:="Hello, "+叫+"world!"
 形Println(a)
 `,
 
 // ---------- ---------- ---------- ----------
 Normal,
-map[string]string{"main.go":
-`package main
+map[string]string{"suppliedName.go":
+`// +build ignore
+package main
 
 import fmt "fmt"
 
@@ -1398,104 +1362,159 @@ func main() {
 	a := "Hello, " + "" + "world!"
 	fmt.Println(a)
 }
-`},""},
+`}},
 
 // ========== ========== ========== ==========
-//cribbed from #7 to test "用"
-27:{`用㕨"github.com/grolang/samples/moremacs"
-包正
-种readOp构{key整;resp通整}
-种writeOp构{key整;val整;resp通双}
-功正(){
-    时Sleep(时Second)
-    让range:="abc"
-    让range="abcdefg"
-	形Printf("range: %v\n",range)
-}
+//test Unihan punctuation “”‘’（）《》【】！；：，。
+
+25:{`
+入“time“
+a：=“Hello, ”+叫+“world!”；b：=10
+形Println（a，‘z’，1《2，2》1，！false，a【0】，b）
+做time。Sleep(time。Second)
 `,
 
 // ---------- ---------- ---------- ----------
 Normal,
-map[string]string{"main.go":
-`package main
+map[string]string{"suppliedName.go": //FIX: should only have one "// +build ignore" comment
+`// +build ignore
+// +build ignore
+package main
 
 import (
 	fmt "fmt"
-	time "time"
+	_time "time"
 )
-
-type _readOp struct {
-	_key  int
-	_resp chan int
-}
-type _writeOp struct {
-	_key  int
-	_val  int
-	_resp chan bool
-}
 
 func main() {
-	time.Sleep(time.Second)
-	_range := "abc"
-	_range = "abcdefg"
-	fmt.Printf("range: %v\n", _range)
+	a := "Hello, " + "" + "world!"
+	b := 10
+	fmt.Println(a, 'z', 1 < 2, 2 > 1, !false, a[0], b)
+	_time.Sleep(_time.Second)
 }
-`},
-
-//usesFrag:
-`package main
-import (
-	"flag"
-	"github.com/grolang/gro/macro"
-	"github.com/grolang/gro/parser"
-	"github.com/grolang/gro/sys"
-	_moremacs "github.com/grolang/samples/moremacs"
-)
-var aliases = map[rune]macro.StmtMacro {
-	'㕨': _moremacs.Struct{},
-}
-func main () {
-	flag.Parse()
-	args := flag.Args()
-	err := sys.ProcessFileWithMacros(aliases, args, parser.IgnoreUsesClause)
-	if err != nil {
-		sys.Report(err)
-	}
-}
-`},
+`}},
 
 // ========== ========== ========== ==========
-28:{`
-用㗢"github.com/grolang/gro/macro/whitelist"
-源"whitelist.go"
+//test "source" kw with specified filename
+//test "do" kw with "do" ident
+//test "do" label
+26:{`package main
+source "mySource"
 func main() {
-	回
+	a:= true
+	b:= 真
+	nil:= true
+	iota:= 真
+	形Printf("a: %v, b: %v, nil: %v, iota: %v\n", a, b, nil, iota)
+
+	变abc图[串]整;
+	做abc[串("def")]=789
+
+	var _z= "abc"
+	do do:="789"
+	形Println(串(z)+do)
+
+	do: for true {
+		break do
+	}
 }
 `,
 
 // ---------- ---------- ---------- ----------
 Normal,
-map[string]string{},
-`package main
-import (
-	"flag"
-	"github.com/grolang/gro/macro"
-	"github.com/grolang/gro/parser"
-	"github.com/grolang/gro/sys"
-	_whitelist "github.com/grolang/gro/macro/whitelist"
-)
-var aliases = map[rune]macro.StmtMacro {
-	'㗢': _whitelist.Struct{},
-}
-func main () {
-	flag.Parse()
-	args := flag.Args()
-	err := sys.ProcessFileWithMacros(aliases, args, parser.IgnoreUsesClause)
-	if err != nil {
-		sys.Report(err)
+map[string]string{"mySource.go":
+`// +build ignore
+package main
+
+import fmt "fmt"
+
+func main() {
+	a := true
+	b := true
+	nil := true
+	iota := true
+	fmt.Printf("a: %v, b: %v, nil: %v, iota: %v\n", a, b, nil, iota)
+
+	var _abc map[string]int
+	_abc[string("def")] = 789
+
+	var _z = "abc"
+	do := "789"
+	fmt.Println(string(_z) + do)
+
+do:
+	for true {
+		break do
 	}
 }
-`,},
+`}},
+
+// ========== ========== ========== ==========
+//test using keyword "var" as id in 做 stmt
+27:{`
+func main(){
+做var:="sass"
+形Println(_var)
+}
+`,
+
+// ---------- ---------- ---------- ----------
+Normal,
+map[string]string{"suppliedName.go":
+`// +build ignore
+package main
+
+import fmt "fmt"
+
+func main() {
+	{
+		_var := "sass"
+		fmt.Println(_var)
+	}
+}
+`}},
+
+// ========== ========== ========== ==========
+//test using keyword "var" as id in 变 stmt
+28:{`
+func main(){
+变var="sass"
+形Println(_var)
+}
+`,
+
+// ---------- ---------- ---------- ----------
+Normal,
+map[string]string{"suppliedName.go":
+`// +build ignore
+package main
+
+import fmt "fmt"
+
+func main() {
+	var _var = "sass"
+	fmt.Println(_var)
+}
+`}},
+
+// ========== ========== ========== ==========
+//test using keyword "var" as id in 做 stmt, outside of explicit main fn
+998:{`
+做v:="sass"
+形Println(v)
+`,
+
+// ---------- ---------- ---------- ----------
+Normal,
+map[string]string{"suppliedName.go":
+`// +build ignore
+package main
+
+import "fmt"
+
+func main() {
+}
+`}},
 
 // ========== ========== ========== ==========
 999:{`
@@ -1505,14 +1524,14 @@ package main
 // ---------- ---------- ---------- ----------
 Normal,
 map[string]string{
-},""},
+}},
 
 // ========== ========== ========== ==========
 }
 
 //================================================================================================================================================================
-func TestUnihanParseError(t *testing.T) {
-	for i, tst:= range unihanParseErrorTests {
+func TestGroSyntaxParseError(t *testing.T) {
+	for i, tst:= range groSyntaxParseErrorTests {
 		src:= tst.key
 		dse:= tst.val
 		fset := token.NewFileSet()
@@ -1524,16 +1543,17 @@ func TestUnihanParseError(t *testing.T) {
 			}
 		}*/
 
-		_, _, err := parser.ParseMultiFile(fset, "", src, nil, 0)
+		_, _, err := parser.ParseMultiFile(fset, "suppliedName.gro", src, nil, 0)
 		if fmt.Sprintf("%v", err) != dse {
 			t.Errorf("unexpected parse error in %d: received error: %q; expected error: %q", i, err, dse)
 		}
 	}
 }
 
-var unihanParseErrorTests = map[int]struct{key string; val string} {
+var groSyntaxParseErrorTests = map[int]struct{key string; val string} {
 
 // ========== ========== ========== ==========
+//test prohibited Unihan 假 use on LHS
 1001:{`
 package main
 func main() {
@@ -1546,9 +1566,10 @@ func main() {
 `,
 
 // ---------- ---------- ---------- ----------
-`8:5: Unihan special identifier 假 on left hand side (and 1 more errors)`},
+`suppliedName.gro:8:5: Unihan special identifier 假 on left hand side (and 1 more errors)`},
 
 // ========== ========== ========== ==========
+//test prohibited Unihan 串 use on LHS
 1002:{`
 package main
 func main() {
@@ -1557,7 +1578,7 @@ func main() {
 `,
 
 // ---------- ---------- ---------- ----------
-`4:12: Unihan special identifier 串 on left hand side (and 1 more errors)`},
+`suppliedName.gro:4:12: Unihan special identifier 串 on left hand side (and 1 more errors)`},
 
 // ========== ========== ========== ==========
 1999:{`
@@ -1565,7 +1586,7 @@ package
 `,
 
 // ---------- ---------- ---------- ----------
-`2:9: expected ';', found 'EOF'`},
+`suppliedName.gro:2:9: expected ';', found 'EOF'`},
 
 // ========== ========== ========== ==========
 }

@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package scanner
+package errors
 
 import (
 	"fmt"
-	"go/token"
+	"github.com/grolang/gro/token"
 	"io"
 	"sort"
 )
@@ -122,3 +122,4 @@ func PrintError(w io.Writer, err error) {
 		fmt.Fprintf(w, "%s\n", err)
 	}
 }
+

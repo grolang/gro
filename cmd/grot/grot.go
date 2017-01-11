@@ -8,7 +8,7 @@ package main
 import (
 	"fmt"
 	"errors"
-	"go/token"
+	"github.com/grolang/gro/token"
 	"io/ioutil"
 	"os"
 	"path"

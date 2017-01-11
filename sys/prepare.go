@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/grolang/gro/parser"
-	"go/token"
+	"github.com/grolang/gro/token"
 	"os"
 	"path/filepath"
 	"runtime/pprof"

@@ -5,7 +5,7 @@
 package parser
 
 import (
-	"go/token"
+	"github.com/grolang/gro/token"
 	"io/ioutil"
 	"testing"
 )

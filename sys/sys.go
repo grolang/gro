@@ -6,9 +6,9 @@ package sys
 
 import (
 	"fmt"
-	"go/ast"
-	"go/format"
-	"go/token"
+	"github.com/grolang/gro/ast"
+	"github.com/grolang/gro/format"
+	"github.com/grolang/gro/token"
 	"io"
 	"io/ioutil"
 	"os"

@@ -7,7 +7,7 @@ package scanner_test
 import (
 	"fmt"
 	"github.com/grolang/gro/scanner"
-	"go/token"
+	"github.com/grolang/gro/token"
 )
 
 func ExampleScanner_Scan() {

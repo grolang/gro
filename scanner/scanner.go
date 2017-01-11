@@ -11,7 +11,7 @@ package scanner
 import (
 	"bytes"
 	"fmt"
-	"go/token"
+	"github.com/grolang/gro/token"
 	"path/filepath"
 	"strconv"
 	"unicode"
@@ -280,10 +280,6 @@ func (s *Scanner) findLineEnd() bool {
 	return false
 }
 
-/*func isLetter(ch rune) bool {
-	return 'a' <= ch && ch <= 'z' || 'A' <= ch && ch <= 'Z' || ch == '_' || ch >= 0x80 && unicode.IsLetter(ch)
-}*/
-
 func isUnihanLetter(ch rune) bool {
 	return ch >= 0x80 && unicode.IsLetter(ch) && unicode.In(ch, unicode.Han)
 }
@@ -404,17 +400,17 @@ exit:
 	return tok, string(s.src[offs:s.offset])
 }
 
-// scanEscape parses an escape sequence where rune is the accepted
-// escaped quote. In case of a syntax error, it stops at the offending
-// character (without consuming it) and returns false. Otherwise
-// it returns true.
-func (s *Scanner) scanEscape(quote rune) bool {
+// scanEscapes parses an escape sequence where rune is the accepted
+// escaped quote, with two Unihan variants. In case of a syntax error,
+// it stops at the offending character (without consuming it)
+// and returns false. Otherwise it returns true.
+func (s *Scanner) scanEscapes(quote, quote2, quote3 rune) bool {
 	offs := s.offset
 
 	var n int
 	var base, max uint32
 	switch s.ch {
-	case 'a', 'b', 'f', 'n', 'r', 't', 'v', '\\', quote:
+	case 'a', 'b', 'f', 'n', 'r', 't', 'v', '\\', quote, quote2, quote3:
 		s.Next()
 		return true
 	case '0', '1', '2', '3', '4', '5', '6', '7':
@@ -462,8 +458,8 @@ func (s *Scanner) scanEscape(quote rune) bool {
 }
 
 func (s *Scanner) scanRune() string {
-	// '\'' opening already consumed
-	offs := s.offset - 1
+	offs := s.offset
+	var cloffs int
 
 	valid := true
 	n := 0
@@ -478,12 +474,17 @@ func (s *Scanner) scanRune() string {
 			break
 		}
 		s.Next()
+		cloffs = s.offset
 		if ch == '\'' {
+			cloffs--
+			break
+		} else if ch == '‘' || ch == '’' {
+			cloffs -= 3
 			break
 		}
 		n++
 		if ch == '\\' {
-			if !s.scanEscape('\'') {
+			if !s.scanEscapes('\'', '‘', '’') {
 				valid = false
 			}
 			// continue to read to closing quote
@@ -494,12 +495,12 @@ func (s *Scanner) scanRune() string {
 		s.Error(offs, "illegal rune literal")
 	}
 
-	return string(s.src[offs:s.offset])
+	return "'" + string(s.src[offs:cloffs]) + "'"
 }
 
 func (s *Scanner) scanString() string {
-	// '"' opening already consumed
-	offs := s.offset - 1
+	offs := s.offset
+	var cloffs int
 
 	for {
 		ch := s.ch
@@ -508,15 +509,20 @@ func (s *Scanner) scanString() string {
 			break
 		}
 		s.Next()
+		cloffs = s.offset
 		if ch == '"' {
+			cloffs--
+			break
+		} else if ch == '“' || ch == '”' {
+			cloffs -= 3
 			break
 		}
 		if ch == '\\' {
-			s.scanEscape('"')
+			s.scanEscapes('"', '“', '”')
 		}
 	}
 
-	return string(s.src[offs:s.offset])
+	return "\"" + string(s.src[offs:cloffs]) + "\""
 }
 
 func stripCR(b []byte) []byte {
@@ -664,21 +670,10 @@ scanAgain:
 		}
 
 	case isUnihanLetter(ch):
-		u:= s.scanUnihan()
-		w:= ""
-		if ku, isKeyword:= Keywords[u]; isKeyword {
-			w = ku
-		}
-
+		u:= s.scanUnihan() //rune
 		lit = string(u)
-		if w != "" { // Go-reserved keyword
-			tok = token.Lookup(w)
-			switch tok {
-			case token.IDENT, token.BREAK, token.CONTINUE, token.FALLTHROUGH, token.RETURN:
-				insertSemi = true
-			}
 
-		} else if isSuffixable(u) { // suffixable special identifier
+		if token.IsSuffixable(u) { // suffixable special identifier
 			tok = token.IDENT
 			switch u {
 			case '整', '绝':
@@ -695,6 +690,9 @@ scanAgain:
 					lit += l
 				}
 			}
+
+		} else if tok = token.Lookup(lit); tok != token.IDENT {
+			insertSemi = true
 
 		} else { // other Unihan, e.g. package name, non-suffixable special identifier
 			insertSemi = true
@@ -719,11 +717,12 @@ scanAgain:
 			// from s.skipWhitespace()
 			s.insertSemi = false // newline consumed
 			return pos, token.SEMICOLON, "\n"
-		case '"':
+		case '"', '“', '”':
 			insertSemi = true
 			tok = token.STRING
 			lit = s.scanString()
-		case '\'':
+
+		case '\'', '‘', '’':
 			insertSemi = true
 			tok = token.CHAR
 			if s.specialRuneProc != nil {
@@ -735,9 +734,9 @@ scanAgain:
 			insertSemi = true
 			tok = token.STRING
 			lit = s.scanRawString()
-		case ':':
+		case ':', '：':
 			tok = s.switch2(token.COLON, token.DEFINE)
-		case '.':
+		case '.', '。':
 			if '0' <= s.ch && s.ch <= '9' {
 				insertSemi = true
 				tok, lit = s.scanNumber(true)
@@ -750,19 +749,19 @@ scanAgain:
 			} else {
 				tok = token.PERIOD
 			}
-		case ',':
+		case ',', '，':
 			tok = token.COMMA
-		case ';':
+		case ';', '；':
 			tok = token.SEMICOLON
 			lit = ";"
-		case '(':
+		case '(', '（':
 			tok = token.LPAREN
-		case ')':
+		case ')', '）':
 			insertSemi = true
 			tok = token.RPAREN
-		case '[':
+		case '[', '【':
 			tok = token.LBRACK
-		case ']':
+		case ']', '】':
 			insertSemi = true
 			tok = token.RBRACK
 		case '{':
@@ -808,18 +807,18 @@ scanAgain:
 			tok = s.switch2(token.REM, token.REM_ASSIGN)
 		case '^':
 			tok = s.switch2(token.XOR, token.XOR_ASSIGN)
-		case '<':
+		case '<', '《':
 			if s.ch == '-' {
 				s.Next()
 				tok = token.ARROW
 			} else {
 				tok = s.switch4(token.LSS, token.LEQ, '<', token.SHL, token.SHL_ASSIGN)
 			}
-		case '>':
+		case '>', '》':
 			tok = s.switch4(token.GTR, token.GEQ, '>', token.SHR, token.SHR_ASSIGN)
 		case '=':
 			tok = s.switch2(token.ASSIGN, token.EQL)
-		case '!':
+		case '!', '！':
 			tok = s.switch2(token.NOT, token.NEQ)
 		case '&':
 			if s.ch == '^' {
@@ -831,6 +830,7 @@ scanAgain:
 		case '|':
 			tok = s.switch3(token.OR, token.OR_ASSIGN, '|', token.LOR)
 		default:
+			//TODO: if we ever add backslash (\) to the grammar, also add IME version (、)
 			// next reports unexpected BOMs - don't repeat
 			if ch != bom {
 				s.Error(s.file.Offset(pos), fmt.Sprintf("illegal character %#U", ch))

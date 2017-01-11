@@ -6,8 +6,8 @@
 package fresh
 
 import (
-	"go/ast"
-	"go/token"
+	"github.com/grolang/gro/ast"
+	//"github.com/grolang/gro/token"
 	"github.com/grolang/gro/macro"
 )
 
@@ -18,6 +18,7 @@ func (m Fresh) Init(p macro.Parser) {
 
 func (m Fresh) Main(p macro.Parser) ast.Stmt {
 	p.Next()
+	/*
 	p.CheckOrConvertIdentifier()
 	p.OpenScope()
 	ss, _ := p.ParseSimpleStmt(macro.Basic)
@@ -29,5 +30,7 @@ func (m Fresh) Main(p macro.Parser) ast.Stmt {
 	p.CloseScope()
 	s:= &ast.BlockStmt{Lbrace: token.NoPos, List: list, Rbrace: token.NoPos}
 	return s
+	*/
+	return &ast.EmptyStmt{Semicolon: p.Pos(), Implicit: true}
 }
 

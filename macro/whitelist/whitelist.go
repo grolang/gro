@@ -6,7 +6,7 @@
 package whitelist
 
 import (
-	"go/ast"
+	"github.com/grolang/gro/ast"
 	"github.com/grolang/gro/macro"
 )
 

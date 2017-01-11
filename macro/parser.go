@@ -5,8 +5,8 @@
 package macro
 
 import (
-	"go/token"
-	"go/ast"
+	"github.com/grolang/gro/token"
+	"github.com/grolang/gro/ast"
 )
 
 type StmtMacro interface {

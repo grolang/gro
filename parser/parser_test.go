@@ -7,14 +7,14 @@ package parser
 import (
 	"bytes"
 	"fmt"
-	"go/ast"
-	"go/token"
+	"github.com/grolang/gro/ast"
+	"github.com/grolang/gro/token"
 	"strings"
 	"testing"
 )
 
 var validFiles = []string{
-	"parser.go",
+	//"parser.go", //file removed from test because identifiers in that file now include Unihan
 	"parser_test.go",
 	"error_test.go",
 	"short_test.go",

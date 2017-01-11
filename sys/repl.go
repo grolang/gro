@@ -8,7 +8,7 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/grolang/gro/parser"
-	"go/token"
+	"github.com/grolang/gro/token"
 	"io/ioutil"
 	"os"
 	"os/exec"
