@@ -284,11 +284,13 @@ section "xyz"
 //code x
 ```
 then a file for each section keyword is produced:
-"uvw.go":```
+"uvw.go" will have:
+```
 package somepkg
 //...
-```,
-"xyz.go":```
+```
+and "xyz.go" will have:
+```
 package somepkg
 //...
 ```
@@ -303,11 +305,13 @@ section "xyz"
 //code x
 ```
 then an extra file is produced:
-"dud.go":```
+"dud.go" will have:
+```
 package somepkg
 //code t
-```,
-"xyz.go":```
+```
+and "xyz.go" will have:
+```
 package somepkg
 //code x
 ```
@@ -328,12 +332,13 @@ section "uvw"
 main "xyz"
 //code x
 ```
-produces files:
-"uvw.go":```
+produces files "uvw.go":
+```
 package somepkg
 //code u
-```,
-"xyz.go":```
+```
+and "xyz.go":
+```
 // +build ignore
 package main
 //code x
@@ -350,14 +355,16 @@ testcode "sub"
 import . "somepkg"
 //code w
 ```
-produces:
-"thecode.go":```
+produces "thecode.go":
+```
 package somepkg
-```,
-"super_test.go":```
+```
+and "super_test.go":
+```
 package somepkg
-```,
-"sub_test.go":```
+```
+and "sub_test.go":
+```
 package somepkg_test
 ```
 
@@ -370,12 +377,13 @@ package somepkg
 package secondpkg
 //code t
 ```
-will generate
-"somepkg/somepkg.go":```
+will generate "somepkg/somepkg.go":
+```
 package somepkg
 //code s
-```,
-"secondpkg/secondpkg.go":```
+```
+and "secondpkg/secondpkg.go":
+```
 package secondpkg
 //code t
 ```
@@ -389,16 +397,18 @@ package somepkg
 package secondpkg
 //code t
 ```
-will produce
-"mypacks.go":```
+will produce "mypacks.go":
+```
 package mypacks
 //code r
-```,
-"somepkg/somepkg.go":```
+```
+and "somepkg/somepkg.go":
+```
 package somepkg
 //code s
-```,
-"secondpkg/secondpkg.go":```
+```
+and "secondpkg/secondpkg.go":
+```
 package secondpkg
 //code t
 ```
@@ -418,19 +428,23 @@ section "xyz"
 //code x
 ```
 then four files are produced:
-"mypacks.go":```
+"mypacks.go":
+```
 package mypacks
 //code r
-```,
-"uvw.go":```
+```
+"uvw.go":
+```
 package mypacks
 //code s
-```,
-"somepkg/somepkg.go":```
+```
+"somepkg/somepkg.go":
+```
 package somepkg
 //code t
-```,
-"somepkg/xyz.go":```
+```
+"somepkg/xyz.go":
+```
 package somepkg
 //code x
 ```
@@ -464,24 +478,29 @@ internal "somedir" mypack
 section "more"
 //code w
 ```
-will generate
-"somepkg/somepkg.go":```
+will generate files:
+"somepkg/somepkg.go":
+```
 package somepkg
 //code s
-```,
-"internal/internal.go":```
+```
+"internal/internal.go":
+```
 package internal
 //code t
-```,
-"internal/packone/packone.go":```
+```
+"internal/packone/packone.go":
+```
 package packone
 //code u
-```,
-"internal/somedir/mypack/mypack.go":```
+```
+"internal/somedir/mypack/mypack.go":
+```
 package mypack
 //code v
-```,
-"internal/somedir/mypack/more.go":```
+```
+"internal/somedir/mypack/more.go":
+```
 package mypack
 //code w
 ```
@@ -495,11 +514,12 @@ package "some/path" pkgone
 package "some/path" mypkg
 //code y (with no section-specs)
 ```
-will generate:
-"some/path/pkgone/pkgone.go":```
+will generate "some/path/pkgone/pkgone.go":
+```
 //code x
-```,
-"some/path/mypkg/mypkg.go":```
+```
+and "some/path/mypkg/mypkg.go":
+```
 //code y
 ```
 
@@ -510,12 +530,13 @@ project "my/path" myproj
 package somepkg
 //code s
 ```
-will produce:
-"my/path/myproj.go":```
+will produce "my/path/myproj.go":
+```
 package myproj
 //code r
-```,
-"my/path/somepkg/somepkg.go":```
+```
+and "my/path/somepkg/somepkg.go":
+```
 package somepkg
 //code s
 ```
@@ -526,8 +547,8 @@ project "my/path" myproj
 package "another/path"
 //code x
 ```
-will generate:
-"my/path/another/path/myproj.go":```
+will generate "my/path/another/path/myproj.go":
+```
 package myproj
 //code x
 ```
@@ -572,8 +593,8 @@ func main () {
 package "somepath" auxpkg
 type Club //defined here...
 ```
-generates
-"caller/callingpackage.go":```
+generates "caller/callingpackage.go":
+```
 package callingpackage
 import "generics/caller/callingpackage/intpack"
 import "generics/caller/callingpackage/floatpack"
@@ -591,29 +612,34 @@ func main () {
 	cp:= clubpack.List
 	cp.element
 }
-```,
-"somepath/auxpkg.go":```
+```
+"somepath/auxpkg.go":
+```
 package auxpkg
 type Club //defined here...
-```,
-"generics/caller/callingpackage/intpack/intpack.go":```
+```
+"generics/caller/callingpackage/intpack/intpack.go":
+```
 package intpack
 type T = int
 type List struct { element T; next *List }
 //...
-```,
-"generics/caller/callingpackage/floatpack/floatpack.go":```
+```
+"generics/caller/callingpackage/floatpack/floatpack.go":
+```
 package floatpack
 type T = float
 type List struct { element T; next *List }
-```,
-"generics/caller/callingpackage/clubpack/clubpack.go":```
+```
+"generics/caller/callingpackage/clubpack/clubpack.go":
+```
 package clubpack
 import "somepath/auxpkg"
 type T = auxpkg.Club
 type List struct { element T; next *List }
-```,
-"generics/caller/callingpackage/mymappack.go":```
+```
+"generics/caller/callingpackage/mymappack.go":
+```
 package mappack
 type (
 	T1 = int
@@ -641,14 +667,15 @@ package abc {
 	}
 }
 ```
-will generate:
-"dud.go": ```
+will generate "dud.go":
+```
 package abc
 import "fmt"
 func run() {
 	fmt.Println("Hello, world!")
-```,
-"this.go": ```
+```
+and "this.go":
+```
 package abc
 import "fmt"
 func run() {
