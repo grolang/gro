@@ -1,4 +1,4 @@
-// Copyright 2011 The Gro Authors.  All rights reserved.
+// Copyright 2016-17 The Go and Gro Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -6,49 +6,100 @@ package sys
 
 import (
 	"fmt"
-	"github.com/grolang/gro/ast"
-	"github.com/grolang/gro/format"
-	"github.com/grolang/gro/token"
 	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
-	"github.com/grolang/gro/macro"
-	"github.com/grolang/gro/parser"
+	"strings"
+	"sync"
+	"github.com/grolang/gro/syntax"
 )
 
-// ============================================================================
+var (
+	// default input and output -- can be changed by test suite in gro/cmd/gro
+	Stderr io.Writer = os.Stderr
+	Stdout io.Writer = os.Stdout
+	Stdin  io.Reader = os.Stdin
 
-type StringWriter struct{
-	data string
-}
+	ProgName = "gro"
+	WantMsgs bool
+	ExitStatus = 0
+)
 
-func (sw *StringWriter) Write(b []byte) (int, error) {
-	sw.data += string(b)
-	return len(b), nil
+const Suffix = "gro"
+
+var exitMu sync.Mutex
+
+func setExitStatus(n int) {
+	exitMu.Lock()
+	if ExitStatus < n {
+		ExitStatus = n
+	}
+	exitMu.Unlock()
 }
 
 //================================================================================
-
-func GetHoldDir() (string, error){
-  holddir:= "tmp/"
-  _, err:= ioutil.ReadDir(holddir)
-  if err != nil {
-    err= os.MkdirAll(holddir, os.ModeDir)
-    if err != nil {
-      fmt.Fprintf(os.Stderr, "Error: %s\n", err)
-      return "", err
-    }
-  }
-  return holddir, nil
+func Prepare(args ...string) {
+	if len(args) < 1 {
+		fmt.Fprintf(Stderr, "%s: usage: gro prepare path\nNot enough arguments given.\n", ProgName)
+		setExitStatus(2)
+		return
+	}
+	for i := 0; i < len(args); i++ {
+		pth := args[i]
+		switch dir, err := os.Stat(pth); {
+		case err != nil:
+			fmt.Fprintf(Stderr, "%s: %s\n", ProgName, err)
+			setExitStatus(2)
+			return
+		case dir.IsDir():
+			filepath.Walk(pth, func(pth string, f os.FileInfo, err error) error {
+				name := f.Name()
+				pth = filepath.ToSlash(pth)
+				if err == nil && !f.IsDir() && !strings.HasPrefix(name, ".") && strings.HasSuffix(name, "."+Suffix) {
+					if WantMsgs {
+						fmt.Fprintf(Stderr, "%s: preparing %s\n", ProgName, pth)
+					}
+					err = processFile(pth, nil, Stdout)
+				}
+				if err != nil {
+					fmt.Fprintf(Stderr, "%s: %s\n", ProgName, err)
+					setExitStatus(2)
+				}
+				return nil
+			})
+		default:
+			if WantMsgs {
+				fmt.Fprintf(Stderr, "%s: preparing %s\n", ProgName, pth)
+			}
+			if err := processFile(pth, nil, Stdout); err != nil {
+				fmt.Fprintf(Stderr, "%s: %s\n", ProgName, err)
+				setExitStatus(2)
+				return
+			}
+		}
+	}
 }
 
-// ============================================================================
+//--------------------------------------------------------------------------------
+func GetFile(filename string) (src string, err error) {
+	if WantMsgs {
+		fmt.Fprintf(Stderr, "%s: Parsing extra file %s.\n", ProgName, filename)
+	}
+	f, err := os.Open(filepath.Join("src", filename))
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	s, err:= ioutil.ReadAll(f)
+	return string(s), err
+}
 
+//--------------------------------------------------------------------------------
 // If in == nil, the source is the contents of the file with the given filename.
-func ProcessFile( filename string, in io.Reader, out io.Writer, fileSet *token.FileSet, parserMode parser.Mode) error {
+// TODO: not called anywhere with non-nil 'in' arg -- needs test
+func processFile(filename string, in io.Reader, out io.Writer) error {
 	if in == nil {
 		f, err := os.Open(filename)
 		if err != nil {
@@ -57,89 +108,67 @@ func ProcessFile( filename string, in io.Reader, out io.Writer, fileSet *token.F
 		defer f.Close()
 		in = f
 	}
-
 	src, err := ioutil.ReadAll(in)
 	if err != nil {
 		return err
 	}
 
-	files, frag, err:= parser.ParseMultiFile(fileSet, filename, src, predefMacros, parserMode)
+	asts, err := syntax.ParseBytes(filename, nil, src, nil, nil, 0, GetFile)
 	if err != nil {
+		fmt.Fprintf(Stderr, "%s: Error received: %s", ProgName, err)
 		return err
 	}
-
-	if frag != "" {
-		holdDir, _:= GetHoldDir()
-		holdFile:= holdDir + "macros-run.go"
-		_= ioutil.WriteFile(holdFile, []byte(frag), os.ModeExclusive)
-		out, err:= exec.Command("go", "run", holdFile, filename).CombinedOutput()
+	if len(asts) != 0 && WantMsgs {
+		fmt.Fprintf(Stderr, "%s: Received %d files from ParsePackage.\n", ProgName, len(asts))
+	}
+	for name, ast:= range asts {
+		file:= syntax.StringWithLinebreaks(ast)
+		parentPath, _:= filepath.Split(name)
+		err := os.MkdirAll(filepath.Join(filepath.Dir(filename), parentPath), os.ModeDir)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %s executing %s\n%s", err, holdFile, out)
+			fmt.Fprintf(Stderr, "%s: Error creating directory: %s\n", ProgName, err)
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "%s", out)
-
-	} else {
-		for name, file:= range files {
-			ast.SortImports(fileSet, file)
-
-			sw:= StringWriter{""}
-			_= format.Node(&sw, fileSet, file)
-
-			parentPath, _:= path.Split(name)
-			err := os.MkdirAll(filepath.Dir(filename) + "\\" + parentPath, os.ModeDir)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "creating directory: %s\n", err)
-				return err
-			}
-
-			err = ioutil.WriteFile(filepath.Dir(filename) + "\\" + name, []byte(sw.data), 0644)
-		}
+		err = ioutil.WriteFile(filepath.Join(filepath.Dir(filename), name), []byte(file), 0644)
 	}
 
 	return err
 }
 
-// ============================================================================
+//================================================================================
+func Execute(args ...string) {
+	if len(args) < 1 {
+		fmt.Fprintf(Stderr, "%s: usage: gro execute path\nNot enough arguments given.\n", ProgName)
+		setExitStatus(2)
+		return
+	}
+	if len(args) > 1 {
+		fmt.Fprintf(Stderr, "%s: usage: gro execute path\nToo many arguments given.\n", ProgName)
+		setExitStatus(2)
+		return
+	}
+	Prepare(args...)
+	if ExitStatus > 0 {
+		return
+	}
 
-//
-func ProcessFileWithMacros(aliases map[rune]macro.StmtMacro, args []string, mode parser.Mode) error {
-	filename:= args[0]
-	in, err := os.Open(filename)
+	extLen:= len(filepath.Ext(args[0]))
+	outfile:= args[0][:len(args[0])-extLen] + ".go"
+
+	if WantMsgs {
+		fmt.Fprintf(Stderr, "%s: running %s\n", ProgName, outfile)
+	}
+
+	c:= exec.Command("go", "run", outfile)
+	c.Stdin =  Stdin
+	c.Stdout = Stdout
+	c.Stderr = Stderr
+	err:= c.Run()
 	if err != nil {
-		return err
+		fmt.Fprintf(Stderr, "%s: Error: %s executing %s\n", ProgName, err, outfile)
+		setExitStatus(2)
+		return
 	}
-	defer in.Close()
-
-	src, err := ioutil.ReadAll(in)
-	if err != nil {
-		return err
-	}
-
-	fileSet:= token.NewFileSet()
-	files, _, err:= parser.ParseMultiFile(fileSet, filename, src, aliases, mode)
-	if err != nil {
-		return err
-	}
-
-	for name, file:= range files {
-		ast.SortImports(fileSet, file)
-
-		sw:= StringWriter{""}
-		_= format.Node(&sw, fileSet, file)
-
-		parentPath, _:= path.Split(name)
-		err := os.MkdirAll(filepath.Dir(filename) + "\\" + parentPath, os.ModeDir)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "creating directory: %s\n", err)
-			return err
-		}
-
-		err = ioutil.WriteFile(filepath.Dir(filename) + "\\" + name, []byte(sw.data), 0644)
-	}
-
-	return nil
 }
 
 //================================================================================
-

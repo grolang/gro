@@ -1,0 +1,11 @@
+project cool
+package cooler
+import "fmt"
+func way(){
+	fmt.Println("A mid-life crisis in the world.")
+}
+section "coolest"
+import "fmt"
+func lane(){
+	fmt.Println("Goodbye, cruel world!")
+}
