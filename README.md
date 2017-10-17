@@ -64,7 +64,7 @@ Or, run `gro execute src/github.com/grolang/gro/cmd/gro/testdata/list.gro` to bo
 
 ### Documentation
 
-Run `gro help` to see a list of commands available. Visit the wiki for [a spec of Gro's syntax](wiki/SPEC.md).
+Run `gro help` to see a list of commands available. Visit the wiki for [a spec of Gro's syntax](https://github.com/grolang/gro/wiki/Spec).
 
 
 ## Features of Gro
