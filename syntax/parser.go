@@ -261,9 +261,6 @@ func (p *parser) files() map[string]*File {
 			p.syntax_error_at(pkgs[1].Pos(), "multi-packages disabled but more than one package present")
 			return nil
 		}
-		/*if p.projRoot != "" {
-			pkg.Dir = filepath.ToSlash(filepath.Join(p.projRoot, pkg.Dir))
-		}*/
 		if p.projStr != "" {
 			pkg.Dir = filepath.ToSlash(filepath.Join(p.projStr, pkg.Dir))
 		}
@@ -272,7 +269,15 @@ func (p *parser) files() map[string]*File {
 			pkg.Dir = filepath.ToSlash(filepath.Join(pkg.Dir, pkg.Name))
 		}
 		if len(pkg.Params) > 0 {
-			p.paramdPkgs[pkg.Dir] = pkg
+			p.paramdPkgs[filepath.ToSlash(filepath.Join(p.projRoot, pkg.Dir))] = pkg
+			for _, f:= range pkg.Files {
+				f.OwnerPkg = pkg
+				for _, decl:= range f.DeclList {
+					if imp, ok:= decl.(*ImportDecl); ok {
+						imp.OwnerFile = f
+					}
+				}
+			}
 			continue
 		}
 		for _, f:= range pkg.Files {
@@ -284,9 +289,6 @@ func (p *parser) files() map[string]*File {
 			if f.SectName != "" {
 				f.FileName = f.SectName
 			}
-			/*if p.projRoot == "adir" {
-				fmt.Println("//>>", p.projRoot, ">>", pkg.Dir, ">>", f.FileName)
-			}*/
 			fs[filepath.ToSlash(filepath.Join(pkg.Dir, f.FileName)) + ".go"] = f
 			f.OwnerPkg = pkg
 			for _, decl:= range f.DeclList {
@@ -314,7 +316,11 @@ func (p *parser) initGenerics() map[string]*File {
 		}
 		pp:= p.paramdPkgs[ai.PkgLocn]
 		if pp == nil {
-			p.syntax_error(fmt.Sprintf("parameterized package \"%s\" not present in file", ai.PkgLocn))
+			pps:= ""
+			for k, _:= range p.paramdPkgs {
+				pps += fmt.Sprintf("%s\n", k)
+			}
+			p.syntax_error(fmt.Sprintf("parameterized package \"%s\" not present in file. Files available are:\n%s", ai.PkgLocn, pps))
 			return nil
 		}
 		newpath:= filepath.ToSlash(filepath.Join("generics", ai.Caller.OwnerFile.OwnerPkg.Dir, ai.Caller.OwnerFile.FileName, ai.Alias))

@@ -93,7 +93,7 @@ It then prints the generated Go source to the output files as determined by the 
 	w = new(bytes.Buffer)
 	sys.Stderr = w
 	main.Main([]string{"version"})
-	if fmt.Sprintf("%s", w) != "Gro version 0.7, running on Go version go1.9.1 windows/amd64\n" {
+	if fmt.Sprintf("%s", w) != "Gro version 0.7.1, running on Go version go1.9.1 for OS:windows and arch:amd64\n" {
 		t.Errorf("wrong version text received from Stderr:\n%s\n", w)
 	}
 

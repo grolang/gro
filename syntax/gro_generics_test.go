@@ -147,14 +147,14 @@ type T = int`}},
 //calling & 1-param packages, gro-file in subdir
 	{
 		num: 101,
-		fnm: "somedir/dud.gro",
+		fnm: "adir/dud.gro",
 		src:`package defg (T) //package with parameter...
 import "fmt"
 func run() {
 	fmt.Println("Hello, world!")
 }
 package hij
-import dint "defg" (int) //...called with an argument
+import dint "adir/defg" (int) //...called with an argument
 func run() {
 	fmt.Println("Hello, world!")
 }`,
@@ -162,7 +162,7 @@ func run() {
 		prt:map[string]string{
 "hij/hij.go": `package hij
 
-import dint "somedir/generics/hij/hij/dint"
+import dint "adir/generics/hij/hij/dint"
 
 func run() {
 	fmt.Println("Hello, world!")
@@ -1038,15 +1038,9 @@ func run() {
 type T = int`}},
 
 //--------------------------------------------------------------------------------
-})}
-
-//================================================================================
-func TestGenericsFails(t *testing.T){
-	groFail(t, groFailData{
-//--------------------------------------------------------------------------------
 // param to package must be type
 	{
-	num: 10,
+	num: 510,
 		fnm: "dud.gro",
 		src:`package def ("bad param")
 import "fmt"
@@ -1059,7 +1053,7 @@ func run() {
 //--------------------------------------------------------------------------------
 // imported arg pkgs need local name
 	{
-	num: 20,
+	num: 520,
 		fnm: "dud.gro",
 		src:`package abc (T)
 func run() T {

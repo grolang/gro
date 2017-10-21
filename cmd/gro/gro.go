@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	versionNo = "0.7"
+	versionNo = "0.7.1"
 	progDesc = "managing Gro scripts"
 )
 
@@ -71,7 +71,8 @@ func Main(args []string) {
 	// Diagnose common mistake: GOPATH==GOROOT.
 	// This setting is equivalent to not setting GOPATH at all,
 	// which is not what most people want when they do it.
-	if gopath := os.Getenv("GOPATH"); gopath == runtime.GOROOT() {
+	goroot:= runtime.GOROOT()
+	if gopath := os.Getenv("GOPATH"); gopath == goroot {
 		fmt.Fprintf(sys.Stderr, "%s: warning: GOPATH set to GOROOT (%s) has no effect\n", sys.ProgName, gopath)
 	} else {
 		for _, p := range filepath.SplitList(gopath) {
@@ -90,7 +91,6 @@ func Main(args []string) {
 			}
 		}
 	}
-	goroot:= runtime.GOROOT()
 	if fi, err := os.Stat(goroot); err != nil || !fi.IsDir() {
 		fmt.Fprintf(sys.Stderr, "%s: cannot find GOROOT directory: %v\n", sys.ProgName, goroot)
 		setExitStatus(2)
@@ -133,7 +133,8 @@ func version(args ...string) {
 		setExitStatus(2)
 		return
 	}
-	fmt.Fprintf(sys.Stderr, "Gro version %s, running on Go version %s %s/%s\n", versionNo, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+	fmt.Fprintf(sys.Stderr, "Gro version %s, running on Go version %s for OS:%s and arch:%s\n",
+		versionNo, runtime.Version(), runtime.GOOS, runtime.GOARCH)
 }
 
 //================================================================================

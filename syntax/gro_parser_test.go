@@ -10,73 +10,27 @@ import (
 	"testing"
 )
 
-var outputDir = "C:/users/gavin/Documents/Golang/"
+//var outputDir = "C:/users/gavin/Documents/Golang/"
 
 type groTestData []struct{
 	num int
 	fnm string
 	src string
 	xtr map[string]string
+
+	//extra field for checking success...
 	prt map[string]string
-}
 
-func groTest(t *testing.T, groTests groTestData){
-	for _, tst:= range groTests{
-		getFile:= func (filename string) (src string, err error) {
-			if tst.xtr == nil {
-				return "", errors.New("Extra file map not there.")
-			}
-			xtr, ok:= tst.xtr[filename]
-			if !ok {
-				return "", errors.New("Extra file not in map.")
-			}
-			return xtr, nil
-		}
-		asts, err := ParseBytes(tst.fnm, nil, []byte(tst.src), nil, nil, 0, getFile)
-		if err != nil {
-			t.Error(fmt.Sprintf("Test %d: Error received: %s", tst.num, err))
-			continue
-		}
-		if len(asts) != len(tst.prt) {
-			rcd:= "Received:\n"
-			for k, _:= range asts {
-				rcd += "\t" + k + "\n"
-			}
-			t.Error(fmt.Sprintf("Test %d: Expected %d files from ParsePackage but received %d.\n%s", tst.num, len(tst.prt), len(asts), rcd))
-		}
-		for fn, ast:= range asts {
-			want:= tst.prt[fn]
-			if got := StringWithLinebreaks(ast); got != want {
-				//t.Errorf("Test %d: expected and received source not the same for file %s.\nExpected: %d bytes.\nReceived: %d bytes.\n\n",
-					//tst.num, fn, len(want), len(got))
-				t.Errorf("Test %d: expected and received source not the same for file %s.\n\n#### Expected:\n%s\n\n#### Received:\n%s\n\n",
-					tst.num, fn, want, got)
-
-				/*t.Errorf("Test %d: Expected and received source not the same.\nFiles have been output.\n", tst.num)
-				err:= ioutil.WriteFile(outputDir + "FileExpected_" + fn + ".txt", []byte(want), 0644)
-				if err != nil {
-					t.Error(err)
-				}
-				err = ioutil.WriteFile(outputDir + "FileReceived_" + fn + ".txt", []byte(got), 0644)
-				if err != nil {
-					t.Error(err)
-				}*/
-			}
-		}
-	}
-}
-
-type groFailData []struct{
-	num int
-	fnm string
-	src string
-	xtr map[string]string
+	//extra fields for checking failure...
 	err string
 	nAst int
 }
 
-func groFail(t *testing.T, groFails groFailData){
-	for _, tst:= range groFails{
+func groTest(t *testing.T, groTests groTestData){
+	for _, tst:= range groTests{
+		if tst.prt != nil && tst.err != "" {
+			t.Error("Both \"prt\" and \"err\" are defined in testdata but only one should be.")
+		}
 		getFile:= func (filename string) (src string, err error) {
 			if tst.xtr == nil {
 				return "", errors.New("Extra file map not there.")
@@ -88,16 +42,49 @@ func groFail(t *testing.T, groFails groFailData){
 			return xtr, nil
 		}
 		asts, err := ParseBytes(tst.fnm, nil, []byte(tst.src), nil, nil, 0, getFile)
-		if fmt.Sprintf("%s", err) != tst.err {
-			t.Error(fmt.Sprintf("Test %d: Expected error: %s;\nbut received: %s", tst.num, tst.err, err))
-			continue
-		}
-		if len(asts) != tst.nAst {
-			t.Error(fmt.Sprintf("Test %d: Expected %d files from ParsePackage but received %d.\n", tst.num, tst.nAst, len(asts)))
+		if tst.prt != nil {
+			if err != nil {
+				t.Error(fmt.Sprintf("Test %d: Error received: %s", tst.num, err))
+				continue
+			}
+			if len(asts) != len(tst.prt) {
+				rcd:= "Received:\n"
+				for k, _:= range asts {
+					rcd += "\t" + k + "\n"
+				}
+				t.Error(fmt.Sprintf("Test %d: Expected %d files from ParsePackage but received %d.\n%s", tst.num, len(tst.prt), len(asts), rcd))
+			}
 			for fn, ast:= range asts {
-				got := StringWithLinebreaks(ast)
-				//t.Errorf("Test %d: Received source \"%s\" of length %d bytes.", tst.num, fn, len(got))
-				t.Errorf("Test %d: Received source \"%s\" was:\n%s\n\n", tst.num, fn, got)
+				want:= tst.prt[fn]
+				if got := StringWithLinebreaks(ast); got != want {
+					//t.Errorf("Test %d: expected and received source not the same for file %s.\nExpected: %d bytes.\nReceived: %d bytes.\n\n",
+						//tst.num, fn, len(want), len(got))
+					t.Errorf("Test %d: expected and received source not the same for file %s.\n\n#### Expected:\n%s\n\n#### Received:\n%s\n\n",
+						tst.num, fn, want, got)
+
+					/*t.Errorf("Test %d: Expected and received source not the same.\nFiles have been output.\n", tst.num)
+					err:= ioutil.WriteFile(outputDir + "FileExpected_" + fn + ".txt", []byte(want), 0644)
+					if err != nil {
+						t.Error(err)
+					}
+					err = ioutil.WriteFile(outputDir + "FileReceived_" + fn + ".txt", []byte(got), 0644)
+					if err != nil {
+						t.Error(err)
+					}*/
+				}
+			}
+		} else {
+			if fmt.Sprintf("%s", err) != tst.err {
+				t.Error(fmt.Sprintf("Test %d: Expected error: %s;\nbut received: %s", tst.num, tst.err, err))
+				continue
+			}
+			if len(asts) != tst.nAst {
+				t.Error(fmt.Sprintf("Test %d: Expected %d files from ParsePackage but received %d.\n", tst.num, tst.nAst, len(asts)))
+				for fn, ast:= range asts {
+					got := StringWithLinebreaks(ast)
+					//t.Errorf("Test %d: Received source \"%s\" of length %d bytes.", tst.num, fn, len(got))
+					t.Errorf("Test %d: Received source \"%s\" was:\n%s\n\n", tst.num, fn, got)
+				}
 			}
 		}
 	}
@@ -106,6 +93,40 @@ func groFail(t *testing.T, groFails groFailData){
 //================================================================================
 func TestDivisions(t *testing.T){
 	groTest(t, groTestData{
+//--------------------------------------------------------------------------------
+//bad top-level keyword
+	{
+		num: 1,
+		fnm: "dud.gro",
+		src:`package abc
+gobbledegook "this"
+import "fmt"
+func main() {
+	fmt.Println("abc/this")
+}`,
+		err: ":2:1: syntax error: non-declaration statement outside function body",
+},
+
+//--------------------------------------------------------------------------------
+	{
+		num: 2,
+		fnm: "dud.gro",
+		src:`{a:= 7}`, //must be: `do {a:= 7}` or `{do a:=7}`
+		err: ":1:2: syntax error: unexpected a, expecting }",
+	},
+
+//--------------------------------------------------------------------------------
+	{
+		num: 3,
+		fnm: "dud.gro",
+		src:`package abc
+func main() {
+	"my/path/here".SomeFunc()
+	"another/path/here".AnotherFn()
+}`,
+		err: ":4:21: syntax error: import alias has already been used but with different import path",
+},
+
 //--------------------------------------------------------------------------------
 //single "package" directive
 	{
@@ -190,6 +211,38 @@ func run() {
 	{
 		num: 30,
 		fnm: "dud.gro",
+		src:`import "fmt"
+func run() {
+	fmt.Println("Hello, world!")
+};
+package abc
+import "fmt"
+func run() {
+	fmt.Println("Hello, world!")
+}`,
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+		prt:map[string]string{
+"dud.go":`package dud
+
+import "fmt"
+
+func run() {
+	fmt.Println("Hello, world!")
+}`,
+
+"abc/abc.go":`package abc
+
+import "fmt"
+
+func run() {
+	fmt.Println("Hello, world!")
+}`}},
+
+//--------------------------------------------------------------------------------
+//implicit package and explicit "package"; semicolon after 1st package defn
+	{
+		num: 31,
+		fnm: "adir/dud.gro",
 		src:`import "fmt"
 func run() {
 	fmt.Println("Hello, world!")
@@ -2053,41 +2106,3 @@ func main() {
 })}
 
 //================================================================================
-func TestGroFails(t *testing.T){
-	groFail(t, groFailData{
-//--------------------------------------------------------------------------------
-	{
-		num: 10,
-		fnm: "dud.gro",
-		src:`package abc
-gobbledegook "this"
-import "fmt"
-func main() {
-	fmt.Println("abc/this")
-}`,
-		err: ":2:1: syntax error: non-declaration statement outside function body",
-},
-
-//--------------------------------------------------------------------------------
-	{
-		num: 20,
-		fnm: "dud.gro",
-		src:`{a:= 7}`, //must be: `do {a:= 7}` or `{do a:=7}`
-		err: ":1:2: syntax error: unexpected a, expecting }",
-	},
-
-//--------------------------------------------------------------------------------
-	{
-		num: 30,
-		fnm: "dud.gro",
-		src:`package abc
-func main() {
-	"my/path/here".SomeFunc()
-	"another/path/here".AnotherFn()
-}`,
-		err: ":4:21: syntax error: import alias has already been used but with different import path",
-},
-
-//--------------------------------------------------------------------------------
-})}
-

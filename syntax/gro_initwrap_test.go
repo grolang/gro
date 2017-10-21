@@ -720,58 +720,56 @@ func init() {
 }`}},
 
 //--------------------------------------------------------------------------------
-})}
-
-//================================================================================
-func TestInitwrapFails(t *testing.T){
-	groFail(t, groFailData{
-//--------------------------------------------------------------------------------
+//
 	{
-		num: 10,
+		num: 510,
 		fnm: "dud.gro",
 		src:`package abc
 import "fmt"
 for a:= range as {
-	fmt.Printf("Hello, %s of Mars!", a) //need "do" to introduce Go statement
+	fmt.Printf("Hello, %s of Mars!", a) //need "do" to introduce Go-style statement
 }
 `,
 		err: ":4:2: syntax error: unexpected fmt, expecting }",
 },
 
 //--------------------------------------------------------------------------------
+//can't have "proc" as expression within "go"
 	{
-		num: 21,
+		num: 521,
 		fnm: "dud.gro",
 		src:`package abc
 import "fmt"
 go proc() {
-	do fmt.Printf("Hello, %s of Mars!", a) //can't have "proc" as expression within "go"
+	do fmt.Printf("Hello, %s of Mars!", a)
 }()
 `,
 		err: ":3:11: syntax error: unexpected { at end of statement",
 },
 
 //--------------------------------------------------------------------------------
+//need either "do" or "func" containing Go statements
 	{
-		num: 22,
+		num: 522,
 		fnm: "dud.gro",
 		src:`package abc
 import "fmt"
 go {
-	fmt.Printf("Hello, %s of Neptune!", a) //need either "do" or "func" containing Go statements
+	fmt.Printf("Hello, %s of Neptune!", a)
 }
 `,
 		err: ":4:2: syntax error: unexpected fmt, expecting }",
 },
 
 //--------------------------------------------------------------------------------
+//can't have "do" inside "func"
 	{
-		num: 23,
+		num: 523,
 		fnm: "dud.gro",
 		src:`package abc
 import "fmt"
 go func() {
-	do fmt.Printf("Hello, %s of Uranus!", a) //can't have "do" inside "func"
+	do fmt.Printf("Hello, %s of Uranus!", a)
 }()
 `,
 		err: ":4:5: syntax error: unexpected fmt at end of statement",

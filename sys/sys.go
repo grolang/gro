@@ -123,8 +123,7 @@ func processFile(filename string, in io.Reader, out io.Writer) error {
 	}
 	for name, ast:= range asts {
 		file:= syntax.StringWithLinebreaks(ast)
-		parentPath, _:= filepath.Split(name)
-		err := os.MkdirAll(filepath.Join(filepath.Dir(filename), parentPath), os.ModeDir)
+		err := os.MkdirAll(filepath.Join(filepath.Dir(filename), filepath.Dir(name)), os.ModeDir)
 		if err != nil {
 			fmt.Fprintf(Stderr, "%s: Error creating directory: %s\n", ProgName, err)
 			return err
