@@ -28,9 +28,9 @@ Visit the [wiki](https://github.com/grolang/gro/wiki/Home) for:
 
 ### Installation
 
-First, make sure Go is already installed. Gro has tested successfully on Go 1.9.1.
+First, make sure Go is already installed. Gro has tested successfully on Go 1.9.2.
 
-Run `go get github.com/grolang/gro` to get the command and packages.
+Run `go get github.com/grolang/gro` to get the command and support packages for Gro, and `go get github.com/grolang/samples` to get some Gro sample code.
 
 The hierarchy should then be:
 
@@ -42,23 +42,25 @@ The hierarchy should then be:
 	      +--github.com
 	      |   +--grolang
 	      |      +--gro
-	      |          +--[various libraries of go source code for gro]
-	      |          +--LICENSE.txt, etc
+	      |      |   +--[various libraries of go source code for gro]
+	      |      |   +--LICENSE.txt, etc
+		  |      +--samples
+		  |          +--[various samples of gro source code]
 	      +--[put your own directories and files here]
 ```
 
 Run `go install github.com/grolang/gro/cmd/gro` to compile and install the `gro` command from the downloaded source.
 
-You can add your own projects anywhere else under the src/ directory.
+You can add your own projects anywhere else under the `src/` directory.
 
 
 ### Execution
 
-gro runs various utilities to complement those in the Go command.
+Gro runs various utilities to complement those in the Go command.
 
-Run `gro prepare src/github.com/grolang/gro/cmd/gro/testdata/list.gro` to format one of the supplied gro code samples, which can then be run using the standard `go run src/github.com/grolang/gro/cmd/gro/testdata/list.go`.
+From your `GOPATH` as working directory, run `gro prepare src/github.com/grolang/samples/container/list_run.gro` to format one of the supplied gro code samples, which can then be run using the standard `go run src/github.com/grolang/samples/container/list_run.go`.
 
-Or, run `gro execute src/github.com/grolang/gro/cmd/gro/testdata/list.gro` to both format and run that gro code sample.
+Or, run `gro execute src/github.com/grolang/samples/container/list_run.gro` to both format and run that gro code sample.
 
 
 ### Documentation
@@ -68,9 +70,9 @@ Run `gro help` to see a list of commands available, or visit the [wiki](https://
 
 ## Status
 
-Version 0.7.1, released 21 October 2017.
+Version 0.7.2, released on 30 October 2017.
 
-All functionality documented below is implemented in 0.7.1.
+All functionality documented in the wiki is implemented.
 
 
 ## License
@@ -92,5 +94,5 @@ The next steps in building Gro will be to:
 * ensure all comments in gro source code are in the generated go code
 * add macros, allowing Go developers to add their own top-level keywords to Gro
 
-The core of Gro is restricted to a small handful of features, in the same spirit as the minimal style of Go. In fact, version 0.7 removed many core features from version 0.6, intending to re-introduce them as optional macros later on.
+The core of Gro is restricted to a small handful of features, in the same minimal style as Go. In fact, version 0.7 removed many core features from version 0.6, intending to re-introduce them as optional macros later on.
 

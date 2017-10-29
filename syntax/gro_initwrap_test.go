@@ -498,6 +498,9 @@ import "fmt"
 do defer func() {
 	fmt.Printf("Hello, %s of Mars!", a)
 }()
+defer func() { //also parses OK
+	fmt.Printf("Hello, %s of Mars!", a)
+}()
 do defer {
 	fmt.Printf("Hello, %s of Jupiter!", a)
 }
@@ -513,6 +516,9 @@ defer {
 import "fmt"
 
 func init() {
+	defer func() {
+		fmt.Printf("Hello, %s of Mars!", a)
+	}()
 	defer func() {
 		fmt.Printf("Hello, %s of Mars!", a)
 	}()
@@ -552,7 +558,7 @@ func runtwo() {
 }`}},
 
 //--------------------------------------------------------------------------------
-//const both at top-level and within proc
+//const at top-level, within proc, and within do-block
 	{
 		num: 310,
 		fnm: "dud.gro",
@@ -561,8 +567,11 @@ import "fmt"
 const a = 123
 do fmt.Println("a is:", a)
 proc runtwo() {
-	const b = 789
+	const b = 555
 	do fmt.Println("b is:", b)
+}
+do {
+	const z = 789
 }`,
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 		prt:map[string]string{
@@ -577,8 +586,14 @@ func init() {
 }
 
 func runtwo() {
-	const b = 789
+	const b = 555
 	fmt.Println("b is:", b)
+}
+
+func init() {
+	{
+		const z = 789
+	}
 }`}},
 
 //--------------------------------------------------------------------------------
@@ -722,6 +737,17 @@ func init() {
 //--------------------------------------------------------------------------------
 //
 	{
+		num: 420,
+		fnm: "dud.gro",
+		src:`package abc
+import "fmt"
+do do fmt.Println("abc")`,
+		err: "dud.gro:3:7: syntax error: unexpected fmt at end of statement",
+},
+
+//--------------------------------------------------------------------------------
+//
+	{
 		num: 510,
 		fnm: "dud.gro",
 		src:`package abc
@@ -730,7 +756,7 @@ for a:= range as {
 	fmt.Printf("Hello, %s of Mars!", a) //need "do" to introduce Go-style statement
 }
 `,
-		err: ":4:2: syntax error: unexpected fmt, expecting }",
+		err: "dud.gro:4:2: syntax error: unexpected name, expecting \"do\", label or macro name",
 },
 
 //--------------------------------------------------------------------------------
@@ -744,7 +770,7 @@ go proc() {
 	do fmt.Printf("Hello, %s of Mars!", a)
 }()
 `,
-		err: ":3:11: syntax error: unexpected { at end of statement",
+		err: "dud.gro:3:11: syntax error: unexpected { at end of statement",
 },
 
 //--------------------------------------------------------------------------------
@@ -758,7 +784,7 @@ go {
 	fmt.Printf("Hello, %s of Neptune!", a)
 }
 `,
-		err: ":4:2: syntax error: unexpected fmt, expecting }",
+		err: "dud.gro:4:2: syntax error: unexpected name, expecting \"do\", label or macro name",
 },
 
 //--------------------------------------------------------------------------------
@@ -772,8 +798,28 @@ go func() {
 	do fmt.Printf("Hello, %s of Uranus!", a)
 }()
 `,
-		err: ":4:5: syntax error: unexpected fmt at end of statement",
+		err: "dud.gro:4:5: syntax error: unexpected fmt at end of statement",
 },
+
+//--------------------------------------------------------------------------------
+//can't have {a:= 7} at top-level; must be: `do {a:= 7}` or `{do a:=7}`
+	{
+		num: 530,
+		fnm: "dud.gro",
+		src:`{a:= 7}`,
+		err: "dud.gro:1:2: syntax error: unexpected name, expecting \"do\", label or macro name",
+	},
+
+//--------------------------------------------------------------------------------
+//can't have labels at toplevel
+	{
+		num: 600,
+		fnm: "dud.gro",
+		src:`package abc
+label:
+"fmt".Println("abc")`,
+		err: "dud.gro:2:1: syntax error: non-declaration statement outside function body",
+	},
 
 //--------------------------------------------------------------------------------
 })}

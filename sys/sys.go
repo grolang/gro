@@ -87,7 +87,7 @@ func GetFile(filename string) (src string, err error) {
 	if WantMsgs {
 		fmt.Fprintf(Stderr, "%s: Parsing extra file %s.\n", ProgName, filename)
 	}
-	f, err := os.Open(filepath.Join("src", filename))
+	f, err := os.Open(filename)
 	if err != nil {
 		return "", err
 	}
@@ -115,20 +115,22 @@ func processFile(filename string, in io.Reader, out io.Writer) error {
 
 	asts, err := syntax.ParseBytes(filename, nil, src, nil, nil, 0, GetFile)
 	if err != nil {
-		fmt.Fprintf(Stderr, "%s: Error received: %s", ProgName, err)
+		fmt.Fprintf(Stderr, "%s: Error received: %s\n", ProgName, err)
 		return err
 	}
 	if len(asts) != 0 && WantMsgs {
 		fmt.Fprintf(Stderr, "%s: Received %d files from ParsePackage.\n", ProgName, len(asts))
 	}
+	srcPath:= filepath.Join(os.Getenv("GOPATH"), "src")
 	for name, ast:= range asts {
 		file:= syntax.StringWithLinebreaks(ast)
-		err := os.MkdirAll(filepath.Join(filepath.Dir(filename), filepath.Dir(name)), os.ModeDir)
+		name = filepath.Join(srcPath, name)
+		err := os.MkdirAll(filepath.Dir(name), os.ModeDir)
 		if err != nil {
 			fmt.Fprintf(Stderr, "%s: Error creating directory: %s\n", ProgName, err)
 			return err
 		}
-		err = ioutil.WriteFile(filepath.Join(filepath.Dir(filename), name), []byte(file), 0644)
+		err = ioutil.WriteFile(name, []byte(file), 0644)
 	}
 
 	return err

@@ -4,7 +4,10 @@
 
 package syntax
 
-import "github.com/grolang/gro/syntax/src"
+import (
+	"fmt"
+	"github.com/grolang/gro/syntax/src"
+)
 
 // ----------------------------------------------------------------------------
 // Nodes
@@ -51,6 +54,18 @@ type Comments struct {
 // ----------------------------------------------------------------------------
 // Files
 
+// project and package nodes are used during parsing, but only a map of file nodes are passed out
+type Project struct {
+	Name         string // project name
+	Str          string // dir-string
+	Root         string
+	Locn         string // absolute path
+	ExplicitKw   bool
+	Doc          []string // doc-comment
+	FileExt      string
+	node
+}
+
 type Package struct {
 	Name       string
 	Dir        string
@@ -71,16 +86,50 @@ type File struct {
 	node
 }
 
-type ArgImport struct {
-	Alias   string
-	PkgLocn string
-	Args    []Expr
-	Caller  *ImportDecl
-	Infers  []*ImportDecl
+func (f *File) Clone() *File {
+	decls:= []Decl{}
+	for _, decl:= range f.DeclList {
+		decls = append(decls, decl)
+	}
+	return &File {
+		PkgName: f.PkgName,
+		DeclList: decls,
+		Lines: f.Lines,
+		SectName: f.SectName,
+		FileName: f.FileName,
+		OwnerPkg: f.OwnerPkg,
+	}
+}
+
+func (f *File) Imports() []*ImportDecl {
+	ids:= []*ImportDecl{}
+	for _, decl:= range f.DeclList {
+		if decl, ok:= decl.(*ImportDecl); ok {
+			ids = append(ids, decl)
+		}
+	}
+	return ids
+}
+
+func (f *File) ImportsString() string {
+	impStr:= ""
+	for _, imp:= range f.Imports() {
+		impStr += fmt.Sprintf("%p ", imp)
+	}
+	return impStr
+}
+
+func (f *File) String() string {
+	return fmt.Sprintf("[%p] pkg:%s; #decls:%d; file:%s; #imps:%d; imps:%s",
+		f, f.PkgName.Value, len(f.DeclList), f.FileName, len(f.Imports()), f.ImportsString())
 }
 
 // ----------------------------------------------------------------------------
 // Declarations
+
+type decl struct{ node }
+
+func (*decl) aDecl() {}
 
 type (
 	Decl interface {
@@ -101,6 +150,8 @@ type (
 		Path         *BasicLit
 		Group        *Group // nil means not part of a group
 		OwnerFile    *File
+		Args         []Expr // empty or nil means not an import invoked with args
+		Infers       []*ImportDecl
 		decl
 	}
 
@@ -154,10 +205,6 @@ type (
 		decl
 	}
 )
-
-type decl struct{ node }
-
-func (*decl) aDecl() {}
 
 // All declarations belonging to the same group point to the same Group node.
 type Group struct {

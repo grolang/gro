@@ -6,17 +6,125 @@ package syntax
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/grolang/gro/syntax/src"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+//================================================================================
+/*
+The tests of the Gro extensions to Go's syntax are in files
+with no gro_xxxx_test.go where xxxx is:
+
+	blacklist - TestBlacklist
+	comments - TestComments, TestUseDecls
+	divisions - TestDivisions, TestMain, TestCurlies, TestShorthandAliases
+	generics - TestGenerics
+	initwrap - TestInitwrap
+*/
+type groTestData []struct{
+	num int
+	fnm string
+	src string
+	xtr map[string]string
+	prt map[string]string //extra field for checking success
+	err string //extra field for checking failure
+}
+
+const locnPrefix = "github.com/grolang/gro/syntax"
+
+func groTest(t *testing.T, groTests groTestData){
+	flag.Parse()
+	nums:= map[int]bool{}
+	for _, arg:= range flag.Args() {
+		num, err := strconv.ParseInt(arg, 10, 64)
+		if err != nil {
+			panic("Invalid args to test -- they should be integers.")
+		}
+		nums[int(num)] = true
+	}
+
+	for _, tst:= range groTests{
+		if len(nums) > 0 && ! nums[tst.num] {
+			continue
+		}
+		if tst.prt != nil && tst.err != "" {
+			t.Error("Both \"prt\" and \"err\" are defined in testdata but only one should be.")
+		}
+		getFile:= func (filename string) (src string, err error) {
+			if tst.xtr == nil {
+				return "", errors.New("Extra file map not there.")
+			}
+			wd, _:= os.Getwd()
+			filename = strings.TrimPrefix(strings.TrimPrefix(filename, filepath.ToSlash(wd)), "/")
+			xtr, ok:= tst.xtr[filename]
+			if !ok {
+				return "", errors.New("Extra file not in map.")
+			}
+			return xtr, nil
+		}
+		asts, err := ParseBytes(tst.fnm, src.NewFileBase(tst.fnm, tst.fnm), []byte(tst.src), nil, nil, 0, getFile)
+		if tst.prt != nil {
+			if err != nil {
+				t.Error(fmt.Sprintf("Test %d: Error received: %s", tst.num, err))
+				continue
+			}
+			if len(asts) != len(tst.prt) {
+				rcd:= "Received:\n"
+				for k, _:= range asts {
+					rcd += "\t" + k + "\n"
+				}
+				t.Error(fmt.Sprintf("Test %d: Expected %d files from ParsePackage but received %d.\n%s", tst.num, len(tst.prt), len(asts), rcd))
+			}
+			for fn, ast:= range asts {
+				fn = strings.TrimPrefix(strings.TrimPrefix(filepath.ToSlash(fn), locnPrefix), "/")
+				want:= tst.prt[fn]
+				if got := StringWithLinebreaks(ast); got != want {
+					//t.Errorf("Test %d: expected and received source not the same for file %s.\nExpected: %d bytes.\nReceived: %d bytes.\n\n",
+						//tst.num, fn, len(want), len(got))
+					t.Errorf("Test %d: expected and received source not the same for file %s.\n\n#### Expected:\n%s\n\n#### Received:\n%s\n\n",
+						tst.num, fn, want, got)
+
+					/*var outputDir = "C:/Users/gavin/Documents/Golang/"
+					t.Errorf("Test %d: Expected and received source not the same.\nFiles have been output.\n", tst.num)
+					err:= ioutil.WriteFile(outputDir + "FileExpected_" + fn + ".txt", []byte(want), 0644)
+					if err != nil {
+						t.Error(err)
+					}
+					err = ioutil.WriteFile(outputDir + "FileReceived_" + fn + ".txt", []byte(got), 0644)
+					if err != nil {
+						t.Error(err)
+					}*/
+				}
+			}
+		} else {
+			if fmt.Sprintf("%s", err) != tst.err {
+				t.Error(fmt.Sprintf("Test %d: Expected error: %s;\nbut received: %s", tst.num, tst.err, err))
+				continue
+			}
+			if len(asts) != 0 {
+				t.Error(fmt.Sprintf("Test %d: Expected 0 files from ParsePackage but received %d.\n", tst.num, len(asts)))
+				for fn, ast:= range asts {
+					got := StringWithLinebreaks(ast)
+					//t.Errorf("Test %d: Received source \"%s\" of length %d bytes.", tst.num, fn, len(got))
+					t.Errorf("Test %d: Received source \"%s\" was:\n%s\n\n", tst.num, fn, got)
+				}
+			}
+		}
+	}
+}
+
+//================================================================================
 
 var fast = flag.Bool("fast", false, "parse package files in parallel")
 var src_ = flag.String("src", "parser.go", "source file to parse")

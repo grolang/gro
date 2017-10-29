@@ -1,5 +1,2 @@
-import "fmt"
-execute "src/github.com/grolang/gro/cmd/gro/testdata/sayhi.gro"
-func main() {
-	fmt.Println("'Hello, world!' from executeInside.gro")
-}
+"fmt".Println("'Hello, world!' from executeInside.gro")
+execute "testdata/sayhi.gro"

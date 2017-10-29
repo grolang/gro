@@ -93,7 +93,7 @@ It then prints the generated Go source to the output files as determined by the 
 	w = new(bytes.Buffer)
 	sys.Stderr = w
 	main.Main([]string{"version"})
-	if fmt.Sprintf("%s", w) != "Gro version 0.7.1, running on Go version go1.9.1 for OS:windows and arch:amd64\n" {
+	if fmt.Sprintf("%s", w) != "Gro version 0.7.2, running on Go version go1.9.2 for OS:windows and arch:amd64\n" {
 		t.Errorf("wrong version text received from Stderr:\n%s\n", w)
 	}
 
@@ -244,5 +244,23 @@ It then prints the generated Go source to the output files as determined by the 
 	}
 
 	//--------------------------------------------------------------------------------
+	//calling 'gro execute executeInside.gro' with message flag
+	u = new(bytes.Buffer)
+	sys.Stdout = u
+	w = new(bytes.Buffer)
+	sys.Stderr = w
+	fn = "testdata/executeInside.gro"
+	main.Main([]string{"execute", "-v", fn})
+	if fmt.Sprintf("%s", u) != "'Hello, world!' from executeInside.gro\n" +
+			"Hello, world!\n" {
+		t.Errorf("wrong text received from Stdout for execute with file %s as arg:\n%s\n", fn, u)
+	}
+	if fmt.Sprintf("%s", w) != "gro: preparing testdata/executeInside.gro\n" +
+			"gro: Received 1 files from ParsePackage.\n" +
+			"gro: running testdata/executeInside.go\n" { //only executeInside.gro is run in verbose mode, not sayhi.gro
+		t.Errorf("wrong text received from Stderr for execute with file %s as arg:\n%s\n", fn, w)
+	}
+
+//--------------------------------------------------------------------------------
 }
 

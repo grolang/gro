@@ -5,128 +5,12 @@
 package syntax
 
 import (
-	"errors"
-	"fmt"
 	"testing"
 )
-
-//var outputDir = "C:/users/gavin/Documents/Golang/"
-
-type groTestData []struct{
-	num int
-	fnm string
-	src string
-	xtr map[string]string
-
-	//extra field for checking success...
-	prt map[string]string
-
-	//extra fields for checking failure...
-	err string
-	nAst int
-}
-
-func groTest(t *testing.T, groTests groTestData){
-	for _, tst:= range groTests{
-		if tst.prt != nil && tst.err != "" {
-			t.Error("Both \"prt\" and \"err\" are defined in testdata but only one should be.")
-		}
-		getFile:= func (filename string) (src string, err error) {
-			if tst.xtr == nil {
-				return "", errors.New("Extra file map not there.")
-			}
-			xtr, ok:= tst.xtr[filename]
-			if !ok {
-				return "", errors.New("Extra file not in map.")
-			}
-			return xtr, nil
-		}
-		asts, err := ParseBytes(tst.fnm, nil, []byte(tst.src), nil, nil, 0, getFile)
-		if tst.prt != nil {
-			if err != nil {
-				t.Error(fmt.Sprintf("Test %d: Error received: %s", tst.num, err))
-				continue
-			}
-			if len(asts) != len(tst.prt) {
-				rcd:= "Received:\n"
-				for k, _:= range asts {
-					rcd += "\t" + k + "\n"
-				}
-				t.Error(fmt.Sprintf("Test %d: Expected %d files from ParsePackage but received %d.\n%s", tst.num, len(tst.prt), len(asts), rcd))
-			}
-			for fn, ast:= range asts {
-				want:= tst.prt[fn]
-				if got := StringWithLinebreaks(ast); got != want {
-					//t.Errorf("Test %d: expected and received source not the same for file %s.\nExpected: %d bytes.\nReceived: %d bytes.\n\n",
-						//tst.num, fn, len(want), len(got))
-					t.Errorf("Test %d: expected and received source not the same for file %s.\n\n#### Expected:\n%s\n\n#### Received:\n%s\n\n",
-						tst.num, fn, want, got)
-
-					/*t.Errorf("Test %d: Expected and received source not the same.\nFiles have been output.\n", tst.num)
-					err:= ioutil.WriteFile(outputDir + "FileExpected_" + fn + ".txt", []byte(want), 0644)
-					if err != nil {
-						t.Error(err)
-					}
-					err = ioutil.WriteFile(outputDir + "FileReceived_" + fn + ".txt", []byte(got), 0644)
-					if err != nil {
-						t.Error(err)
-					}*/
-				}
-			}
-		} else {
-			if fmt.Sprintf("%s", err) != tst.err {
-				t.Error(fmt.Sprintf("Test %d: Expected error: %s;\nbut received: %s", tst.num, tst.err, err))
-				continue
-			}
-			if len(asts) != tst.nAst {
-				t.Error(fmt.Sprintf("Test %d: Expected %d files from ParsePackage but received %d.\n", tst.num, tst.nAst, len(asts)))
-				for fn, ast:= range asts {
-					got := StringWithLinebreaks(ast)
-					//t.Errorf("Test %d: Received source \"%s\" of length %d bytes.", tst.num, fn, len(got))
-					t.Errorf("Test %d: Received source \"%s\" was:\n%s\n\n", tst.num, fn, got)
-				}
-			}
-		}
-	}
-}
 
 //================================================================================
 func TestDivisions(t *testing.T){
 	groTest(t, groTestData{
-//--------------------------------------------------------------------------------
-//bad top-level keyword
-	{
-		num: 1,
-		fnm: "dud.gro",
-		src:`package abc
-gobbledegook "this"
-import "fmt"
-func main() {
-	fmt.Println("abc/this")
-}`,
-		err: ":2:1: syntax error: non-declaration statement outside function body",
-},
-
-//--------------------------------------------------------------------------------
-	{
-		num: 2,
-		fnm: "dud.gro",
-		src:`{a:= 7}`, //must be: `do {a:= 7}` or `{do a:=7}`
-		err: ":1:2: syntax error: unexpected a, expecting }",
-	},
-
-//--------------------------------------------------------------------------------
-	{
-		num: 3,
-		fnm: "dud.gro",
-		src:`package abc
-func main() {
-	"my/path/here".SomeFunc()
-	"another/path/here".AnotherFn()
-}`,
-		err: ":4:21: syntax error: import alias has already been used but with different import path",
-},
-
 //--------------------------------------------------------------------------------
 //single "package" directive
 	{
@@ -159,7 +43,7 @@ func run() {
 }`,
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 		prt:map[string]string{
-"dud.go": `package abc
+"adir/dud.go": `package abc
 
 import "fmt"
 
@@ -254,7 +138,7 @@ func run() {
 }`,
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 		prt:map[string]string{
-"dud.go":`package dud
+"adir/dud.go":`package dud
 
 import "fmt"
 
@@ -262,7 +146,7 @@ func run() {
 	fmt.Println("Hello, world!")
 }`,
 
-"abc/abc.go":`package abc
+"adir/abc/abc.go":`package abc
 
 import "fmt"
 
@@ -932,6 +816,92 @@ import "fmt"
 func run() {
 	fmt.Println("Hello, world!")
 }`}},
+
+//--------------------------------------------------------------------------------
+//empty file
+	{
+		num: 400,
+		fnm: "dud.gro",
+		src: ``,
+		err: "dud.gro:1:1: syntax error: gro-file empty",
+},
+
+//--------------------------------------------------------------------------------
+//"project" clause only
+	{
+		num: 410,
+		fnm: "dud.gro",
+		src: `project meta`,
+		err: "dud.gro:1:13: syntax error: project keyword but no packages",
+},
+
+//--------------------------------------------------------------------------------
+//bad top-level keyword at beginning
+	{
+		num: 411,
+		fnm: "dud.gro",
+		src: `gobblemeup 789`,
+		err: "dud.gro:1:1: syntax error: non-declaration statement outside function body",
+},
+
+//--------------------------------------------------------------------------------
+//bad top-level keyword after project clause
+	{
+		num: 421,
+		fnm: "dud.gro",
+		src:`project abc
+gobbledegook "this"
+import "fmt"
+func main() {
+	fmt.Println("abc/this")
+}`,
+		err: "dud.gro:2:1: syntax error: non-declaration statement outside function body",
+},
+
+//--------------------------------------------------------------------------------
+//bad top-level keyword after package clause
+	{
+		num: 422,
+		fnm: "dud.gro",
+		src:`package abc
+gobbledegook "this"
+import "fmt"
+func main() {
+	fmt.Println("abc/this")
+}`,
+		err: "dud.gro:2:1: syntax error: non-declaration statement outside function body",
+},
+
+//--------------------------------------------------------------------------------
+//TODO: dangling close paren
+	{
+		num: 510,
+		fnm: "dud.gro",
+		src:`"fmt".Println("'Hi' from src/grotest/thirdshot.gro")
+"grotest/basicsecond".RunIt()
+}
+`,
+		err: "dud.gro:3:1: syntax error: unexpected token }",
+},
+
+//--------------------------------------------------------------------------------
+//TODO: dangling close paren
+	{
+		num: 511,
+		fnm: "dud.gro",
+		src:`}`,
+		err: "dud.gro:1:1: syntax error: unexpected token }",
+},
+
+//--------------------------------------------------------------------------------
+//TODO: dangling open paren
+	{
+		num: 512,
+		fnm: "dud.gro",
+		src:`{`,
+		err: "dud.gro:1:2: syntax error: unexpected EOF, expecting }",
+},
+
 //--------------------------------------------------------------------------------
 })}
 
@@ -1741,9 +1711,15 @@ func TestRun() {
 }`}},
 
 //--------------------------------------------------------------------------------
+})}
+
+//================================================================================
+func TestShorthandAliases(t *testing.T){
+	groTest(t, groTestData{
+//--------------------------------------------------------------------------------
 //string shorthand for imported packages
 	{
-		num: 300,
+		num: 100,
 		fnm: "dud.gro",
 		src:`package you
 func main(){
@@ -1771,7 +1747,7 @@ func main() {
 //--------------------------------------------------------------------------------
 //string shorthand in one-liner
 	{
-		num: 310,
+		num: 110,
 		fnm: "dud.gro",
 		src:`do"fmt".Println("Hi, earth!")`,
 
@@ -1792,317 +1768,17 @@ func init() {
 func main() {}`}},
 
 //--------------------------------------------------------------------------------
-})}
-
-//================================================================================
-func TestComments(t *testing.T){
-	groTest(t, groTestData{
-//--------------------------------------------------------------------------------
-//comments above "project" keyword
-	{
-		num: 100,
-		fnm: "dud.gro",
-		src:`/* (c)2017 Grolang.*/
-project myproj
-package abc
-import "fmt"
-func run() {
-	fmt.Println("Hello, world!")
-}`,
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-		prt:map[string]string{
-"abc/abc.go":`/* (c)2017 Grolang.*/
-
-package abc
-
-import "fmt"
-
-func run() {
-	fmt.Println("Hello, world!")
-}`}},
-
-//--------------------------------------------------------------------------------
-//comments above "project" keyword with 2 explicit packages, and comments above "package" kw
-	{
-		num: 110,
-		fnm: "dud.gro",
-		src:`/* (c)2017 Grolang.*/
-project mypack
-package abc
-import "fmt"
-func run() {
-	fmt.Println("Hello, world!")
-}
-/* Package defg is amazing! */
-package defg
-import "fmt"
-//here am I!
-func run() {
-	fmt.Println("Hello, world!")
-}`,
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-		prt:map[string]string{
-"abc/abc.go":`/* (c)2017 Grolang.*/
-
-package abc
-
-import "fmt"
-
-func run() {
-	fmt.Println("Hello, world!")
-}`,
-
-"defg/defg.go":`/* (c)2017 Grolang.*/
-
-/* Package defg is amazing! */
-package defg
-
-import "fmt"
-
-//here am I!
-func run() {
-	fmt.Println("Hello, world!")
-}`}},
-
-//--------------------------------------------------------------------------------
-//comments above "project" keyword with 1 implicit and 1 "internal" packages, and comments above "internal" kw
-	{
-		num: 111,
-		fnm: "dud.gro",
-		src:`/* (c)2017 Grolang.*/
-project mypack
-import "fmt"
-func run() {
-	fmt.Println("Hello, world!")
-}
-/* Package defg is amazing! */
-internal defg
-import "fmt"
-func run() {
-	fmt.Println("Hello, world!")
-}`,
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-		prt:map[string]string{
-"mypack.go":`/* (c)2017 Grolang.*/
-
-package mypack
-
-import "fmt"
-
-func run() {
-	fmt.Println("Hello, world!")
-}`,
-
-"internal/defg/defg.go":`/* (c)2017 Grolang.*/
-
-/* Package defg is amazing! */
-package defg
-
-import "fmt"
-
-func run() {
-	fmt.Println("Hello, world!")
-}`}},
-
-//--------------------------------------------------------------------------------
-//single "package" comment attached to only 1 of 2 "section"s
 	{
 		num: 120,
 		fnm: "dud.gro",
-		src:`/* Package abc section "this" is amazing! */
-package abc
-section "this"
-import "fmt"
-func run() {
-	fmt.Println("Hello, world!")
-}
-section "that"
-import "fmt"
-func run() {
-	fmt.Println("Hello, world!")
+		src:`package abc
+func main() {
+	"my/path/here".SomeFunc()
+	"another/path/here".AnotherFn()
 }`,
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-		prt:map[string]string{
-"this.go": `/* Package abc section "this" is amazing! */
-package abc
-
-import "fmt"
-
-func run() {
-	fmt.Println("Hello, world!")
-}`,
-"that.go": `package abc
-
-import "fmt"
-
-func run() {
-	fmt.Println("Hello, world!")
-}`}},
-
-//--------------------------------------------------------------------------------
-//comments above sections, both form-style and curlied
-	{
-		num: 130,
-		fnm: "dud.gro",
-		src:`import "fmt"
-func run() { fmt.Println("Hello, world!") }
-
-// This file is called afile.go
-// and ends with .go.
-section "afile"
-import "fmt"
-// a comment for pi
-const pi = 3.14
-func run() {
-	fmt.Println("Hello, world!")
-}
-package "somebase" defg {
-	section "bfile" {
-		import "fmt"
-		// last 6 letters backwds
-		var v = "zyxwvu"
-		func run() { fmt.Println("Hello, world!") }
-	}
-	// This file is called cfile.go
-	// and ends with .go.
-	section "cfile" {
-		import "fmt"
-		// nice type
-		type T int32
-		func run() { fmt.Println("Hello, world!") }
-	}
-}
-// Package hij runs sth.
-package "somebase/defg" hij {
-	import "fmt"
-	func run() {
-		fmt.Println("Hello, world!")
-	}
-	section "dfile" {
-		import "fmt"
-		func run() {
-			fmt.Println("Hello, world!")
-		}
-	}
-}`,
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-		prt:map[string]string{
-"dud.go":`package dud
-
-import "fmt"
-
-func run() {
-	fmt.Println("Hello, world!")
-}`,
-"afile.go":`package dud
-
-// This file is called afile.go
-// and ends with .go.
-
-import "fmt"
-
-// a comment for pi
-const pi = 3.14
-
-func run() {
-	fmt.Println("Hello, world!")
-}`,
-"somebase/defg/bfile.go":`package defg
-
-import "fmt"
-
-// last 6 letters backwds
-var v = "zyxwvu"
-
-func run() {
-	fmt.Println("Hello, world!")
-}`,
-"somebase/defg/cfile.go":`package defg
-
-// This file is called cfile.go
-// and ends with .go.
-
-import "fmt"
-
-// nice type
-type T int32
-
-func run() {
-	fmt.Println("Hello, world!")
-}`,
-"somebase/defg/hij/hij.go":`// Package hij runs sth.
-package hij
-
-import "fmt"
-
-func run() {
-	fmt.Println("Hello, world!")
-}`,
-"somebase/defg/hij/dfile.go":`package hij
-
-import "fmt"
-
-func run() {
-	fmt.Println("Hello, world!")
-}`}},
+		err: "dud.gro:4:21: syntax error: import alias \"here\" has already been used but with different import path",
+},
 
 //--------------------------------------------------------------------------------
 })}
 
-//================================================================================
-func TestUseDecls(t *testing.T){
-	groTest(t, groTestData{
-//--------------------------------------------------------------------------------
-	{
-		num: 100,
-		fnm: "dud.gro",
-		src:`project myproj
-use a b c "myuse"
-package abc
-import "fmt"
-func run() {
-	fmt.Println("Hello, world!")
-}`,
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-		prt:map[string]string{
-"abc/abc.go":`package abc
-
-import "fmt"
-
-func run() {
-	fmt.Println("Hello, world!")
-}`}},
-
-//--------------------------------------------------------------------------------
-	{
-		num: 110,
-		fnm: "dud.gro",
-		src:`import "fmt"
-prepare "afile.gro"
-func main() {
-	fmt.Println("Hello, world!")
-}`,
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-		prt:map[string]string{
-"dud.go":`// +build ignore
-
-package main
-
-import (
-	sys "github.com/grolang/gro/sys"
-)
-
-import "fmt"
-
-func init() {
-	sys.Prepare("afile.gro")
-}
-
-func main() {
-	fmt.Println("Hello, world!")
-}`}},
-
-//--------------------------------------------------------------------------------
-})}
-
-//================================================================================

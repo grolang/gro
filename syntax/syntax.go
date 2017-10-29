@@ -79,6 +79,8 @@ func Parse(filename string, base *src.PosBase, src io.Reader, errh ErrorHandler,
 }
 
 //--------------------------------------------------------------------------------
+// NOTE: called from syntax test: asts, err :=        ParseBytes(tst.fnm,  nil, []byte(tst.src), nil, nil, 0, getFile)
+// NOTE: called from sys.go:      asts, err := syntax.ParseBytes(filename, nil, src,             nil, nil, 0, GetFile)
 
 // ParseBytes behaves like Parse but it reads the source from the []byte slice provided.
 func ParseBytes(filename string, base *src.PosBase, src []byte, errh ErrorHandler, pragh PragmaHandler, mode Mode, f func(string)(string,error)) (
@@ -102,7 +104,8 @@ func (r *bytesReader) Read(p []byte) (int, error) {
 //--------------------------------------------------------------------------------
 
 // ParseFile behaves like Parse but it reads the source from the named file.
-func ParseFile(filename string, errh ErrorHandler, pragh PragmaHandler, mode Mode, getFile func(string)(string,error)) (map[string]*File, error) {
+func ParseFile(filename string, errh ErrorHandler, pragh PragmaHandler, mode Mode, getFile func(string)(string,error)) (
+		map[string]*File, error) {
 	f, err := os.Open(filename)
 	if err != nil {
 		if errh != nil {

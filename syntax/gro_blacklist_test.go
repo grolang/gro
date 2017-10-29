@@ -118,8 +118,9 @@ import "fmt"
 if true {
 	"fmt".Println("Hi!")
 }`,
-		err: ":5:1: syntax error: if-statement has been prohibited by blacklist",
+		err: "dud.gro:5:1: syntax error: if-statement has been prohibited by blacklist",
 },
+
 //--------------------------------------------------------------------------------
 	{
 		num: 220,
@@ -136,8 +137,9 @@ import "fmt"
 if true {
 	"fmt".Println("Hi!")
 }`,
-		err: ":8:1: syntax error: multi-packages disabled but more than one package present",
+		err: "dud.gro:8:1: syntax error: multi-packages disabled but more than one package present",
 },
+
 //--------------------------------------------------------------------------------
 	{
 		num: 230,
@@ -153,9 +155,9 @@ import "fmt"
 if true {
 	"fmt".Println("Hi!")
 }`,
-		err: ":3:1: syntax error: unexpected import infer-packages disabled but no explicit \"package\" keyword present",
-		//TODO: remove "unexpected import" from error msg
+		err: "dud.gro:3:1: syntax error: infer-packages disabled but no explicit \"package\" keyword present",
 },
+
 //--------------------------------------------------------------------------------
 	{
 		num: 240,
@@ -171,8 +173,9 @@ import "fmt"
 if true {
 	"fmt".Println("Hi!")
 }`,
-		err: ":6:1: syntax error: \"use\" keywords disabled but keyword is present",
+		err: "dud.gro:6:1: syntax error: \"use\" keywords disabled but keyword is present",
 },
+
 //--------------------------------------------------------------------------------
 	{
 		num: 250,
@@ -186,7 +189,7 @@ import "fmt"
 if true {
 	"fmt".Println("Hi!")
 }`,
-		err: ":5:1: syntax error: \"package\" (and similar) keywords are disabled but keyword is present",
+		err: "dud.gro:5:1: syntax error: \"package\" (and similar) keywords are disabled but keyword is present",
 },
 //--------------------------------------------------------------------------------
 	{
@@ -201,7 +204,7 @@ import "fmt"
 if true {
 	"fmt".Println("Hi!")
 }`,
-		err: ":5:1: syntax error: \"internal\" keywords disabled but keyword is present",
+		err: "dud.gro:5:1: syntax error: \"internal\" keywords disabled but keyword is present",
 },
 //--------------------------------------------------------------------------------
 	{
@@ -216,7 +219,7 @@ import "fmt"
 if true {
 	"fmt".Println("Hi!")
 }`,
-		err: ":5:1: syntax error: \"section\" keywords are disabled but keyword is present",
+		err: "dud.gro:5:1: syntax error: \"section\" keywords are disabled but keyword is present",
 },
 //--------------------------------------------------------------------------------
 	{
@@ -231,7 +234,7 @@ import "fmt"
 if true {
 	"fmt".Println("Hi!")
 }`,
-		err: ":5:1: syntax error: \"main\" keywords are disabled but keyword is present",
+		err: "dud.gro:5:1: syntax error: \"main\" keywords are disabled but keyword is present",
 },
 //--------------------------------------------------------------------------------
 	{
@@ -246,7 +249,7 @@ import "fmt"
 if true {
 	"fmt".Println("Hi!")
 }`,
-		err: ":5:1: syntax error: \"testcode\" keywords are disabled but keyword is present",
+		err: "dud.gro:5:1: syntax error: \"testcode\" keywords are disabled but keyword is present",
 },
 //--------------------------------------------------------------------------------
 	{
@@ -258,8 +261,10 @@ import "fmt"
 if true {
 	"fmt".Println("Hi!")
 }`,
-		err: ":3:8: syntax error: \"import\" keywords are disabled but keyword is present", //TODO: change pos-info to keyword, not import-string
+		err: "dud.gro:3:8: syntax error: \"import\" keywords are disabled but keyword is present",
+		//TODO: correct pos-info to keyword at :3:1, not import-string
 },
+
 //--------------------------------------------------------------------------------
 	{
 		num: 290,
@@ -269,7 +274,7 @@ use "blacklist" ("var")
 import "fmt"
 var a = "world"
 "fmt".Printf("Hi, %s!", a)`,
-		err: ":4:1: syntax error: \"var\" keywords are disabled but keyword is present",
+		err: "dud.gro:4:1: syntax error: \"var\" keywords are disabled but keyword is present",
 },
 //--------------------------------------------------------------------------------
 	{
@@ -280,7 +285,7 @@ use "blacklist" ("const")
 import "fmt"
 const a = "world"
 "fmt".Printf("Hi, %s!", a)`,
-		err: ":4:1: syntax error: \"const\" keywords are disabled but keyword is present",
+		err: "dud.gro:4:1: syntax error: \"const\" keywords are disabled but keyword is present",
 },
 //--------------------------------------------------------------------------------
 	{
@@ -291,7 +296,7 @@ use "blacklist" ("type")
 import "fmt"
 type a int32
 "fmt".Printf("Hi, %s!", a(123))`,
-		err: ":4:1: syntax error: \"type\" keywords are disabled but keyword is present",
+		err: "dud.gro:4:1: syntax error: \"type\" keywords are disabled but keyword is present",
 },
 //--------------------------------------------------------------------------------
 	{
@@ -303,7 +308,7 @@ import "fmt"
 proc hi() {
 	"fmt".Printf("Hi, %s!", a)
 }`,
-		err: ":4:1: syntax error: \"proc\" keywords are disabled but keyword is present",
+		err: "dud.gro:4:1: syntax error: \"proc\" keywords are disabled but keyword is present",
 },
 //--------------------------------------------------------------------------------
 	{
@@ -315,8 +320,10 @@ import sp "somePkg" (int)
 func hi() {
 	sp.Printf("Hi")
 }`,
-		err: ":6:2: syntax error: calling generic-type packages disabled but import arguments present", //TODO: correct pos-info
+		err: "dud.gro:6:2: syntax error: calling generic-type packages disabled but import arguments present",
+		//TODO: correct pos-info to generic-call, i.e. :3:1 or :3:21
 },
+
 //--------------------------------------------------------------------------------
 	{
 		num: 310,
@@ -327,8 +334,9 @@ package abc (U)
 func hi() {
 	sp.Printf("Hi %T", U)
 }`,
-		err: ":3:14: syntax error: defining generic packages is disabled but one is present",
+		err: "dud.gro:3:14: syntax error: defining generic packages is disabled but one is present",
 },
+
 //--------------------------------------------------------------------------------
 	{
 		num: 320,
@@ -339,8 +347,9 @@ package abc
 func hi() {
 	"fmt".Printf("Hi there\n")
 }`,
-		err: ":5:7: syntax error: unexpected . inplace-imports disabled but are present", //TODO: correct pos-info; AND: remove "unexpected ."
+		err: "dud.gro:5:7: syntax error: inplace-imports disabled but are present",
 },
+
 //--------------------------------------------------------------------------------
 	{
 		num: 330,
@@ -352,8 +361,10 @@ package abc {
 		fmt.Println("Hello, world!")
 	}
 }`,
-		err: ":3:2: syntax error: using block-style notation for packages and sections is disabled but it is being used", //TODO: correct pos-info
+		err: "dud.gro:3:2: syntax error: using block-style notation for packages and sections is disabled but it is being used",
+		//TODO: correct pos-info to :2:13
 },
+
 //--------------------------------------------------------------------------------
 	{
 		num: 340,
@@ -366,8 +377,10 @@ section "this" {
 		fmt.Println("Hello, world!")
 	}
 }`,
-		err: ":4:2: syntax error: using block-style notation for packages and sections is disabled but it is being used", //TODO: correct pos-info
+		err: "dud.gro:4:2: syntax error: using block-style notation for packages and sections is disabled but it is being used",
+		//TODO: correct pos-info to :3:16
 },
 //--------------------------------------------------------------------------------
+
 })}
 

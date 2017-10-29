@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	versionNo = "0.7.1"
+	versionNo = "0.7.2"
 	progDesc = "managing Gro scripts"
 )
 

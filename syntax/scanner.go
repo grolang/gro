@@ -62,7 +62,8 @@ type scanner struct {
 	op        Operator // valid if tok is _Operator, _AssignOp, or _IncOp
 	prec      int      // valid if tok is _Operator, _AssignOp, or _IncOp
 
-	comments  []string
+	comments   []string
+	numDocComments int
 }
 
 var keywordMap [1 << 6]token // size must be power of two
@@ -92,12 +93,20 @@ func (s *scanner) next() {
 	nlsemi := s.nlsemi
 	s.nlsemi = false
 	s.comments = []string{}
+	s.numDocComments = 0
 
 redo:
 	// skip white space
 	c := s.getr()
+	numNl := 0
 	for c == ' ' || c == '\t' || c == '\n' && !nlsemi || c == '\r' {
+		if c == '\n' {
+			numNl++
+		}
 		c = s.getr()
+	}
+	if numNl >= 2 { //second newline in a row disqualifies preceding comment as doc-comment
+		s.numDocComments = 0
 	}
 
 	// token start
@@ -593,65 +602,6 @@ func (s *scanner) skipLine(r rune) {
 }
 
 //--------------------------------------------------------------------------------
-func (s *scanner) lineComment() {
-	r := s.getr()
-	// directives must start at the beginning of the line (s.col == colbase)
-	if s.col != colbase || s.pragh == nil || (r != 'g' && r != 'l') {
-		s.startLit()
-		s.skipLine(r)
-		s.comments = append(s.comments, "//" + string(s.stopLit()))
-		return
-	}
-	// s.col == colbase && s.pragh != nil && (r == 'g' || r == 'l')
-
-	// recognize directives
-	prefix := "go:"
-	if r == 'l' {
-		prefix = "line "
-	}
-	for _, m := range prefix {
-		if r != m {
-			s.startLit()
-			s.skipLine(r)
-			s.comments = append(s.comments, "//" + string(s.stopLit()))
-			return
-		}
-		r = s.getr()
-	}
-
-	// directive text without line ending (which may be "\r\n" if Windows),
-	s.startLit()
-	s.skipLine(r)
-	text := s.stopLit()
-	if i := len(text) - 1; i >= 0 && text[i] == '\r' {
-		text = text[:i]
-	}
-
-	s.pragh(s.line, s.col+2, prefix+string(text)) // +2 since directive text starts after //
-	s.comments = append(s.comments, "//" + string(text))
-}
-
-//--------------------------------------------------------------------------------
-func (s *scanner) fullComment() {
-	s.startLit()
-
-	for {
-		r := s.getr()
-		for r == '*' {
-			r = s.getr()
-			if r == '/' {
-				s.comments = append(s.comments, "/" + string(s.stopLit()))
-				return
-			}
-		}
-		if r < 0 {
-			s.errh(s.line, s.col, "comment not terminated")
-			return
-		}
-	}
-}
-
-//--------------------------------------------------------------------------------
 func (s *scanner) escape(quote rune) bool {
 	var n int
 	var base, max uint32
@@ -719,6 +669,69 @@ func (s *scanner) escape(quote rune) bool {
 	}
 
 	return true
+}
+
+//--------------------------------------------------------------------------------
+func (s *scanner) lineComment() {
+	r := s.getr()
+	// directives must start at the beginning of the line (s.col == colbase)
+	if s.col != colbase || s.pragh == nil || (r != 'g' && r != 'l') {
+		s.startLit()
+		s.skipLine(r)
+		s.comments = append(s.comments, "//" + string(s.stopLit()))
+		s.numDocComments++
+		return
+	}
+	// s.col == colbase && s.pragh != nil && (r == 'g' || r == 'l')
+
+	// recognize directives
+	prefix := "go:"
+	if r == 'l' {
+		prefix = "line "
+	}
+	for _, m := range prefix {
+		if r != m {
+			s.startLit()
+			s.skipLine(r)
+			s.comments = append(s.comments, "//" + string(s.stopLit()))
+			s.numDocComments++
+			return
+		}
+		r = s.getr()
+	}
+
+	// directive text without line ending (which may be "\r\n" if Windows),
+	s.startLit()
+	s.skipLine(r)
+	text := s.stopLit()
+	if i := len(text) - 1; i >= 0 && text[i] == '\r' {
+		text = text[:i]
+	}
+
+	s.pragh(s.line, s.col+2, prefix+string(text)) // +2 since directive text starts after //
+	s.comments = append(s.comments, "//" + string(text))
+	s.numDocComments++
+}
+
+//--------------------------------------------------------------------------------
+func (s *scanner) fullComment() {
+	s.startLit()
+
+	for {
+		r := s.getr()
+		for r == '*' {
+			r = s.getr()
+			if r == '/' {
+				s.comments = append(s.comments, "/" + string(s.stopLit()))
+				s.numDocComments++
+				return
+			}
+		}
+		if r < 0 {
+			s.errh(s.line, s.col, "comment not terminated")
+			return
+		}
+	}
 }
 
 //--------------------------------------------------------------------------------
