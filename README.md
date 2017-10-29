@@ -35,18 +35,18 @@ Run `go get github.com/grolang/gro` to get the command and support packages for 
 The hierarchy should then be:
 
 ```
-	GOPATH
-	  +--bin
-	  +--pkg
-	  +--src
-	      +--github.com
-	      |   +--grolang
-	      |      +--gro
-	      |      |   +--[various libraries of go source code for gro]
-	      |      |   +--LICENSE.txt, etc
-		  |      +--samples
-		  |          +--[various samples of gro source code]
-	      +--[put your own directories and files here]
+    GOPATH
+      +--bin
+      +--pkg
+      +--src
+          +--github.com
+          |   +--grolang
+          |      +--gro
+          |      |   +--[various libraries of go source code for gro]
+          |      |   +--LICENSE.txt, etc
+          |      +--samples
+          |          +--[various samples of gro source code]
+          +--[put your own directories and files here]
 ```
 
 Run `go install github.com/grolang/gro/cmd/gro` to compile and install the `gro` command from the downloaded source.
