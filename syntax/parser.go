@@ -6,13 +6,21 @@ package syntax
 
 import (
 	"fmt"
-	"github.com/grolang/gro/syntax/src"
-	"github.com/grolang/gro/macros"
 	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/grolang/gro/macros"
+	"github.com/grolang/gro/syntax/src"
+)
+
+const (
+	sysLib    = "\"github.com/grolang/gro/sys\""
+	dynLib    = "\"github.com/grolang/gro/ops\""
+	utf88Lib  = "\"github.com/grolang/gro/utf88\""
+	assertLib = "\"github.com/grolang/gro/assert\""
 )
 
 const debug = false
@@ -28,6 +36,7 @@ type parser struct {
 	scanner
 
 	first  error  // first error encountered
+	errcnt int    // number of errors encountered
 	pragma Pragma // pragma flags
 
 	fnest  int    // function nesting level (for error handling)
@@ -35,36 +44,38 @@ type parser struct {
 	indent []byte // tracing support
 
 	//project, package, and section-level...
-	getFile      func(string)(string,error) // function for callback to read in another file
-	permits      map[string]bool
+	getFile func(string) (string, error) // function for callback to read in another file
+	permits map[string]bool
 
-	currProj     *Project
-	argImports   []*ImportDecl
-	paramdPkgs   map[string]*Package
-	infImports   []*ImportDecl // inferred imports based on occurrences of, say, "fmt".Println
-	infImpMap    map[string]string
+	currProj   *Project
+	argImports []*ImportDecl
+	paramdPkgs map[string]*Package
+	infImports []*ImportDecl // infered imports based on occurrences of, say, "fmt".Println
+	infImpMap  map[string]string
 
 	currPkg      *Package
 	pkgName      string // name of current package
+	lineDirects  bool
+	dynamicBlock string
 
-	sectHasMain  bool   // does the current section have a main() function?
-	sectHasStmts bool   // does the current section have standalone stmts?
-	sectIsMain   bool   // was the current section headed with the "main" keyword
-	sectIsTc     bool   // was the current section headed with the "testcode" keyword
+	sectHasMain  bool // does the current section have a main() function?
+	sectHasStmts bool // does the current section have standalone stmts?
+	sectIsMain   bool // was the current section headed with the "main" keyword
+	sectIsTc     bool // was the current section headed with the "testcode" keyword
 
-	docComments  []string // buffer
+	docComments []string // buffer
 
-	useRegistry    map[string]func([]string)[]interface{}
-	macroRegistry  map[string]func(*parser, []Decl)[]Decl
+	useRegistry   map[string]func(int, []string) []interface{}
+	macroRegistry map[string]func(*parser, ...interface{}) Stmt
 }
 
 //--------------------------------------------------------------------------------
 func (p *parser) init(
-	filename string, base *src.PosBase, r io.Reader, errh ErrorHandler, pragh PragmaHandler, mode Mode, getFile func(string)(string,error),
+	filename string, base *src.PosBase, r io.Reader, errh ErrorHandler, pragh PragmaHandler, mode Mode, getFile func(string) (string, error),
 ) {
-	p.base    = base
-	p.errh    = errh
-	p.mode    = mode
+	p.base = base
+	p.errh = errh
+	p.mode = mode
 	p.scanner.init(
 		r,
 		// Error and pragma handlers for scanner.
@@ -87,6 +98,7 @@ func (p *parser) init(
 	)
 
 	p.first = nil
+	p.errcnt = 0
 	p.pragma = 0
 
 	p.fnest = 0
@@ -98,48 +110,94 @@ func (p *parser) init(
 	p.paramdPkgs = map[string]*Package{}
 
 	p.currProj = &Project{}
-	absName, err:= filepath.Abs(filepath.Dir(filename))
+	absName, err := filepath.Abs(filepath.Dir(filename))
 	if err != nil {
 		p.error("error computing absolute name for " + filename)
 	}
 	p.currProj.Locn = filepath.ToSlash(absName)
-	srcPath:= filepath.ToSlash(filepath.Join(os.Getenv("GOPATH"), "src"))
+	firstGoPath := filepath.SplitList(os.Getenv("GOPATH"))[0]
+	srcPath := filepath.ToSlash(filepath.Join(firstGoPath, "src"))
 	p.currProj.Root = strings.TrimPrefix(strings.TrimPrefix(p.currProj.Locn, srcPath), "/")
 
-	b:= filepath.Base(filename)
-	ext:= filepath.Ext(b)
+	b := filepath.Base(filename)
+	ext := filepath.Ext(b)
 	p.currProj.Name = b[:len(b)-len(ext)]
 	if len(ext) > 0 && ext[0] == '.' {
 		p.currProj.FileExt = ext[1:]
 	}
 	p.permits = map[string]bool{}
 	switch p.currProj.FileExt {
+	case "groo":
+		p.dynamicMode = true
+		p.dynamicBlock = "groo"
+		fallthrough
 	case "gro", "":
-		for _, kw:= range groProfile {
+		for _, kw := range groProfile {
 			p.permits[kw] = true
 		}
 		fallthrough
 	case "go":
-		for _, kw:= range goProfile {
+		for _, kw := range goProfile {
 			p.permits[kw] = true
 		}
 	}
 
-	p.macroRegistry = map[string]func(*parser, []Decl)[]Decl{
-		"prepare": func(p *parser, declList []Decl) []Decl {
-			return PrepareOrExecute(p, declList, "Prepare")
+	p.macroRegistry = map[string]func(*parser, ...interface{}) Stmt{
+		"prepare": func(p *parser, _ ...interface{}) Stmt {
+			if !p.permits["prepare"] {
+				p.syntaxError("\"prepare\" command disabled but is present")
+				return nil
+			}
+			return GroSystemCmd(p, "Prepare")
 		},
-		"execute": func(p *parser, declList []Decl) []Decl {
-			return PrepareOrExecute(p, declList, "Execute")
+		"execute": func(p *parser, _ ...interface{}) Stmt {
+			if !p.permits["execute"] {
+				p.syntaxError("\"execute\" command disabled but is present")
+				return nil
+			}
+			return GroSystemCmd(p, "Execute")
+		},
+		"run": func(p *parser, _ ...interface{}) Stmt {
+			if !p.permits["run"] {
+				p.syntaxError("\"run\" command disabled but is present")
+				return nil
+			}
+			return GroSystemCmd(p, "Run")
+		},
+		"test": func(p *parser, _ ...interface{}) Stmt {
+			if !p.permits["test"] {
+				p.syntaxError("\"test\" command disabled but is present")
+				return nil
+			}
+			return GroSystemCmd(p, "Test")
+		},
+		"assert": func(p *parser, _ ...interface{}) Stmt {
+			if !p.permits["assert"] {
+				p.syntaxError("\"assert\" macro disabled but is present")
+				return nil
+			}
+			return Assert(p)
+		},
+		"let": func(p *parser, rest ...interface{}) Stmt {
+			if !p.permits["let"] {
+				p.syntaxError("\"let\" macro disabled but is present")
+				return nil
+			}
+			if len(rest) != 1 {
+				panic("argument error with \"let\" macro")
+			}
+			if stmt, ok := rest[0].(func() Stmt); ok {
+				return Let(p, stmt)
+			}
+			panic("argument error with \"let\" macro")
 		},
 	}
-
-	p.useRegistry = map[string]func([]string)[]interface{}{
-		"blacklist": func(args []string) []interface{} {
+	p.useRegistry = map[string]func(int, []string) []interface{}{
+		"blacklist": func(numRets int, args []string) []interface{} {
 			macros.InitBlacklist(p, args)
 			return nil
 		},
-		"grosys": func(args []string) []interface{} {
+		"grosys": func(numRets int, args []string) []interface{} {
 			macros.GroSys(p, args)
 			return nil
 		},
@@ -147,51 +205,86 @@ func (p *parser) init(
 }
 
 //--------------------------------------------------------------------------------
-// PrepareOrExecute: to xfer to macros, we need to make public:
+// GroSystemCmd: to xfer to macros, we need to make public:
 // * _Semi, _Rparen, <etc>
 // * StringLit
 // * p.oliteral, p.syntaxError, p.advance, p.procImportAlias
-// * Decl, ExprStmt, CallExpr, <etc>
+// * Name, ExprStmt, CallExpr, <etc>
 //
-func PrepareOrExecute(p *parser, declList []Decl, s string) []Decl {
-	fn:= p.oliteral()
+func GroSystemCmd(p *parser, s string) Stmt {
+	fn := p.oliteral()
 	if fn == nil || fn.Kind != StringLit {
 		p.syntaxError("missing filename for " + s)
 		p.advance(_Semi, _Rparen)
+		return nil
 	} else {
-		a:= p.procImportAlias(&BasicLit{Value: "\"github.com/grolang/gro/sys\"", Kind: StringLit})
-		es:= &ExprStmt{
+		a := p.procImportAlias(&BasicLit{Value: sysLib, Kind: StringLit}, "")
+		es := &ExprStmt{
 			X: &CallExpr{
 				Fun: &SelectorExpr{
-					X: &Name{Value: a},
+					X:   &Name{Value: a},
 					Sel: &Name{Value: s},
 				},
 				ArgList: []Expr{fn},
 			},
 		}
-		fd:= &FuncDecl{
-			Name: &Name{Value: "init"},
-			Type: &FuncType{
-				ParamList: []*Field{},
-			},
-			Body: &BlockStmt{List: []Stmt{es}},
-		}
-		declList = append(declList, fd)
+		return es
 	}
-	p.want(_Semi)
-	return declList
+}
+
+//--------------------------------------------------------------------------------
+// Assert: to xfer to macros, we need to make public:
+// * _Semi, _Rparen, <etc>
+// * BasicLit, StringLit
+// * p.expr, p.procImportAlias
+// * Name, ExprStmt, CallExpr, <etc>
+//
+func Assert(p *parser) Stmt {
+	e := p.expr()
+	p.procImportAlias(&BasicLit{Value: assertLib, Kind: StringLit}, "assert")
+	es := &ExprStmt{
+		X: &CallExpr{
+			Fun: &SelectorExpr{
+				X:   &Name{Value: "assert"},
+				Sel: &Name{Value: "AssertTrue"},
+			},
+			ArgList: []Expr{e},
+		},
+	}
+	return es
+}
+
+//--------------------------------------------------------------------------------
+func Let(p *parser, stmt func() Stmt) Stmt {
+	pos := p.pos()
+	lhs := p.exprList()
+	if p.tok == _Assign {
+		// expr_list '=' expr_list
+		p.next()
+		l := []Stmt{
+			p.newAssignStmt(pos, Def, lhs, p.exprList()),
+		}
+		p.got(_Semi)
+		l = append(l, p.tlStmtList(stmt)...)
+		return &BlockStmt{
+			List: l,
+		}
+	}
+	p.syntaxError("invalid syntax in \"let\" statement")
+	return nil
 }
 
 //--------------------------------------------------------------------------------
 var goProfile = [...]string{
-	"package", "import", "const", "var", "type", /*TODO:*/ "func", "map", "chan", "struct", "interface",
+	"package", "import", "const", "var", "type" /*TODO:*/, "func", "map", "chan", "struct", "interface",
 	/*TEST:*/ "if", "else", "switch", "case", "default", "fallthrough", "select",
-	"for", /*TEST:*/ "range", "goto", "return", /*TODO:*/ "defer", "go", "break", "continue",
+	"for" /*TEST:*/, "range", "goto", "return" /*TODO:*/, "defer", "go", "break", "continue",
 }
 
 var groProfile = [...]string{
 	"inferPkg", "multiPkg", "genericCall", "genericDef", "inplaceImps", "inferMain", "pkgSectBlocks",
-	"project", "use", "include", "internal", "section", "main", "testcode", "proc", /*TODO:*/ "do",
+	"project", "use", "include", "internal", "section", "main", "testcode", "proc" /*TODO:*/, "do",
+	/*TODO:*/ "assert", "let", "prepare", "execute", "run", "test",
 }
 
 //--------------------------------------------------------------------------------
@@ -208,8 +301,10 @@ func (p *parser) IsPermit(s string) bool {
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) procImportAlias(lit *BasicLit) string {
-	_, a:= filepath.Split(strings.Trim(lit.Value, "\""))
+func (p *parser) procImportAlias(lit *BasicLit, a string) string {
+	if a == "" {
+		_, a = filepath.Split(strings.Trim(lit.Value, "\""))
+	}
 	if p.infImpMap[a] != "" && p.infImpMap[a] != lit.Value {
 		p.syntaxError(fmt.Sprintf("import alias \"%s\" has already been used but with different import path", a))
 		return a
@@ -253,19 +348,21 @@ func (p *parser) updateBase(line, col uint, text string) {
 //--------------------------------------------------------------------------------
 // Project
 func (p *parser) files() map[string]*File {
-	if trace {defer p.trace("filesOrNil")("")}
+	if trace {
+		defer p.trace("filesOrNil")("")
+	}
 
-	pkgs:= p.pkgs()
-	if ! p.currProj.ExplicitKw && len(pkgs) == 0 {
+	pkgs := p.pkgs()
+	if !p.currProj.ExplicitKw && len(pkgs) == 0 {
 		p.syntaxErrorAt(src.MakePos(p.base, 1, 1), "gro-file empty")
 		return nil
 	} else if len(pkgs) == 0 {
 		p.syntaxError("project keyword but no packages")
 		return nil
 	}
-	fs:= map[string]*File{}
-	for _, pkg:= range pkgs { // for each file in each pkg, add to map of files returned (fs)
-		if len(pkgs) > 1 && ! p.permits["multiPkg"] {
+	fs := map[string]*File{}
+	for _, pkg := range pkgs { // for each file in each pkg, add to map of files returned (fs)
+		if len(pkgs) > 1 && !p.permits["multiPkg"] {
 			p.syntaxErrorAt(pkgs[1].Pos(), "multi-packages disabled but more than one package present")
 			return nil
 		}
@@ -276,10 +373,10 @@ func (p *parser) files() map[string]*File {
 		if p.currProj.ExplicitKw || len(pkgs) > 1 {
 			pkg.Dir = filepath.ToSlash(filepath.Join(pkg.Dir, pkg.Name))
 		}
-		for _, f:= range pkg.Files {
+		for _, f := range pkg.Files {
 			f.OwnerPkg = pkg
-			for _, decl:= range f.DeclList {
-				if imp, ok:= decl.(*ImportDecl); ok {
+			for _, decl := range f.DeclList {
+				if imp, ok := decl.(*ImportDecl); ok {
 					imp.OwnerFile = f
 				}
 			}
@@ -288,17 +385,17 @@ func (p *parser) files() map[string]*File {
 			p.paramdPkgs[filepath.ToSlash(filepath.Join(p.currProj.Root, pkg.Dir))] = pkg
 			continue
 		}
-		for _, f:= range pkg.Files {
+		for _, f := range pkg.Files {
 			if f.SectName != "" {
 				f.FileName = f.SectName
-			} else if ! p.currProj.ExplicitKw && len(pkgs) == 1 && pkg.Kw {
+			} else if !p.currProj.ExplicitKw && len(pkgs) == 1 && pkg.Kw {
 				f.FileName = p.currProj.Name //use gro-filename as filename
 			}
-			fs[filepath.ToSlash(filepath.Join(p.currProj.Root, pkg.Dir, f.FileName)) + ".go"] = f
+			fs[filepath.ToSlash(filepath.Join(p.currProj.Root, pkg.Dir, f.FileName))+".go"] = f
 		}
 	}
-	for _, ai:= range p.argImports {
-		for k, v:= range p.initGenerics(ai, "", map[string]bool{}) {
+	for _, ai := range p.argImports {
+		for k, v := range p.initGenerics(ai, "", map[string]bool{}) {
 			fs[k] = v
 		}
 	}
@@ -308,17 +405,17 @@ func (p *parser) files() map[string]*File {
 //--------------------------------------------------------------------------------
 // initGenerics: for each import that had an argument/s, put its parameters into the package as types, then add that to fs.
 func (p *parser) initGenerics(ai *ImportDecl, prefix string, done map[string]bool) map[string]*File {
-	fs:= map[string]*File{}
-	if ! p.permits["genericCall"] {
+	fs := map[string]*File{}
+	if !p.permits["genericCall"] {
 		p.syntaxError("calling generic-type packages disabled but import arguments present")
 		return nil
 	}
-	aiPkgLocn:= strings.Trim(ai.Path.Value, "\"")
+	aiPkgLocn := strings.Trim(ai.Path.Value, "\"")
 	/*if done[aiPkgLocn] {
 		p.syntaxError("cycles not allowed in parameterized imports") //TODO: fix so error is different to that below
 		return nil
 	}*/
-	pp:= p.paramdPkgs[aiPkgLocn]
+	pp := p.paramdPkgs[aiPkgLocn]
 	if pp == nil {
 		/*pps:= ""
 		for k, _:= range p.paramdPkgs {
@@ -329,15 +426,15 @@ func (p *parser) initGenerics(ai *ImportDecl, prefix string, done map[string]boo
 		p.syntaxError("parameterized package not present in file, or there's a cycle in the parameterized imports")
 		return nil
 	}
-	newpath:= filepath.ToSlash(filepath.Join(prefix, "generics", ai.OwnerFile.OwnerPkg.Dir, ai.OwnerFile.FileName, ai.LocalPkgName.Value))
-	for _, pf:= range pp.Files {
+	newpath := filepath.ToSlash(filepath.Join(prefix, "generics", ai.OwnerFile.OwnerPkg.Dir, ai.OwnerFile.FileName, ai.LocalPkgName.Value))
+	for _, pf := range pp.Files {
 		//recursively call initGenerics on each argImport in the parameterized pkg, where arg is one of pkg's params
-		for _, decl:= range pf.DeclList {
-			if decl, ok:= decl.(*ImportDecl); ok && len(decl.Args) > 0 {
-				passThrus:= map[int]int{} //map arg to param
-				for m, arg:= range decl.Args {
-					if arg, ok:= arg.(*Name); ok {
-						for n, param:= range pp.Params {
+		for _, decl := range pf.DeclList {
+			if decl, ok := decl.(*ImportDecl); ok && len(decl.Args) > 0 {
+				passThrus := map[int]int{} //map arg to param
+				for m, arg := range decl.Args {
+					if arg, ok := arg.(*Name); ok {
+						for n, param := range pp.Params {
 							if arg.Value == param.Value {
 								passThrus[m] = n
 							}
@@ -345,54 +442,54 @@ func (p *parser) initGenerics(ai *ImportDecl, prefix string, done map[string]boo
 					}
 				}
 				if len(passThrus) > 0 {
-					args:= []Expr{}
-					for m, arg:= range decl.Args {
-						if n, ok:= passThrus[m]; ok {
+					args := []Expr{}
+					for m, arg := range decl.Args {
+						if n, ok := passThrus[m]; ok {
 							args = append(args, ai.Args[n])
 						} else {
 							args = append(args, arg)
 						}
 					}
-					infers:= []*ImportDecl{}
-					for _, infer:= range decl.Infers {
+					infers := []*ImportDecl{}
+					for _, infer := range decl.Infers {
 						infers = append(infers, infer)
 					}
-					declClone:= &ImportDecl {
+					declClone := &ImportDecl{
 						LocalPkgName: decl.LocalPkgName,
-						Path: decl.Path,
-						Group: decl.Group,
-						OwnerFile: decl.OwnerFile,
-						Args: args,
-						Infers: infers,
+						Path:         decl.Path,
+						Group:        decl.Group,
+						OwnerFile:    decl.OwnerFile,
+						Args:         args,
+						Infers:       infers,
 					}
 					done[aiPkgLocn] = true
-					for k, subFile:= range p.initGenerics(declClone, newpath, done) {
+					for k, subFile := range p.initGenerics(declClone, newpath, done) {
 						fs[k] = subFile
 					}
 					delete(done, aiPkgLocn)
 				}
 			}
 		}
-		fs[filepath.ToSlash(filepath.Join(p.currProj.Root, newpath, pf.FileName)) + ".go"] = pf
+		fs[filepath.ToSlash(filepath.Join(p.currProj.Root, newpath, pf.FileName))+".go"] = pf
 	}
 	ai.Path.Value = "\"" + filepath.ToSlash(filepath.Join(p.currProj.Root, newpath)) + "\""
-	f:= &File{
-		PkgName: p.newName(pp.Name),
+	f := &File{
+		PkgName:  p.newName(pp.Name),
 		DeclList: []Decl{},
 	}
-	g:= new(Group)
-	for _, inf:= range ai.Infers {
+	g := new(Group)
+	for _, inf := range ai.Infers {
 		inf.Group = g
 		f.DeclList = append(f.DeclList, inf)
 	}
-	for n, a:= range ai.Args {
+	for n, a := range ai.Args {
 		f.DeclList = append(f.DeclList, &TypeDecl{
-			Name: pp.Params[n],
+			Name:  pp.Params[n],
 			Alias: true,
-			Type: a,
+			Type:  a,
 		})
 	}
-	fs[filepath.ToSlash(filepath.Join(p.currProj.Root, newpath, "generic_args")) + ".go"] = f
+	fs[filepath.ToSlash(filepath.Join(p.currProj.Root, newpath, "generic_args"))+".go"] = f
 	return fs
 }
 
@@ -411,19 +508,21 @@ func (p *parser) forkAndParse(filename string, src []byte) (_ []*Package, first 
 	var q parser
 	q.init(filename, p.base, &bytesReader{src}, p.errh, nil, p.mode, p.getFile)
 	q.next()
-	pkgs:= q.pkgs()
+	pkgs := q.pkgs()
 	p.argImports = append(p.argImports, q.argImports...)
 	return pkgs, q.first
 }
 
 //--------------------------------------------------------------------------------
 func (p *parser) pkgs() (pkgs []*Package) {
-	if trace {defer p.trace("pkgs")("")}
+	if trace {
+		defer p.trace("pkgs")("")
+	}
 
 	p.currProj.ExplicitKw = false
 	p.currProj.Str = ""
 	if p.isName("project") {
-		if ! p.permits["project"] {
+		if !p.permits["project"] {
 			p.syntaxError("\"project\" keyword disabled but keyword is present")
 			return nil
 		}
@@ -431,15 +530,37 @@ func (p *parser) pkgs() (pkgs []*Package) {
 			p.currProj.Doc = p.comments
 		}
 		p.next()
-		if b:= p.oliteral(); b != nil { // is directory-string present?
+		if b := p.oliteral(); b != nil { // is directory-string present?
 			p.currProj.Str = strings.Trim(b.Value, "\"")
 		}
 		p.currProj.Name = p.name().Value
 		p.want(_Semi)
 		p.currProj.ExplicitKw = true
 	}
-	p.useDecls()
-	pkgs = append(pkgs, p.inclDecls()...)
+	for p.isName("use") || p.isName("include") {
+		var fn func() []*Package
+		switch p.lit {
+		case "use":
+			fn = p.useDecl
+		case "include":
+			fn = p.inclDecl
+		}
+		if !p.permits[p.lit] {
+			p.syntaxError(fmt.Sprintf("\"%s\" keywords are disabled but keyword is present", p.lit))
+			return nil
+		}
+		p.want(_Name)
+
+		if p.tok == _Lparen {
+			p.list(_Lparen, _Semi, _Rparen, func() bool {
+				pkgs = append(pkgs, fn()...)
+				return false
+			})
+		} else {
+			pkgs = append(pkgs, fn()...)
+		}
+		p.want(_Semi)
+	}
 	for p.tok != _EOF {
 		pkgs = append(pkgs, p.pkgOrNil())
 	}
@@ -447,48 +568,95 @@ func (p *parser) pkgs() (pkgs []*Package) {
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) inclDecls() (pkgs []*Package){
-	if trace {defer p.trace("inclDecls")("")}
+func (p *parser) useDecl() (pkgs []*Package) {
+	if trace {
+		defer p.trace("useDecl")("")
+	}
 
-	for p.isName("include") {
-		if ! p.permits["include"] {
-			p.syntaxError("\"include\" keywords are disabled but keyword is present")
-			return nil
+	rets := []string{}
+	for p.tok == _Name {
+		rets = append(rets, p.name().Value)
+	}
+	useStr := p.oliteral()
+	if useStr == nil || useStr.Kind != StringLit {
+		p.syntaxError("missing use string")
+		p.advance(_Semi, _Rparen)
+		return nil
+	}
+	use := strings.Trim(useStr.Value, "\"")
+	args := []string{}
+	if p.tok == _Lparen {
+		p.list(_Lparen, _Comma, _Rparen, func() bool {
+			args = append(args, p.oliteral().Value)
+			return false
+		})
+	}
+
+	switch use {
+	/*default:
+	p.syntaxError(fmt.Sprintf("use \"%s\" not implemented", use))
+	p.advance(_Semi, _Rbrace)
+	return
+	*/
+	case "blacklist":
+		//TODO: ensure len(rets) == 0
+		//p.useRegistry["blacklist"](args)
+		p.useRegistry["blacklist"](len(rets), args)
+		return
+	case "linedirectives":
+		//TODO: ensure len(rets) == 0 && len(args) == 0
+		p.lineDirects = true
+		return
+	case "dynamic":
+		if len(args) != 0 {
+			p.syntaxError("use \"dynamic\" shouldn't take any arguments but does")
+			p.advance(_Semi, _Rbrace)
+			return
 		}
-		p.want(_Name)
-		if p.got(_Lparen) {
-			for p.tok != _EOF && p.tok != _Rparen {
-				pkgs = append(pkgs, p.inclDecl()...)
-				if !p.osemi(_Rparen) {
-					break
+		p.dynamicMode = true
+		if len(rets) == 1 {
+			ret := strings.Trim(rets[0], "\"")
+			if ret == "_" {
+				p.dynamicBlock = "groo"
+			} else {
+				p.macroRegistry[ret] = func(p *parser, _ ...interface{}) Stmt {
+					dynBlock := p.dynamicBlock
+					p.dynamicBlock = ret
+					bs := p.blockStmt("", p.tlStmt)
+					p.dynamicBlock = dynBlock
+					return bs
 				}
 			}
-			p.want(_Rparen)
-		} else {
-			pkgs = append(pkgs, p.inclDecl()...)
+		} else if len(rets) > 0 {
+			p.syntaxError("use \"dynamic\" has too many return values")
+			p.advance(_Semi, _Rbrace)
+			return
 		}
-		p.want(_Semi)
+		return
+	default:
+		return
 	}
-	return
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) inclDecl() []*Package{
-	if trace {defer p.trace("inclDecl")("")}
+func (p *parser) inclDecl() []*Package {
+	if trace {
+		defer p.trace("inclDecl")("")
+	}
 
-	lit:= p.oliteral()
+	lit := p.oliteral()
 	if lit == nil {
 		p.syntaxError("missing name for gro-file after \"include\" keyword")
 		p.advance(_Semi, _Rparen)
 		return nil
 	}
-	fileLocn:= filepath.ToSlash(filepath.Join(p.currProj.Locn, strings.Trim(lit.Value, "\"")))
-	src, err:= p.getFile(fileLocn)
+	fileLocn := filepath.ToSlash(filepath.Join(p.currProj.Locn, strings.Trim(lit.Value, "\"")))
+	src, err := p.getFile(fileLocn)
 	if err != nil {
 		p.error(fmt.Sprintf("error \"%s\" retrieving included file %s", err, fileLocn))
 		return nil
 	}
-	pkgs, err:= p.forkAndParse(fileLocn, []byte(src))
+	pkgs, err := p.forkAndParse(fileLocn, []byte(src))
 	if err != nil {
 		p.error(fmt.Sprintf("error \"%s\" parsing included file %s", err, fileLocn))
 		return nil
@@ -497,77 +665,15 @@ func (p *parser) inclDecl() []*Package{
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) useDecls() {
-	if trace {defer p.trace("useDecls")("")}
-
-	for p.isName("use") {
-		if ! p.permits["use"] {
-			p.syntaxError("\"use\" keywords disabled but keyword is present")
-			return
-		}
-		p.next()
-		if p.got(_Lparen) {
-			for p.tok != _EOF && p.tok != _Rparen {
-				p.useDecl()
-				if !p.osemi(_Rparen) {
-					break
-				}
-			}
-			p.want(_Rparen)
-		} else {
-			p.useDecl()
-		}
-		p.want(_Semi)
-	}
-}
-
-//--------------------------------------------------------------------------------
-func (p *parser) useDecl() {
-	if trace {defer p.trace("useDecl")("")}
-
-	rets:= []string{}
-	for p.tok == _Name {
-		rets = append(rets, p.name().Value)
-	}
-	useStr:= p.oliteral()
-	if useStr == nil || useStr.Kind != StringLit {
-		p.syntaxError("missing use string")
-		p.advance(_Semi, _Rparen)
-		return
-	}
-	use:= strings.Trim(useStr.Value, "\"")
-	args:= []string{}
-	if p.got(_Lparen) {
-		for p.tok != _EOF && p.tok != _Rparen {
-			arg:= strings.Trim(p.oliteral().Value, "\"")
-			args = append(args, arg)
-			if !p.ocomma(_Rparen) {
-				break
-			}
-		}
-		p.want(_Rparen)
-	}
-	switch use {
-	/*default:
-		p.syntaxError(fmt.Sprintf("use \"%s\" not implemented", use))
-		p.advance(_Semi, _Rbrace)
-		return
-	*/
-	case "blacklist":
-		p.useRegistry["blacklist"](args)
-	}
-}
-
-//--------------------------------------------------------------------------------
-func (p *parser) newBlankFunc(s string) *FuncDecl{
-	fn:= &FuncDecl{
+func (p *parser) newBlankFunc(s string) *FuncDecl {
+	fn := &FuncDecl{
 		Name: p.newName(s),
 		Type: &FuncType{
-			ParamList: []*Field{},
+			ParamList:  []*Field{},
 			ResultList: nil,
 		},
 		Body: &BlockStmt{
-			List: []Stmt{},
+			List:   []Stmt{},
 			Rbrace: p.pos(),
 		},
 	}
@@ -580,39 +686,45 @@ func (p *parser) newBlankFunc(s string) *FuncDecl{
 //--------------------------------------------------------------------------------
 // SourceFile = PackageClause ";" { ImportDecl ";" } { TopLevelDecl ";" } .
 func (p *parser) pkgOrNil() *Package {
-	if trace {defer p.trace("pkgOrNil")("")}
+	if trace {
+		defer p.trace("pkgOrNil")("")
+	}
 
-	pkg:= &Package{
-		Files: []*File{},
-		Params: []*Name{},
+	pkg := &Package{
+		Files:   []*File{},
+		Params:  []*Name{},
+		IdsUsed: map[string]bool{},
 	}
 	p.currPkg = pkg
-	p.pkgName = ""  // used by funcDeclOrNil()
-	bracesUsed:= false
+	p.pkgName = "" // used by funcDeclOrNil()
+	bracesUsed := false
 
 	for { // each section
-		f:= new(File)
+		f := new(File)
 		f.pos = p.pos()
 		pkg.pos = f.pos
+		if p.lineDirects {
+			f.linedirect = f.pos
+		}
 		f.comments = &Comments{Alone: []Comment{}, Above: []Comment{}, Left: []Comment{}, Right: []Comment{}, Below: []Comment{}}
 		if p.currProj.Doc != nil {
 			//add project-level doc to top of every package file
-			for _, c:= range p.currProj.Doc {
+			for _, c := range p.currProj.Doc {
 				f.comments.Alone = append(f.comments.Alone, Comment{Text: c})
 			}
 		}
 		if p.tok == _Package || p.isName("internal") { // first time thru loop only, maybe
-			if ! p.permits["package"] {
+			if !p.permits["package"] {
 				p.syntaxError("\"package\" (and similar) keywords are disabled but keyword is present")
 				return nil
 			}
-			for i, c:= range p.comments {
-				if i >= len(p.comments) - p.numDocComments {
+			for i, c := range p.comments {
+				if i >= len(p.comments)-p.numDocComments {
 					f.comments.Above = append(f.comments.Above, Comment{Text: c})
 				}
 			}
 			if p.isName("internal") {
-				if ! p.permits["internal"] {
+				if !p.permits["internal"] {
 					p.syntaxError("\"internal\" keywords disabled but keyword is present")
 					return nil
 				}
@@ -620,28 +732,27 @@ func (p *parser) pkgOrNil() *Package {
 			}
 			p.next()
 			// if directory-string present, add after directory
-			if b:= p.oliteral(); b != nil {
+			if b := p.oliteral(); b != nil {
 				pkg.Dir = filepath.ToSlash(filepath.Join(pkg.Dir, strings.Trim(b.Value, "\"")))
 			}
 			pkg.Kw = true
 			f.PkgName = p.name()
 			pkg.Name = f.PkgName.Value
 			p.pkgName = f.PkgName.Value
-			if p.got(_Lparen) {
-				if ! p.permits["genericDef"] {
+
+			if p.tok == _Lparen {
+				if !p.permits["genericDef"] {
 					p.syntaxError("defining generic packages is disabled but one is present")
 					return nil
 				}
-				for p.tok != _EOF && p.tok != _Rparen {
+				p.list(_Lparen, _Comma, _Rparen, func() bool {
 					pkg.Params = append(pkg.Params, p.name())
-					if !p.ocomma(_Rparen) {
-						break
-					}
-				}
-				p.want(_Rparen)
+					return false
+				})
 			}
+
 			if p.got(_Lbrace) {
-				if ! p.permits["pkgSectBlocks"] {
+				if !p.permits["pkgSectBlocks"] {
 					p.syntaxError("using block-style notation for packages and sections is disabled but it is being used")
 					return nil
 				}
@@ -652,7 +763,7 @@ func (p *parser) pkgOrNil() *Package {
 		} else if p.pkgName != "" { // subsequent times thru loop (section keyword)
 			f.PkgName = p.newName(p.pkgName)
 		} else { // first time thru loop, no package keyword
-			if ! p.permits["inferPkg"] {
+			if !p.permits["inferPkg"] {
 				p.syntaxError("infer-packages disabled but no explicit \"package\" keyword present")
 				return nil
 			}
@@ -665,12 +776,12 @@ func (p *parser) pkgOrNil() *Package {
 
 		// if package without keyword, and main fn defined, use "main" as package-name
 		if !pkg.Kw && p.sectHasMain && p.permits["inferMain"] ||
-				p.sectIsMain && p.sectHasMain && p.permits["inferMain"] {
+			p.sectIsMain && p.sectHasMain && p.permits["inferMain"] {
 			f.PkgName.Value = "main"
 			f.comments.Alone = append(f.comments.Alone, Comment{Text: "// +build ignore"})
 		}
 		if p.sectHasStmts && !p.sectHasMain && !pkg.Kw ||
-				p.sectIsMain && !p.sectHasMain {
+			p.sectIsMain && !p.sectHasMain {
 			if p.permits["inferMain"] {
 				f.PkgName.Value = "main"
 				f.comments.Alone = append(f.comments.Alone, Comment{Text: "// +build ignore"})
@@ -678,12 +789,24 @@ func (p *parser) pkgOrNil() *Package {
 			}
 		}
 		pkg.Files = append(pkg.Files, f)
-		if p.tok == _EOF || p.tok == _Package || p.isName("internal") || (bracesUsed && p.tok == _Rbrace) { break }
+		if p.tok == _EOF || p.tok == _Package || p.isName("internal") || (bracesUsed && p.tok == _Rbrace) {
+			break
+		}
 	}
-	if bracesUsed && !( p.got(_Rbrace) && p.got(_Semi) ) {
+	if bracesUsed && !(p.got(_Rbrace) && p.got(_Semi)) {
 		p.syntaxError("missing right brace after package block")
 		p.advance(_Semi, _Rbrace)
 		return nil
+	}
+	if p.dynamicMode && !pkg.IdsUsed["any"] && len(pkg.Files) > 0 {
+		d := &TypeDecl{
+			Name:   &Name{Value: "any"},
+			Alias:  true,
+			Type:   &InterfaceType{MethodList: []*Field{}},
+			Pragma: p.pragma,
+		}
+		pkg.Files[0].DeclList = append(pkg.Files[0].DeclList, d)
+		pkg.IdsUsed["any"] = true
 	}
 	return pkg
 }
@@ -691,46 +814,48 @@ func (p *parser) pkgOrNil() *Package {
 //--------------------------------------------------------------------------------
 // Section
 func (p *parser) sectionOrNil(f *File) *File {
-	if trace {defer p.trace("sectionOrNil")("")}
+	if trace {
+		defer p.trace("sectionOrNil")("")
+	}
 
-	p.sectHasMain = false // used by funcDeclOrNil()
-	p.sectHasStmts = false // used by tlStmts()
+	p.sectHasMain = false  // used by funcDeclOrNil()
+	p.sectHasStmts = false // used by tlBlock()
 	p.sectIsMain = false
 	p.sectIsTc = false
 	p.infImports = []*ImportDecl{} // used by operand()
 	p.infImpMap = map[string]string{}
-	bracesUsed:= false
+	bracesUsed := false
 
-	currPos:= p.pos()
+	currPos := p.pos()
 	if p.isName("section", "main", "testcode") {
-		if ! p.permits["section"] {
+		if !p.permits["section"] {
 			p.syntaxError("\"section\" keywords are disabled but keyword is present")
 			return nil
 		}
-		if p.isName("main") && ! p.permits["main"] {
+		if p.isName("main") && !p.permits["main"] {
 			p.syntaxError("\"main\" keywords are disabled but keyword is present")
 			return nil
 		}
-		if p.isName("testcode") && ! p.permits["testcode"] {
+		if p.isName("testcode") && !p.permits["testcode"] {
 			p.syntaxError("\"testcode\" keywords are disabled but keyword is present")
 			return nil
 		}
 		p.sectIsMain = p.isName("main")
-		for i, c:= range p.comments {
-			if i >= len(p.comments) - p.numDocComments {
+		for i, c := range p.comments {
+			if i >= len(p.comments)-p.numDocComments {
 				f.DeclList = append(f.DeclList, &CommentDecl{CommentList: []Comment{{Text: c}}})
 			}
 		}
 		p.sectIsTc = p.isName("testcode")
 		p.next()
-		lit:= p.oliteral()
+		lit := p.oliteral()
 		if lit == nil {
 			p.syntaxError("missing section name")
 			p.advance(_Semi, _Rparen)
 			return nil
 		}
 		if p.got(_Lbrace) {
-			if ! p.permits["pkgSectBlocks"] {
+			if !p.permits["pkgSectBlocks"] {
 				p.syntaxError("using block-style notation for packages and sections is disabled but it is being used")
 				return nil
 			}
@@ -746,7 +871,7 @@ func (p *parser) sectionOrNil(f *File) *File {
 
 	// { ImportDecl ";" }
 	for p.got(_Import) {
-		if ! p.permits["import"] {
+		if !p.permits["import"] {
 			p.syntaxError("\"import\" keywords are disabled but keyword is present")
 			return nil
 		}
@@ -760,16 +885,20 @@ func (p *parser) sectionOrNil(f *File) *File {
 	// { TopLevelDecl ";" }
 	for p.tok != _EOF && p.tok != _Package && p.tok != _Rbrace && !p.isName("internal", "section", "main", "testcode") {
 		switch p.tok {
-		case _If, _For, _Switch, _Select, _Go, _Defer, _Lbrace, _Semi, _Literal: //tl-stmts
-			f.DeclList = append(f.DeclList, p.tlStmts())
+		case _Const, _Var, _Type, _Func: //declarations
+			f.DeclList = p.decl(f.DeclList)
+		case _If, _For, _Switch, _Select, _Go, _Lbrace, _Semi, _Literal: //tl-stmts
+			f.DeclList = append(f.DeclList, p.tlBlock())
 		default:
-			if p.isName("do") { //do-stmts
-				f.DeclList = append(f.DeclList, p.tlStmts())
-			} else if mac, ok:= p.macroRegistry[p.lit]; p.tok == _Name && ok { //macros
-				p.next()
-				f.DeclList = mac(p, f.DeclList)
-			} else { //declarations
+			if p.isName("do") { //do-stmt
+				f.DeclList = append(f.DeclList, p.tlBlock())
+			} else if p.isName("proc") { //proc-decl
 				f.DeclList = p.decl(f.DeclList)
+			} else if _, ok := p.macroRegistry[p.lit]; p.tok == _Name && ok { //macros
+				f.DeclList = append(f.DeclList, p.tlBlock())
+			} else {
+				p.syntaxError(fmt.Sprintf("unexpected %s at top-level", p.tok))
+				return nil
 			}
 		}
 	}
@@ -779,14 +908,14 @@ func (p *parser) sectionOrNil(f *File) *File {
 	}
 
 	if len(p.infImports) > 0 {
-		g:= new(Group)
-		for i:= len(p.infImports) - 1; i >= 0; i-- {
-			imp:= p.infImports[i]
+		g := new(Group)
+		for i := len(p.infImports) - 1; i >= 0; i-- {
+			imp := p.infImports[i]
 			imp.Group = g
 			f.DeclList = append([]Decl{imp}, f.DeclList...)
 		}
 	}
-	if bracesUsed && !( p.got(_Rbrace) && p.got(_Semi) ) {
+	if bracesUsed && !(p.got(_Rbrace) && p.got(_Semi)) {
 		p.syntaxError("missing right brace after section block")
 		p.advance(_Semi, _Rbrace)
 		return nil
@@ -800,12 +929,12 @@ func (p *parser) sectionOrNil(f *File) *File {
 func (p *parser) decl(declList []Decl) []Decl {
 	switch {
 	case p.tok == _Const:
-		if ! p.permits["const"] {
+		if !p.permits["const"] {
 			p.syntaxError("\"const\" keywords are disabled but keyword is present")
 			return nil
 		}
-		for i, c:= range p.comments {
-			if i >= len(p.comments) - p.numDocComments {
+		for i, c := range p.comments {
+			if i >= len(p.comments)-p.numDocComments {
 				p.docComments = append(p.docComments, c)
 			}
 		}
@@ -813,12 +942,12 @@ func (p *parser) decl(declList []Decl) []Decl {
 		declList = p.appendGroup(declList, p.constDecl)
 
 	case p.tok == _Type:
-		if ! p.permits["type"] {
+		if !p.permits["type"] {
 			p.syntaxError("\"type\" keywords are disabled but keyword is present")
 			return nil
 		}
-		for i, c:= range p.comments {
-			if i >= len(p.comments) - p.numDocComments {
+		for i, c := range p.comments {
+			if i >= len(p.comments)-p.numDocComments {
 				p.docComments = append(p.docComments, c)
 			}
 		}
@@ -826,12 +955,12 @@ func (p *parser) decl(declList []Decl) []Decl {
 		declList = p.appendGroup(declList, p.typeDecl)
 
 	case p.tok == _Var:
-		if ! p.permits["var"] {
+		if !p.permits["var"] {
 			p.syntaxError("\"var\" keywords are disabled but keyword is present")
 			return nil
 		}
-		for i, c:= range p.comments {
-			if i >= len(p.comments) - p.numDocComments {
+		for i, c := range p.comments {
+			if i >= len(p.comments)-p.numDocComments {
 				p.docComments = append(p.docComments, c)
 			}
 		}
@@ -839,8 +968,8 @@ func (p *parser) decl(declList []Decl) []Decl {
 		declList = p.appendGroup(declList, p.varDecl)
 
 	case p.tok == _Func:
-		for i, c:= range p.comments {
-			if i >= len(p.comments) - p.numDocComments {
+		for i, c := range p.comments {
+			if i >= len(p.comments)-p.numDocComments {
 				p.docComments = append(p.docComments, c)
 			}
 		}
@@ -850,12 +979,12 @@ func (p *parser) decl(declList []Decl) []Decl {
 		}
 
 	case p.isName("proc"):
-		if ! p.permits["proc"] {
+		if !p.permits["proc"] {
 			p.syntaxError("\"proc\" keywords are disabled but keyword is present")
 			return nil
 		}
-		for i, c:= range p.comments {
-			if i >= len(p.comments) - p.numDocComments {
+		for i, c := range p.comments {
+			if i >= len(p.comments)-p.numDocComments {
 				p.docComments = append(p.docComments, c)
 			}
 		}
@@ -890,19 +1019,77 @@ func (p *parser) decl(declList []Decl) []Decl {
 //--------------------------------------------------------------------------------
 // Declarations
 //--------------------------------------------------------------------------------
-// appendGroup(f) = f | "(" { f ";" } ")" .
-func (p *parser) appendGroup(list []Decl, f func(*Group) Decl) []Decl {
-	if p.got(_Lparen) {
-		g := new(Group)
-		for p.tok != _EOF && p.tok != _Rparen {
-			list = append(list, f(g))
-			if !p.osemi(_Rparen) {
-				break
+// list parses a possibly empty, sep-separated list, optionally
+// followed by sep and enclosed by ( and ) or { and }. open is
+// one of _Lparen, or _Lbrace, sep is one of _Comma or _Semi,
+// and close is expected to be the (closing) opposite of open.
+// For each list element, f is called. After f returns true, no
+// more list elements are accepted. list returns the position
+// of the closing token.
+//
+// list = "(" { f sep } ")" |
+//        "{" { f sep } "}" . // sep is optional before ")" or "}"
+//
+func (p *parser) list(open, sep, close token, f func() bool) src.Pos {
+	p.want(open)
+
+	var done bool
+	for p.tok != _EOF && p.tok != close && !done {
+		done = f()
+
+		// sep is optional before close
+		if !p.got(sep) && p.tok != close {
+			p.syntaxError(fmt.Sprintf("expecting %s or %s", tokstring(sep), tokstring(close)))
+			p.advance(_Rparen, _Rbrack, _Rbrace)
+			if p.tok != close {
+				return p.pos()
+				// position could be better but we had an error so we don't care
 			}
 		}
-		p.want(_Rparen)
+	}
+
+	pos := p.pos()
+	p.want(close)
+	return pos
+}
+
+//--------------------------------------------------------------------------------
+// appendGroup(f) = f | "(" { f ";" } ")" . // ";" is optional before ")"
+func (p *parser) appendGroup(list []Decl, f func(*Group) Decl) []Decl {
+	setIdsUsed := func(f Decl) {
+		switch ft := f.(type) {
+		case *ConstDecl:
+			for _, name := range ft.NameList {
+				if name.Value != "_" {
+					p.currPkg.IdsUsed[name.Value] = true
+				}
+			}
+		case *VarDecl:
+			for _, name := range ft.NameList {
+				if name.Value != "_" {
+					p.currPkg.IdsUsed[name.Value] = true
+				}
+			}
+		case *TypeDecl:
+			if ft.Name.Value != "_" {
+				p.currPkg.IdsUsed[ft.Name.Value] = true
+			}
+		}
+	}
+
+	if p.tok == _Lparen {
+		g := new(Group)
+		p.list(_Lparen, _Semi, _Rparen, func() bool {
+			fg := f(g)
+			setIdsUsed(fg)
+			list = append(list, fg)
+			return false
+		})
+
 	} else {
-		list = append(list, f(nil))
+		fnil := f(nil)
+		setIdsUsed(fnil)
+		list = append(list, fnil)
 	}
 
 	if debug {
@@ -920,14 +1107,23 @@ func (p *parser) appendGroup(list []Decl, f func(*Group) Decl) []Decl {
 // ImportSpec = [ "." | PackageName ] ImportPath .
 // ImportPath = string_lit .
 func (p *parser) importDecl(group *Group) Decl {
-	if trace {defer p.trace("importDecl")("")}
+	if trace {
+		defer p.trace("importDecl")("")
+	}
 
 	d := new(ImportDecl)
 	d.pos = p.pos()
+	if p.lineDirects {
+		d.linedirect = d.pos
+	}
 
 	switch p.tok {
 	case _Name:
 		d.LocalPkgName = p.name()
+		//only explicit local names of imports can be analyzed at the syntactic phase...
+		if d.LocalPkgName.Value != "_" {
+			p.currPkg.IdsUsed[d.LocalPkgName.Value] = true
+		}
 	case _Dot:
 		d.LocalPkgName = p.newName(".")
 		p.next()
@@ -939,33 +1135,29 @@ func (p *parser) importDecl(group *Group) Decl {
 		return nil
 	}
 	if p.sectIsTc {
-		_, pkgTag:= filepath.Split(d.Path.Value)
-		pkgTag = strings.Trim(pkgTag, "\"")
+		_, pkgTag := filepath.Split(strings.Trim(d.Path.Value, "\""))
 		if d.LocalPkgName != nil && d.LocalPkgName.Value == p.pkgName || pkgTag == p.pkgName {
 			p.pkgName += "_test"
 		}
 	}
 	d.Group = group
-	if p.got(_Lparen) {
+	if p.tok == _Lparen {
 		d.Args = []Expr{}
 		if d.LocalPkgName == nil {
 			p.syntaxError("imported parameterized packages need a local name")
 			p.advance(_Rparen)
 			return nil
 		}
-		for p.tok != _EOF && p.tok != _Rparen { // for each argument
-			arg:= p.typeOrNil()
-			if !p.ocomma(_Rparen) {
-				break
-			}
+		p.list(_Lparen, _Comma, _Rparen, func() bool {
+			arg := p.typeOrNil()
 			d.Args = append(d.Args, arg)
-		}
-		p.want(_Rparen)
+			return false
+		})
 
-		numPassThrus:= 0 //TODO: only need a bool
-		for _, arg:= range d.Args {
-			if arg, ok:= arg.(*Name); ok {
-				for _, param:= range p.currPkg.Params {
+		numPassThrus := 0 //TODO: only need a bool
+		for _, arg := range d.Args {
+			if arg, ok := arg.(*Name); ok {
+				for _, param := range p.currPkg.Params {
 					if arg.Value == param.Value {
 						numPassThrus++
 					}
@@ -980,20 +1172,29 @@ func (p *parser) importDecl(group *Group) Decl {
 			p.infImports = []*ImportDecl{}
 		}
 	}
-
+	if p.dynamicMode && d.LocalPkgName == nil {
+		_, a := filepath.Split(strings.Trim(d.Path.Value, "\""))
+		d.LocalPkgName = &Name{Value: a}
+		p.currPkg.IdsUsed[a] = true
+	}
 	return d
 }
 
 //--------------------------------------------------------------------------------
 // ConstSpec = IdentifierList [ [ Type ] "=" ExpressionList ] .
 func (p *parser) constDecl(group *Group) Decl {
-	if trace {defer p.trace("constDecl")("")}
+	if trace {
+		defer p.trace("constDecl")("")
+	}
 
 	d := new(ConstDecl)
 	d.pos = p.pos()
+	if p.lineDirects {
+		d.linedirect = d.pos
+	}
 	if p.docComments != nil {
 		d.comments = &Comments{Alone: []Comment{}, Above: []Comment{}, Left: []Comment{}, Right: []Comment{}, Below: []Comment{}}
-		for _, c:= range p.docComments {
+		for _, c := range p.docComments {
 			d.comments.Above = append(d.comments.Above, Comment{Text: c})
 		}
 		p.docComments = nil
@@ -1013,13 +1214,18 @@ func (p *parser) constDecl(group *Group) Decl {
 //--------------------------------------------------------------------------------
 // TypeSpec = identifier [ "=" ] Type .
 func (p *parser) typeDecl(group *Group) Decl {
-	if trace {defer p.trace("typeDecl")("")}
+	if trace {
+		defer p.trace("typeDecl")("")
+	}
 
 	d := new(TypeDecl)
 	d.pos = p.pos()
+	if p.lineDirects {
+		d.linedirect = d.pos
+	}
 	if p.docComments != nil {
 		d.comments = &Comments{Alone: []Comment{}, Above: []Comment{}, Left: []Comment{}, Right: []Comment{}, Below: []Comment{}}
-		for _, c:= range p.docComments {
+		for _, c := range p.docComments {
 			d.comments.Above = append(d.comments.Above, Comment{Text: c})
 		}
 		p.docComments = nil
@@ -1042,13 +1248,18 @@ func (p *parser) typeDecl(group *Group) Decl {
 //--------------------------------------------------------------------------------
 // VarSpec = IdentifierList ( Type [ "=" ExpressionList ] | "=" ExpressionList ) .
 func (p *parser) varDecl(group *Group) Decl {
-	if trace {defer p.trace("varDecl")("")}
+	if trace {
+		defer p.trace("varDecl")("")
+	}
 
 	d := new(VarDecl)
 	d.pos = p.pos()
+	if p.lineDirects {
+		d.linedirect = d.pos
+	}
 	if p.docComments != nil {
 		d.comments = &Comments{Alone: []Comment{}, Above: []Comment{}, Left: []Comment{}, Right: []Comment{}, Below: []Comment{}}
-		for _, c:= range p.docComments {
+		for _, c := range p.docComments {
 			d.comments.Above = append(d.comments.Above, Comment{Text: c})
 		}
 		p.docComments = nil
@@ -1074,14 +1285,19 @@ func (p *parser) varDecl(group *Group) Decl {
 // Function     = Signature FunctionBody .
 // MethodDecl   = "func" Receiver MethodName ( Function | Signature ) .
 // Receiver     = Parameters .
-func (p *parser) funcDeclOrNil(stmt func()Stmt) *FuncDecl {
-	if trace {defer p.trace("funcDecl")("")}
+func (p *parser) funcDeclOrNil(stmt func() Stmt) *FuncDecl {
+	if trace {
+		defer p.trace("funcDecl")("")
+	}
 
 	f := new(FuncDecl)
 	f.pos = p.pos()
+	if p.lineDirects {
+		f.linedirect = f.pos
+	}
 	if p.docComments != nil {
 		f.comments = &Comments{Alone: []Comment{}, Above: []Comment{}, Left: []Comment{}, Right: []Comment{}, Below: []Comment{}}
-		for _, c:= range p.docComments {
+		for _, c := range p.docComments {
 			f.comments.Above = append(f.comments.Above, Comment{Text: c})
 		}
 		p.docComments = nil
@@ -1125,19 +1341,10 @@ func (p *parser) funcDeclOrNil(stmt func()Stmt) *FuncDecl {
 		p.sectHasMain = true
 	}
 	if p.tok == _Lbrace {
-		f.Body = p.blockStmt("", stmt)
-		if p.mode&CheckBranches != 0 {
-			checkBranches(f.Body, p.errh)
-		}
+		f.Body = p.funcBody(stmt)
 	}
 
 	f.Pragma = p.pragma
-
-	// TODO(gri) deal with function properties
-	// if noescape && body != nil {
-	// 	p.error("can only use //go:noescape with external func implementations")
-	// }
-
 	return f
 }
 
@@ -1146,31 +1353,91 @@ func (p *parser) funcDeclOrNil(stmt func()Stmt) *FuncDecl {
 //--------------------------------------------------------------------------------
 // Possible statement for init() =
 // 	IfStmt | ForStmt | SwitchStmt | SelectStmt | DeferStmt | GoStmt | ReturnStmt | DoStmt | ToplevelBlock | StringLit.
-func (p *parser) tlStmts() *FuncDecl {
-	if trace {defer p.trace("toplevel standalone stmts")("")}
+func (p *parser) tlBlock() *FuncDecl {
+	if trace {
+		defer p.trace("toplevel standalone stmts")("")
+	}
 
 	p.sectHasStmts = true
-	l:= []Stmt{}
-	//these keyword-based statements can be standalone
-	for p.tok == _If || p.tok == _For || p.tok == _Switch || p.tok == _Select || p.tok == _Go || p.tok == _Defer ||
-			p.tok == _Var || p.tok == _Const || p.tok == _Type ||
-			p.tok == _Lbrace || p.tok == _Semi || p.isName("do") || p.tok == _Literal {
-		l = append(l, p.tlStmt())
+	f := p.newBlankFunc("init")
+	l := []Stmt{}
+forloop:
+	for {
+		switch p.tok {
+		//these keyword-based statements can be standalone
+		case _If, _For, _Switch, _Select, _Go, _Var, _Const, _Type, _Lbrace, _Literal:
+			l = append(l, p.tlStmt())
+		default:
+			if p.isName("do") || (p.tok == _Name && p.macroRegistry[p.lit] != nil) {
+				if p.lineDirects {
+					f.linedirect = f.pos
+				}
+				if len(p.comments) > 0 {
+					f.comments = &Comments{Alone: []Comment{}, Above: []Comment{}, Left: []Comment{}, Right: []Comment{}, Below: []Comment{}}
+					for i, c := range p.comments {
+						if i >= len(p.comments)-p.numDocComments {
+							f.comments.Above = append(f.comments.Above, Comment{Text: c})
+						}
+					}
+				}
+				l = append(l, p.tlStmt())
+			} else {
+				break forloop
+			}
+		}
 
-		if p.tok != _EOF && !p.got(_Semi) {
+		// ";" is optional before "}"
+		if p.tok != _EOF && !p.got(_Semi) && p.tok != _Rbrace {
 			p.syntaxError("at end of statement")
-			p.advance(_Const, _Type, _Var, _Func, _If, _For, _Switch, _Select, _Go, _Defer, _Semi, _Rbrace)
+			p.advance(_Const, _Type, _Var, _Func, _If, _For, _Switch, _Select, _Go, _Semi, _Rbrace, _Case, _Default)
+			p.got(_Semi) // avoid spurious empty statement
+			return nil
 		}
 	}
-	f:= p.newBlankFunc("init")
-	f.Body.List = l
 	f.Body.Rbrace = p.pos()
+	f.Body.List = l
 	return f
 }
 
 //--------------------------------------------------------------------------------
+// Possible statement for init() =
+// 	IfStmt | ForStmt | SwitchStmt | SelectStmt | DeferStmt | GoStmt | ReturnStmt | DoStmt | ToplevelBlock | StringLit.
+func (p *parser) tlStmtList(stmt func() Stmt) []Stmt {
+	if trace {
+		defer p.trace("seq of toplevel-style stmts")("")
+	}
+
+	l := []Stmt{}
+forloop:
+	for {
+		switch p.tok {
+		//these keyword-based statements can be standalone
+		case _If, _For, _Switch, _Select, _Go, _Defer, _Var, _Const, _Type, _Lbrace, _Literal:
+			l = append(l, stmt())
+		default:
+			if p.isName("do") || (p.tok == _Name && p.macroRegistry[p.lit] != nil) {
+				l = append(l, stmt())
+			} else {
+				break forloop
+			}
+		}
+
+		// ";" is optional before "}"
+		if p.tok != _EOF && !p.got(_Semi) && p.tok != _Rbrace {
+			p.syntaxError("at end of statement")
+			p.advance(_Const, _Type, _Var, _Func, _If, _For, _Switch, _Select, _Go, _Semi, _Rbrace, _Case, _Default)
+			p.got(_Semi) // avoid spurious empty statement
+			return nil
+		}
+	}
+	return l
+}
+
+//--------------------------------------------------------------------------------
 func (p *parser) tlStmt() Stmt {
-	if trace {defer p.trace("top-level standalone stmt")("")}
+	if trace {
+		defer p.trace("top-level standalone stmt")("")
+	}
 
 	switch p.tok {
 	case _Literal:
@@ -1197,7 +1464,7 @@ func (p *parser) tlStmt() Stmt {
 	case _Select:
 		return p.selectStmt(p.procStmt)
 
-	case _Go, _Defer:
+	case _Go:
 		return p.callStmt(p.procStmt)
 
 	case _Lbrace:
@@ -1213,8 +1480,8 @@ func (p *parser) tlStmt() Stmt {
 			p.want(_Name)
 			switch p.tok {
 			//don't include labelled stmts, var, const, func, type,
-			// fallthrough, continue, break, goto, return within do-statements
-			case _If, _For, _Switch, _Select, _Go, _Defer:
+			// defer, fallthrough, continue, break, goto, return within do-statements
+			case _If, _For, _Switch, _Select, _Go:
 				return p.stmtOrNil()
 			case _Name:
 				return p.simpleStmt(p.exprList(), false)
@@ -1231,6 +1498,10 @@ func (p *parser) tlStmt() Stmt {
 				return p.simpleStmt(nil, false)
 			}
 		}
+		if mac := p.macroRegistry[p.lit]; p.tok == _Name && mac != nil {
+			p.next()
+			return mac(p, p.tlStmt) //p.tlStmt needed for "let"
+		}
 	}
 
 	return nil //should never reach
@@ -1238,7 +1509,9 @@ func (p *parser) tlStmt() Stmt {
 
 //--------------------------------------------------------------------------------
 func (p *parser) procStmt() Stmt {
-	if trace {defer p.trace("standalone stmt within proc")("")}
+	if trace {
+		defer p.trace("standalone stmt within proc")("")
+	}
 
 	if p.isName("do") {
 		p.want(_Name)
@@ -1261,8 +1534,11 @@ func (p *parser) procStmt() Stmt {
 			_Arrow: // receive operator
 			return p.simpleStmt(nil, false)
 		}
-	} else if p.tok == _Name {
-		pos:= p.pos()
+	} else if mac := p.macroRegistry[p.lit]; p.tok == _Name && mac != nil {
+		p.next()
+		return mac(p, p.procStmt) //p.procStmt needed for "let"
+	} else if p.tok == _Name { //TODO: check label as first if-option
+		pos := p.pos()
 		lhs := p.exprList()
 		if label, ok := lhs.(*Name); ok && p.tok == _Colon {
 			return p.labeledStmtOrNil(label)
@@ -1324,7 +1600,7 @@ func (p *parser) procStmt() Stmt {
 		return s
 
 	case _Goto:
-		if ! p.permits["goto"] {
+		if !p.permits["goto"] {
 			p.syntaxError("goto-statement has been prohibited by blacklist")
 			p.advance(_Semi)
 			return nil
@@ -1337,7 +1613,7 @@ func (p *parser) procStmt() Stmt {
 		return s
 
 	case _Return:
-		if ! p.permits["return"] {
+		if !p.permits["return"] {
 			p.syntaxError("return-statement has been prohibited by blacklist")
 			p.advance(_Semi)
 			return nil
@@ -1356,8 +1632,10 @@ func (p *parser) procStmt() Stmt {
 
 //--------------------------------------------------------------------------------
 // StatementList = { Statement ";" } .
-func (p *parser) stmtList(stmt func()Stmt) (l []Stmt) {
-	if trace {defer p.trace("stmtList")("")}
+func (p *parser) stmtList(stmt func() Stmt) (l []Stmt) {
+	if trace {
+		defer p.trace("stmtList")("")
+	}
 
 	for p.tok != _EOF && p.tok != _Rbrace && p.tok != _Case && p.tok != _Default {
 		s := stmt()
@@ -1365,15 +1643,14 @@ func (p *parser) stmtList(stmt func()Stmt) (l []Stmt) {
 			break
 		}
 		l = append(l, s)
-		// customized version of osemi:
-		// ';' is optional before a closing ')' or '}'
-		if p.tok == _Rparen || p.tok == _Rbrace {
-			continue
-		}
-		if !p.got(_Semi) {
+
+		// ";" is optional before "}"
+		if !p.got(_Semi) && p.tok != _Rbrace {
 			p.syntaxError("at end of statement")
-			p.advance(_Semi, _Rbrace)
+			p.advance(_Semi, _Rbrace, _Case, _Default)
+			p.got(_Semi) // avoid spurious empty statement
 		}
+
 	}
 	return
 }
@@ -1385,7 +1662,9 @@ func (p *parser) stmtList(stmt func()Stmt) (l []Stmt) {
 // 	FallthroughStmt | Block | IfStmt | SwitchStmt | SelectStmt | ForStmt |
 // 	DeferStmt .
 func (p *parser) stmtOrNil() Stmt {
-	if trace {defer p.trace("stmt " + p.tok.String())("")}
+	if trace {
+		defer p.trace("stmt " + p.tok.String())("")
+	}
 
 	// Most statements (assignments) start with an identifier;
 	// look for it first before doing anything more expensive.
@@ -1454,7 +1733,7 @@ func (p *parser) stmtOrNil() Stmt {
 		return p.callStmt(p.stmtOrNil)
 
 	case _Goto:
-		if ! p.permits["goto"] {
+		if !p.permits["goto"] {
 			p.syntaxError("goto-statement has been prohibited by blacklist")
 			p.advance(_Semi)
 			return nil
@@ -1467,7 +1746,7 @@ func (p *parser) stmtOrNil() Stmt {
 		return s
 
 	case _Return:
-		if ! p.permits["return"] {
+		if !p.permits["return"] {
 			p.syntaxError("return-statement has been prohibited by blacklist")
 			p.advance(_Semi)
 			return nil
@@ -1498,7 +1777,9 @@ var ImplicitOne = &BasicLit{Value: "1"}
 //--------------------------------------------------------------------------------
 // SimpleStmt = EmptyStmt | ExpressionStmt | SendStmt | IncDecStmt | Assignment | ShortVarDecl .
 func (p *parser) simpleStmt(lhs Expr, rangeOk bool) SimpleStmt {
-	if trace {defer p.trace("simpleStmt")("")}
+	if trace {
+		defer p.trace("simpleStmt")("")
+	}
 
 	if rangeOk && p.tok == _Range {
 		// _Range expr
@@ -1630,7 +1911,9 @@ func (p *parser) newAssignStmt(pos src.Pos, op Operator, lhs, rhs Expr) *AssignS
 
 //--------------------------------------------------------------------------------
 func (p *parser) labeledStmtOrNil(label *Name) Stmt {
-	if trace {defer p.trace("labeledStmt")("")}
+	if trace {
+		defer p.trace("labeledStmt")("")
+	}
 
 	s := new(LabeledStmt)
 	s.pos = p.pos()
@@ -1660,16 +1943,23 @@ func (p *parser) labeledStmtOrNil(label *Name) Stmt {
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) blockStmt(context string, stmt func()Stmt) *BlockStmt {
-	if trace {defer p.trace("blockStmt")("")}
+// context must be a non-empty string unless we know that p.tok == _Lbrace.
+func (p *parser) blockStmt(context string, stmt func() Stmt) *BlockStmt {
+	if trace {
+		defer p.trace("blockStmt")("")
+	}
 
 	s := new(BlockStmt)
 	s.pos = p.pos()
 
+	// people coming from C may forget that braces are mandatory in Go
 	if !p.got(_Lbrace) {
 		p.syntaxError("expecting { after " + context)
 		p.advance(_Name, _Rbrace)
-		// TODO(gri) may be better to return here than to continue (#19663)
+		s.Rbrace = p.pos() // in case we found "}"
+		if p.got(_Rbrace) {
+			return s
+		}
 	}
 
 	s.List = p.stmtList(stmt)
@@ -1681,7 +1971,9 @@ func (p *parser) blockStmt(context string, stmt func()Stmt) *BlockStmt {
 
 //--------------------------------------------------------------------------------
 func (p *parser) declStmt(f func(*Group) Decl) *DeclStmt {
-	if trace {defer p.trace("declStmt")("")}
+	if trace {
+		defer p.trace("declStmt")("")
+	}
 
 	s := new(DeclStmt)
 	s.pos = p.pos()
@@ -1694,8 +1986,10 @@ func (p *parser) declStmt(f func(*Group) Decl) *DeclStmt {
 
 //--------------------------------------------------------------------------------
 // callStmt parses call-like statements that can be preceded by 'defer' and 'go'.
-func (p *parser) callStmt(stmt func()Stmt) *CallStmt {
-	if trace {defer p.trace("callStmt")("")}
+func (p *parser) callStmt(stmt func() Stmt) *CallStmt {
+	if trace {
+		defer p.trace("callStmt")("")
+	}
 
 	s := new(CallStmt)
 	s.pos = p.pos()
@@ -1704,15 +1998,15 @@ func (p *parser) callStmt(stmt func()Stmt) *CallStmt {
 	var x Expr
 
 	if p.tok == _Lbrace {
-		t:= new(FuncType)
+		t := new(FuncType)
 		t.pos = p.pos()
 		t.ParamList = []*Field{}
 		t.ResultList = nil
-		f:= new(FuncLit)
+		f := new(FuncLit)
 		f.pos = p.pos()
 		f.Type = t
 		f.Body = p.blockStmt("", stmt)
-		e:= new(CallExpr)
+		e := new(CallExpr)
 		e.pos = p.pos()
 		e.ArgList = []Expr{}
 		e.Fun = f
@@ -1738,9 +2032,11 @@ func (p *parser) callStmt(stmt func()Stmt) *CallStmt {
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) ifStmt(stmt func()Stmt) *IfStmt {
-	if trace {defer p.trace("ifStmt")("")}
-	if ! p.permits["if"] {
+func (p *parser) ifStmt(stmt func() Stmt) *IfStmt {
+	if trace {
+		defer p.trace("ifStmt")("")
+	}
+	if !p.permits["if"] {
 		p.syntaxError("if-statement has been prohibited by blacklist")
 		p.advance(_Rbrace)
 		return nil
@@ -1756,25 +2052,25 @@ func (p *parser) ifStmt(stmt func()Stmt) *IfStmt {
 		case _If:
 			s.Else = p.ifStmt(stmt)
 		case _Switch:
-			body:= new(BlockStmt)
+			body := new(BlockStmt)
 			body.pos = p.pos()
 			body.List = []Stmt{p.switchStmt(stmt)}
 			body.Rbrace = p.pos()
 			s.Else = body
 		case _For:
-			body:= new(BlockStmt)
+			body := new(BlockStmt)
 			body.pos = p.pos()
 			body.List = []Stmt{p.forStmt(stmt)}
 			body.Rbrace = p.pos()
 			s.Else = body
 		case _Select:
-			body:= new(BlockStmt)
+			body := new(BlockStmt)
 			body.pos = p.pos()
 			body.List = []Stmt{p.selectStmt(stmt)}
 			body.Rbrace = p.pos()
 			s.Else = body
 		case _Go, _Defer:
-			body:= new(BlockStmt)
+			body := new(BlockStmt)
 			body.pos = p.pos()
 			body.List = []Stmt{p.callStmt(stmt)}
 			body.Rbrace = p.pos()
@@ -1791,9 +2087,11 @@ func (p *parser) ifStmt(stmt func()Stmt) *IfStmt {
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) forStmt(stmt func()Stmt) Stmt {
-	if trace {defer p.trace("forStmt")("")}
-	if ! p.permits["for"] {
+func (p *parser) forStmt(stmt func() Stmt) Stmt {
+	if trace {
+		defer p.trace("forStmt")("")
+	}
+	if !p.permits["for"] {
 		p.syntaxError("for-statement has been prohibited by blacklist")
 		p.advance(_Rbrace)
 		return nil
@@ -1809,9 +2107,6 @@ func (p *parser) forStmt(stmt func()Stmt) Stmt {
 }
 
 //--------------------------------------------------------------------------------
-// TODO(gri) This function is now so heavily influenced by the keyword that
-//           it may not make sense anymore to combine all three cases. It
-//           may be simpler to just split it up for each statement kind.
 func (p *parser) header(keyword token) (init SimpleStmt, cond Expr, post SimpleStmt) {
 	p.want(keyword)
 
@@ -1893,9 +2188,11 @@ done:
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) switchStmt(stmt func()Stmt) *SwitchStmt {
-	if trace {defer p.trace("switchStmt")("")}
-	if ! p.permits["switch"] {
+func (p *parser) switchStmt(stmt func() Stmt) *SwitchStmt {
+	if trace {
+		defer p.trace("switchStmt")("")
+	}
+	if !p.permits["switch"] {
 		p.syntaxError("switch-statement has been prohibited by blacklist")
 		p.advance(_Rbrace)
 		return nil
@@ -1920,8 +2217,10 @@ func (p *parser) switchStmt(stmt func()Stmt) *SwitchStmt {
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) caseClause(stmt func()Stmt) *CaseClause {
-	if trace {defer p.trace("caseClause")("")}
+func (p *parser) caseClause(stmt func() Stmt) *CaseClause {
+	if trace {
+		defer p.trace("caseClause")("")
+	}
 
 	c := new(CaseClause)
 	c.pos = p.pos()
@@ -1947,9 +2246,11 @@ func (p *parser) caseClause(stmt func()Stmt) *CaseClause {
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) selectStmt(stmt func()Stmt) *SelectStmt {
-	if trace {defer p.trace("selectStmt")("")}
-	if ! p.permits["select"] {
+func (p *parser) selectStmt(stmt func() Stmt) *SelectStmt {
+	if trace {
+		defer p.trace("selectStmt")("")
+	}
+	if !p.permits["select"] {
 		p.syntaxError("select-statement has been prohibited by blacklist")
 		p.advance(_Rbrace)
 		return nil
@@ -1973,8 +2274,10 @@ func (p *parser) selectStmt(stmt func()Stmt) *SelectStmt {
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) commClause(stmt func()Stmt) *CommClause {
-	if trace {defer p.trace("commClause")("")}
+func (p *parser) commClause(stmt func() Stmt) *CommClause {
+	if trace {
+		defer p.trace("commClause")("")
+	}
 
 	c := new(CommClause)
 	c.pos = p.pos()
@@ -2015,73 +2318,143 @@ func (p *parser) commClause(stmt func()Stmt) *CommClause {
 // Expressions
 //--------------------------------------------------------------------------------
 func (p *parser) expr() Expr {
-	if trace {defer p.trace("expr")("")}
+	if trace {
+		defer p.trace("expr")("")
+	}
 
 	return p.binaryExpr(0)
 }
 
 //--------------------------------------------------------------------------------
 // Arguments = "(" [ ( ExpressionList | Type [ "," ExpressionList ] ) [ "..." ] [ "," ] ] ")" .
-func (p *parser) call(fun Expr) *CallExpr {
-	if trace {defer p.trace("call")("")}
-
-	// call or conversion
-	// convtype '(' expr ocomma ')'
-	c := new(CallExpr)
-	c.pos = p.pos()
-	c.Fun = fun
-
-	p.want(_Lparen)
-	p.xnest++
-
-	for p.tok != _EOF && p.tok != _Rparen {
-		c.ArgList = append(c.ArgList, p.expr())
-		c.HasDots = p.got(_DotDotDot)
-		if !p.ocomma(_Rparen) || c.HasDots {
-			break
-		}
+//func (p *parser) call(fun Expr) *CallExpr {
+func (p *parser) argList() (list []Expr, hasDots bool) {
+	if trace {
+		defer p.trace("argList")("")
 	}
 
+	p.xnest++
+	p.list(_Lparen, _Comma, _Rparen, func() bool {
+		list = append(list, p.expr())
+		hasDots = p.got(_DotDotDot)
+		return hasDots
+	})
 	p.xnest--
-	p.want(_Rparen)
-
-	return c
+	return
 }
 
 //--------------------------------------------------------------------------------
 // Expression = UnaryExpr | Expression binary_op Expression .
 func (p *parser) binaryExpr(prec int) Expr {
 	// don't trace binaryExpr - only leads to overly nested trace output
-
 	x := p.unaryExpr()
 	for (p.tok == _Operator || p.tok == _Star) && p.prec > prec {
-		t := new(Operation)
-		t.pos = p.pos()
-		t.Op = p.op
-		t.X = x
-		tprec := p.prec
-		p.next()
-		t.Y = p.binaryExpr(tprec)
-		x = t
+		op := p.op
+		binOp := dynBinOps[op]
+		if p.dynamicBlock == "" || binOp == "" {
+			t := new(Operation)
+			t.pos = p.pos()
+			t.Op = p.op
+			t.X = x
+			tprec := p.prec
+			p.next()
+			t.Y = p.binaryExpr(tprec)
+			x = t
+		} else {
+			t := &CallExpr{
+				Fun: &SelectorExpr{
+					X:   &Name{Value: p.dynamicBlock},
+					Sel: &Name{Value: binOp},
+				},
+				ArgList: []Expr{x},
+			}
+			t.pos = p.pos()
+			_ = p.procImportAlias(&BasicLit{Value: dynLib, Kind: StringLit}, p.dynamicBlock)
+			tprec := p.prec
+			p.next()
+			expr := p.binaryExpr(tprec)
+			if op == AndAnd || op == OrOr {
+				expr = &FuncLit{
+					Type: &FuncType{
+						ParamList:  []*Field{},
+						ResultList: []*Field{&Field{Type: &InterfaceType{MethodList: []*Field{}}}},
+					},
+					Body: &BlockStmt{
+						List: []Stmt{&ReturnStmt{Results: expr}},
+					},
+				}
+			}
+			t.ArgList = append(t.ArgList, expr)
+			x = t
+		}
 	}
 	return x
 }
 
+var dynBinOps = map[Operator]string{
+	Add:    "Plus",             // +
+	Sub:    "Minus",            // -
+	Or:     "Alt",              // |
+	Xor:    "Xor",              // ^
+	Mul:    "Mult",             // *
+	Div:    "Divide",           // /
+	Rem:    "Mod",              // %
+	And:    "Seq",              // &
+	AndNot: "SeqXor",           // &^
+	Shl:    "LeftShift",        // <<
+	Shr:    "RightShift",       // >>
+	Eql:    "IsEqual",          // ==
+	Neq:    "IsNotEqual",       // !=
+	Lss:    "IsLessThan",       // <
+	Leq:    "IsLessOrEqual",    // <=
+	Gtr:    "IsGreaterThan",    // >
+	Geq:    "IsGreaterOrEqual", // >=
+	AndAnd: "And",              // &&
+	OrOr:   "Or",               // ||
+}
+
+var dynUnaryOps = map[Operator]string{
+	Add: "Identity", // +
+	Sub: "Negate",   // -
+	Not: "Not",      // !
+	//Xor: "", // ^
+}
+
+//TODO: "Matcher", "Finder", "FindAll", "FindFirst", "RegexRepeat", "Group", "Parenthesize"
+
 //--------------------------------------------------------------------------------
 // UnaryExpr = PrimaryExpr | unary_op UnaryExpr .
 func (p *parser) unaryExpr() Expr {
-	if trace {defer p.trace("unaryExpr")("")}
+	if trace {
+		defer p.trace("unaryExpr")("")
+	}
 
 	switch p.tok {
 	case _Operator, _Star:
 		switch p.op {
 		case Mul, Add, Sub, Not, Xor:
-			x := new(Operation)
-			x.pos = p.pos()
-			x.Op = p.op
-			p.next()
-			x.X = p.unaryExpr()
-			return x
+			unaryOp := dynUnaryOps[p.op]
+			if p.dynamicBlock == "" || unaryOp == "" {
+				x := new(Operation)
+				x.pos = p.pos()
+				x.Op = p.op
+				p.next()
+				x.X = p.unaryExpr()
+				return x
+			} else {
+				t := &CallExpr{
+					Fun: &SelectorExpr{
+						X:   &Name{Value: p.dynamicBlock},
+						Sel: &Name{Value: unaryOp},
+					},
+					ArgList: []Expr{},
+				}
+				t.pos = p.pos()
+				p.next()
+				t.ArgList = append(t.ArgList, p.unaryExpr())
+				_ = p.procImportAlias(&BasicLit{Value: dynLib, Kind: StringLit}, p.dynamicBlock)
+				return t
+			}
 
 		case And:
 			x := new(Operation)
@@ -2164,20 +2537,49 @@ func (p *parser) unaryExpr() Expr {
 // BasicLit    = int_lit | float_lit | imaginary_lit | rune_lit | string_lit .
 // OperandName = identifier | QualifiedIdent.
 func (p *parser) operand(keep_parens bool) Expr {
-	if trace {defer p.trace("operand " + p.tok.String())("")}
+	if trace {
+		defer p.trace("operand " + p.tok.String())("")
+	}
 
 	switch p.tok {
 	case _Name:
 		return p.name()
 	case _Literal:
-		lit:= p.oliteral()
+		lit := p.oliteral()
 		if lit.Kind == StringLit && p.tok == _Dot {
-			if ! p.permits["inplaceImps"] {
+			if !p.permits["inplaceImps"] {
 				p.syntaxError("inplace-imports disabled but are present")
 				return nil
 			}
-			a:= p.procImportAlias(lit)
+			a := p.procImportAlias(lit, "")
 			lit.Value = a
+			return lit
+		}
+		if p.dynamicBlock != "" {
+			switch lit.Kind {
+			case StringLit:
+				t := &CallExpr{
+					Fun: &SelectorExpr{
+						X:   &Name{Value: "utf88"},
+						Sel: &Name{Value: "Desur"},
+					},
+					ArgList: []Expr{lit},
+				}
+				t.pos = p.pos()
+				_ = p.procImportAlias(&BasicLit{Value: utf88Lib, Kind: StringLit}, "utf88")
+				return t
+			case RuneLit:
+				t := &CallExpr{
+					Fun: &SelectorExpr{
+						X:   &Name{Value: p.dynamicBlock},
+						Sel: &Name{Value: "Runex"},
+					},
+					ArgList: []Expr{&BasicLit{Value: strconv.Quote(strings.Trim(lit.Value, "'")), Kind: StringLit}},
+				}
+				t.pos = p.pos()
+				_ = p.procImportAlias(&BasicLit{Value: dynLib, Kind: StringLit}, p.dynamicBlock)
+				return t
+			}
 		}
 		return lit
 
@@ -2228,10 +2630,11 @@ func (p *parser) operand(keep_parens bool) Expr {
 			f := new(FuncLit)
 			f.pos = pos
 			f.Type = t
-			f.Body = p.blockStmt("", p.stmtOrNil)
+			/*f.Body = p.blockStmt("", p.stmtOrNil)
 			if p.mode&CheckBranches != 0 {
 				checkBranches(f.Body, p.errh)
-			}
+			}*/
+			f.Body = p.funcBody(p.stmtOrNil)
 
 			p.xnest--
 			return f
@@ -2272,7 +2675,9 @@ func (p *parser) operand(keep_parens bool) Expr {
 // TypeAssertion  = "." "(" Type ")" .
 // Arguments      = "(" [ ( ExpressionList | Type [ "," ExpressionList ] ) [ "..." ] [ "," ] ] ")" .
 func (p *parser) pexpr(keep_parens bool) Expr {
-	if trace {defer p.trace("pexpr")("")}
+	if trace {
+		defer p.trace("pexpr")("")
+	}
 
 	x := p.operand(keep_parens)
 
@@ -2360,7 +2765,12 @@ loop:
 			p.xnest--
 
 		case _Lparen:
-			x = p.call(x)
+			//x = p.call(x)
+			t := new(CallExpr)
+			t.pos = pos
+			t.Fun = x
+			t.ArgList, t.HasDots = p.argList()
+			x = t
 
 		case _Lbrace:
 			// operand may have returned a parenthesized complit
@@ -2400,7 +2810,9 @@ loop:
 //--------------------------------------------------------------------------------
 // Element = Expression | LiteralValue .
 func (p *parser) bare_complitexpr() Expr {
-	if trace {defer p.trace("bare_complitexpr")("")}
+	if trace {
+		defer p.trace("bare_complitexpr")("")
+	}
 
 	if p.tok == _Lbrace {
 		// '{' start_complit braced_keyval_list '}'
@@ -2413,15 +2825,14 @@ func (p *parser) bare_complitexpr() Expr {
 //--------------------------------------------------------------------------------
 // LiteralValue = "{" [ ElementList [ "," ] ] "}" .
 func (p *parser) complitexpr() *CompositeLit {
-	if trace {defer p.trace("complitexpr")("")}
+	if trace {
+		defer p.trace("complitexpr")("")
+	}
 
 	x := new(CompositeLit)
 	x.pos = p.pos()
-
-	p.want(_Lbrace)
 	p.xnest++
-
-	for p.tok != _EOF && p.tok != _Rbrace {
+	x.Rbrace = p.list(_Lbrace, _Comma, _Rbrace, func() bool {
 		// value
 		e := p.bare_complitexpr()
 		if p.tok == _Colon {
@@ -2435,15 +2846,9 @@ func (p *parser) complitexpr() *CompositeLit {
 			x.NKeys++
 		}
 		x.ElemList = append(x.ElemList, e)
-		if !p.ocomma(_Rbrace) {
-			break
-		}
-	}
-
-	x.Rbrace = p.pos()
+		return false
+	})
 	p.xnest--
-	p.want(_Rbrace)
-
 	return x
 }
 
@@ -2458,7 +2863,9 @@ func (p *parser) bad() *BadExpr {
 // Types
 //--------------------------------------------------------------------------------
 func (p *parser) type_() Expr {
-	if trace {defer p.trace("type_")("")}
+	if trace {
+		defer p.trace("type_")("")
+	}
 
 	typ := p.typeOrNil()
 	if typ == nil {
@@ -2479,7 +2886,9 @@ func (p *parser) type_() Expr {
 // TypeLit  = ArrayType | StructType | PointerType | FunctionType | InterfaceType |
 // 	      SliceType | MapType | Channel_Type .
 func (p *parser) typeOrNil() Expr {
-	if trace {defer p.trace("typeOrNil")("")}
+	if trace {
+		defer p.trace("typeOrNil")("")
+	}
 
 	pos := p.pos()
 	switch p.tok {
@@ -2567,9 +2976,9 @@ func (p *parser) typeOrNil() Expr {
 		return t
 
 	case _Literal:
-		lit:= p.oliteral()
+		lit := p.oliteral()
 		if lit.Kind == StringLit {
-			a:= p.procImportAlias(lit)
+			a := p.procImportAlias(lit, "")
 			return p.dotname(&Name{Value: a})
 		} else {
 			return nil
@@ -2581,7 +2990,9 @@ func (p *parser) typeOrNil() Expr {
 
 //--------------------------------------------------------------------------------
 func (p *parser) funcType() *FuncType {
-	if trace {defer p.trace("funcType")("")}
+	if trace {
+		defer p.trace("funcType")("")
+	}
 
 	typ := new(FuncType)
 	typ.pos = p.pos()
@@ -2593,7 +3004,9 @@ func (p *parser) funcType() *FuncType {
 
 //--------------------------------------------------------------------------------
 func (p *parser) chanElem() Expr {
-	if trace {defer p.trace("chanElem")("")}
+	if trace {
+		defer p.trace("chanElem")("")
+	}
 
 	typ := p.typeOrNil()
 	if typ == nil {
@@ -2607,7 +3020,9 @@ func (p *parser) chanElem() Expr {
 
 //--------------------------------------------------------------------------------
 func (p *parser) dotname(name *Name) Expr {
-	if trace {defer p.trace("dotname")("")}
+	if trace {
+		defer p.trace("dotname")("")
+	}
 
 	if p.tok == _Dot {
 		s := new(SelectorExpr)
@@ -2623,66 +3038,68 @@ func (p *parser) dotname(name *Name) Expr {
 //--------------------------------------------------------------------------------
 // StructType = "struct" "{" { FieldDecl ";" } "}" .
 func (p *parser) structType() *StructType {
-	if trace {defer p.trace("structType")("")}
+	if trace {
+		defer p.trace("structType")("")
+	}
 
 	typ := new(StructType)
 	typ.pos = p.pos()
-
 	p.want(_Struct)
-	p.want(_Lbrace)
-	for p.tok != _EOF && p.tok != _Rbrace {
+	p.list(_Lbrace, _Semi, _Rbrace, func() bool {
 		p.fieldDecl(typ)
-		if !p.osemi(_Rbrace) {
-			break
-		}
-	}
-	p.want(_Rbrace)
-
+		return false
+	})
 	return typ
 }
 
 //--------------------------------------------------------------------------------
 // InterfaceType = "interface" "{" { MethodSpec ";" } "}" .
 func (p *parser) interfaceType() *InterfaceType {
-	if trace {defer p.trace("interfaceType")("")}
+	if trace {
+		defer p.trace("interfaceType")("")
+	}
 
 	typ := new(InterfaceType)
 	typ.pos = p.pos()
-
 	p.want(_Interface)
-	p.want(_Lbrace)
-	for p.tok != _EOF && p.tok != _Rbrace {
+	p.list(_Lbrace, _Semi, _Rbrace, func() bool {
 		if m := p.methodDecl(); m != nil {
 			typ.MethodList = append(typ.MethodList, m)
 		}
-		if !p.osemi(_Rbrace) {
-			break
-		}
-	}
-	p.want(_Rbrace)
-
+		return false
+	})
 	return typ
 }
 
 //--------------------------------------------------------------------------------
 // FunctionBody = Block .
-func (p *parser) funcBody() []Stmt {
-	if trace {defer p.trace("funcBody")("")}
+func (p *parser) funcBody(stmt func() Stmt) *BlockStmt {
+	if trace {
+		defer p.trace("funcBody")("")
+	}
 
 	p.fnest++
-	body := p.stmtList(p.stmtOrNil)
+	errcnt := p.errcnt
+	body := p.blockStmt("", stmt)
 	p.fnest--
-
-	if body == nil {
-		body = []Stmt{new(EmptyStmt)}
+	// Don't check branches if there were syntax errors in the function
+	// as it may lead to spurious errors (e.g., see test/switch2.go) or
+	// possibly crashes due to incomplete syntax trees.
+	if p.mode&CheckBranches != 0 && errcnt == p.errcnt {
+		checkBranches(body, p.errh)
 	}
+	/*if body == nil {
+		body = []Stmt{new(EmptyStmt)}
+	}*/
 	return body
 }
 
 //--------------------------------------------------------------------------------
 // Result = Parameters | Type .
 func (p *parser) funcResult() []*Field {
-	if trace {defer p.trace("funcResult")("")}
+	if trace {
+		defer p.trace("funcResult")("")
+	}
 
 	if p.tok == _Lparen {
 		return p.paramList()
@@ -2724,7 +3141,9 @@ func (p *parser) addField(styp *StructType, pos src.Pos, name *Name, typ Expr, t
 // AnonymousField = [ "*" ] TypeName .
 // Tag            = string_lit .
 func (p *parser) fieldDecl(styp *StructType) {
-	if trace {defer p.trace("fieldDecl")("")}
+	if trace {
+		defer p.trace("fieldDecl")("")
+	}
 
 	pos := p.pos()
 	switch p.tok {
@@ -2796,7 +3215,9 @@ func (p *parser) fieldDecl(styp *StructType) {
 // MethodName        = identifier .
 // InterfaceTypeName = TypeName .
 func (p *parser) methodDecl() *Field {
-	if trace {defer p.trace("methodDecl")("")}
+	if trace {
+		defer p.trace("methodDecl")("")
+	}
 
 	switch p.tok {
 	case _Name:
@@ -2844,7 +3265,9 @@ func (p *parser) methodDecl() *Field {
 //--------------------------------------------------------------------------------
 // ParameterDecl = [ IdentifierList ] [ "..." ] Type .
 func (p *parser) paramDeclOrNil() *Field {
-	if trace {defer p.trace("paramDecl")("")}
+	if trace {
+		defer p.trace("paramDecl")("")
+	}
 
 	f := new(Field)
 	f.pos = p.pos()
@@ -2888,7 +3311,9 @@ func (p *parser) paramDeclOrNil() *Field {
 //--------------------------------------------------------------------------------
 // ...Type
 func (p *parser) dotsType() *DotsType {
-	if trace {defer p.trace("dotsType")("")}
+	if trace {
+		defer p.trace("dotsType")("")
+	}
 
 	t := new(DotsType)
 	t.pos = p.pos()
@@ -2907,13 +3332,13 @@ func (p *parser) dotsType() *DotsType {
 // Parameters    = "(" [ ParameterList [ "," ] ] ")" .
 // ParameterList = ParameterDecl { "," ParameterDecl } .
 func (p *parser) paramList() (list []*Field) {
-	if trace {defer p.trace("paramList")("")}
+	if trace {
+		defer p.trace("paramList")("")
+	}
 
 	pos := p.pos()
-	p.want(_Lparen)
-
 	var named int // number of parameters that have an explicit name and type
-	for p.tok != _EOF && p.tok != _Rparen {
+	p.list(_Lparen, _Comma, _Rparen, func() bool {
 		if par := p.paramDeclOrNil(); par != nil {
 			if debug && par.Name == nil && par.Type == nil {
 				panic("parameter without name or type")
@@ -2923,10 +3348,8 @@ func (p *parser) paramList() (list []*Field) {
 			}
 			list = append(list, par)
 		}
-		if !p.ocomma(_Rparen) {
-			break
-		}
-	}
+		return false
+	})
 
 	// distribute parameter types
 	if named == 0 {
@@ -2965,7 +3388,7 @@ func (p *parser) paramList() (list []*Field) {
 		}
 	}
 
-	p.want(_Rparen)
+	//p.want(_Rparen)
 	return
 }
 
@@ -2983,7 +3406,7 @@ func (p *parser) got(tok token) bool {
 //--------------------------------------------------------------------------------
 func (p *parser) want(tok token) {
 	if !p.got(tok) {
-		p.syntaxError("expecting " + tok.String())
+		p.syntaxError("expecting " + tokstring(tok))
 		p.advance()
 	}
 }
@@ -3016,7 +3439,9 @@ func (p *parser) name() *Name {
 // IdentifierList = identifier { "," identifier } .
 // The first name must be provided.
 func (p *parser) nameList(first *Name) []*Name {
-	if trace {defer p.trace("nameList")("")}
+	if trace {
+		defer p.trace("nameList")("")
+	}
 
 	if debug && first == nil {
 		panic("first name not provided")
@@ -3033,7 +3458,9 @@ func (p *parser) nameList(first *Name) []*Name {
 //--------------------------------------------------------------------------------
 // The first name may be provided, or nil.
 func (p *parser) qualifiedName(name *Name) Expr {
-	if trace {defer p.trace("qualifiedName")("")}
+	if trace {
+		defer p.trace("qualifiedName")("")
+	}
 
 	switch {
 	case name != nil:
@@ -3052,7 +3479,9 @@ func (p *parser) qualifiedName(name *Name) Expr {
 //--------------------------------------------------------------------------------
 // ExpressionList = Expression { "," Expression } .
 func (p *parser) exprList() Expr {
-	if trace {defer p.trace("exprList")("")}
+	if trace {
+		defer p.trace("exprList")("")
+	}
 
 	x := p.expr()
 	if p.got(_Comma) {
@@ -3082,42 +3511,6 @@ func (p *parser) oliteral() *BasicLit {
 }
 
 //--------------------------------------------------------------------------------
-// osemi parses an optional semicolon.
-func (p *parser) osemi(follow token) bool {
-	switch p.tok {
-	case _Semi:
-		p.next()
-		return true
-
-	case _Rparen, _Rbrace:
-		// semicolon is optional before ) or }
-		return true
-	}
-
-	p.syntaxError("expecting semicolon, newline, or " + tokstring(follow))
-	p.advance(follow)
-	return false
-}
-
-//--------------------------------------------------------------------------------
-// ocomma parses an optional comma.
-func (p *parser) ocomma(follow token) bool {
-	switch p.tok {
-	case _Comma:
-		p.next()
-		return true
-
-	case _Rparen, _Rbrace:
-		// comma is optional before ) or }
-		return true
-	}
-
-	p.syntaxError("expecting comma or " + tokstring(follow))
-	p.advance(follow)
-	return false
-}
-
-//--------------------------------------------------------------------------------
 // Error handling
 //--------------------------------------------------------------------------------
 // posAt returns the Pos value for (line, col) and the current position base.
@@ -3132,6 +3525,7 @@ func (p *parser) errorAt(pos src.Pos, msg string) {
 	if p.first == nil {
 		p.first = err
 	}
+	p.errcnt++
 	if p.errh == nil {
 		panic(p.first)
 	}
@@ -3141,7 +3535,10 @@ func (p *parser) errorAt(pos src.Pos, msg string) {
 //--------------------------------------------------------------------------------
 // syntax_error_at reports a syntax error at the given position.
 func (p *parser) syntaxErrorAt(pos src.Pos, msg string) {
-	if trace {defer p.trace("syntaxError (" + msg + ")")("")}
+	if trace {
+		defer p.trace("syntaxError (" + msg + ")")("")
+		//p.print("syntax error: " + msg)
+	}
 
 	if p.tok == _EOF && p.first != nil {
 		return // avoid meaningless follow-up errors
@@ -3197,7 +3594,7 @@ const stopset uint64 = 1<<_Break |
 	1<<_Defer |
 	1<<_Fallthrough |
 	1<<_For |
-	1<<_Func |
+	//1<<_Func |
 	1<<_Go |
 	1<<_Goto |
 	1<<_If |
@@ -3211,22 +3608,35 @@ const stopset uint64 = 1<<_Break |
 // Advance consumes tokens until it finds a token of the stopset or followlist.
 // The stopset is only considered if we are inside a function (p.fnest > 0).
 // The followlist is the list of valid tokens that can follow a production;
-// if it is empty, exactly one token is consumed to ensure progress.
+// if it is empty, exactly one (non-EOF) token is consumed to ensure progress.
 func (p *parser) advance(followlist ...token) {
-	if len(followlist) == 0 {
-		p.next()
-		return
+	if trace {
+		p.print(fmt.Sprintf("advance %s", followlist))
 	}
 
 	// compute follow set
 	// (not speed critical, advance is only called in error situations)
-	var followset uint64 = 1 << _EOF // never skip over EOF
-	for _, tok := range followlist {
-		followset |= 1 << tok
+	var followset uint64 = 1 << _EOF // don't skip over EOF
+	if len(followlist) > 0 {
+		if p.fnest > 0 {
+			followset |= stopset
+		}
+		for _, tok := range followlist {
+			followset |= 1 << tok
+		}
 	}
 
-	for !(contains(followset, p.tok) || p.fnest > 0 && contains(stopset, p.tok)) {
+	for !contains(followset, p.tok) {
+		if trace {
+			p.print("skip " + p.tok.String())
+		}
 		p.next()
+		if len(followlist) == 0 {
+			break
+		}
+	}
+	if trace {
+		p.print("next " + p.tok.String())
 	}
 }
 
@@ -3256,6 +3666,11 @@ func (p *parser) trace(msg string, args ...interface{}) func(string, ...interfac
 }
 
 //--------------------------------------------------------------------------------
+func (p *parser) print(msg string) {
+	fmt.Printf("%5d: %s%s\n", p.line, p.indent, msg)
+}
+
+//--------------------------------------------------------------------------------
 // usage: p.tag(msgs...)
 func (p *parser) tag(msg string, args ...interface{}) {
 	if len(args) > 0 {
@@ -3266,7 +3681,7 @@ func (p *parser) tag(msg string, args ...interface{}) {
 
 //--------------------------------------------------------------------------------
 func (p *parser) isName(ss ...string) bool {
-	for _, s:= range ss {
+	for _, s := range ss {
 		if p.tok == _Name && p.lit == s {
 			return true
 		}
@@ -3277,10 +3692,12 @@ func (p *parser) isName(ss ...string) bool {
 //--------------------------------------------------------------------------------
 // functions not attached to parser
 //--------------------------------------------------------------------------------
+// tokstring returns the English word for selected punctuation tokens
+// for more readable error messages.
 func tokstring(tok token) string {
 	switch tok {
-	case _EOF:
-		return "EOF"
+	//case _EOF:
+	//return "EOF"
 	case _Comma:
 		return "comma"
 	case _Semi:

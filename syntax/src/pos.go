@@ -266,4 +266,3 @@ func makeLico(line, col uint) lico {
 
 func (x lico) Line() uint { return uint(x) >> colBits }
 func (x lico) Col() uint  { return uint(x) & colMax }
-

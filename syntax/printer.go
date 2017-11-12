@@ -1,4 +1,4 @@
-// Copyright 2016 The Go Authors. All rights reserved.
+// Copyright 2016-17 The Go and Gro Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -9,7 +9,9 @@ package syntax
 import (
 	"bytes"
 	"fmt"
+	"github.com/grolang/gro/syntax/src"
 	"io"
+	"strconv"
 	"strings"
 )
 
@@ -68,8 +70,10 @@ type printer struct {
 	written    int  // number of bytes written
 	linebreaks bool // print linebreaks instead of semis
 
-	indent  int // current indentation level
-	nlcount int // number of consecutive newlines
+	indent        int // current indentation level
+	nlcount       int // number of consecutive newlines
+	nlsince       int // total number of newlines since last line directive
+	lastlinedirno uint
 
 	pending []whitespace // pending whitespace
 	lastTok token        // last token (after any pending semi) processed by print
@@ -180,7 +184,8 @@ func (p *printer) writeBytes(data []byte) {
 	/*if len(data) == 0 {
 		panic("expected non-empty []byte")
 	}*/
-	if p.nlcount > 0 && p.indent > 0 {
+	lineDir := strings.HasPrefix(string(data), "//line ")
+	if p.nlcount > 0 && p.indent > 0 && !lineDir {
 		// write indentation
 		n := p.indent
 		for n > len(tabBytes) {
@@ -191,6 +196,9 @@ func (p *printer) writeBytes(data []byte) {
 	}
 	p.write(data)
 	p.nlcount = 0
+	if lineDir {
+		p.nlsince = 0
+	}
 }
 
 var (
@@ -262,6 +270,7 @@ func (p *printer) flush(next token) {
 				p.nlcount++
 				prev = newline
 			}
+			p.nlsince++
 		case indent:
 			p.indent++
 		case outdent:
@@ -368,15 +377,29 @@ func (p *printer) print(args ...interface{}) {
 
 //--------------------------------------------------------------------------------
 func (p *printer) printNode(n Node) {
+	// TODO(gri) in general we cannot make assumptions about whether
+	// a comment is a /*- or a //-style comment since the syntax
+	// tree may have been manipulated. Need to make sure the correct
+	// whitespace is emitted.
 	ncom := n.Comments()
-	if ncom != nil {
-		// TODO(gri) in general we cannot make assumptions about whether
-		// a comment is a /*- or a //-style comment since the syntax
-		// tree may have been manipulated. Need to make sure the correct
-		// whitespace is emitted.
+	if ncom != nil && len(ncom.Alone) > 0 {
 		for _, c := range ncom.Alone {
 			p.print(c, newline, newline)
 		}
+	}
+
+	if n.LineDirect() != src.NoPos {
+		lineNo := n.LineDirect().Line()
+		if uint(p.nlsince+1) != lineNo-p.lastlinedirno {
+			if ncom != nil {
+				lineNo -= uint(len(ncom.Above)) //TODO: perhaps we should do this before the above if-stmt
+			}
+			p.print(Comment{Text: "//line " + n.LineDirect().Filename() + ":" + strconv.FormatUint(uint64(lineNo), 10)}, newline)
+			p.lastlinedirno = lineNo
+		}
+	}
+
+	if ncom != nil {
 		for _, c := range ncom.Above {
 			if c.Text == "" {
 				panic("unexpected empty line")
@@ -738,7 +761,7 @@ func (p *printer) printRawNode(n Node) {
 		}
 
 	case *CommentDecl:
-		for _, c:= range n.CommentList {
+		for _, c := range n.CommentList {
 			p.print(c, _Comment)
 		}
 

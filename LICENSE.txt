@@ -1,4 +1,4 @@
-Copyright (c) 2017 The Go and Gro authors. All rights reserved.
+Copyright (c) 2016-17 The Go and Gro authors. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are
@@ -13,8 +13,8 @@ distribution.
    * Neither the name of Google Inc. nor the names of its
 contributors may be used to endorse or promote products derived from
 this software without specific prior written permission.
-   * The name of Gavin "Groovy" Grover may not be used to endorse or
-promote products derived from this software.
+   * None of the names of any contributor to Gro may be used to
+endorse or promote products derived from this software.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT

@@ -22,33 +22,36 @@ type Node interface {
 	//    associated with that production; usually the left-most one
 	//    ('[' for IndexExpr, 'if' for IfStmt, etc.)
 	Pos() src.Pos
+	LineDirect() src.Pos
 	Comments() *Comments
 	aNode()
 }
 
 type node struct {
-	pos      src.Pos
-	comments *Comments  // nil means no comment(s) attached
+	pos        src.Pos
+	linedirect src.Pos   // nil means no line-directive to be printed
+	comments   *Comments // nil means no comment(s) attached
 }
 
 func (n *node) Pos() src.Pos        { return n.pos }
 func (n *node) Comments() *Comments { return n.comments }
-func (*node)   aNode()              {}
+func (n *node) LineDirect() src.Pos { return n.linedirect }
+func (*node) aNode()                {}
 
 // ----------------------------------------------------------------------------
 // Comments
 
 type Comment struct {
-	Text    string
-	pos     src.Pos
+	Text string
+	pos  src.Pos
 }
 
 type Comments struct {
-	Alone   []Comment
-	Above   []Comment
-	Left    []Comment
-	Right   []Comment
-	Below   []Comment
+	Alone []Comment
+	Above []Comment
+	Left  []Comment
+	Right []Comment
+	Below []Comment
 }
 
 // ----------------------------------------------------------------------------
@@ -56,45 +59,46 @@ type Comments struct {
 
 // project and package nodes are used during parsing, but only a map of file nodes are passed out
 type Project struct {
-	Name         string // project name
-	Str          string // dir-string
-	Root         string
-	Locn         string // absolute path
-	ExplicitKw   bool
-	Doc          []string // doc-comment
-	FileExt      string
+	Name       string // project name
+	Str        string // dir-string
+	Root       string
+	Locn       string // absolute path
+	ExplicitKw bool
+	Doc        []string // doc-comment
+	FileExt    string
 	node
 }
 
 type Package struct {
-	Name       string
-	Dir        string
-	Kw         bool
-	Files      []*File
-	Params     []*Name
+	Name    string
+	Dir     string
+	Kw      bool
+	Files   []*File
+	Params  []*Name
+	IdsUsed map[string]bool
 	node
 }
 
 // package PkgName; DeclList[0], DeclList[1], ...
 type File struct {
-	PkgName    *Name
-	DeclList   []Decl
-	Lines      uint
-	SectName   string
-	FileName   string
-	OwnerPkg   *Package
+	PkgName  *Name
+	DeclList []Decl
+	Lines    uint
+	SectName string
+	FileName string
+	OwnerPkg *Package
 	node
 }
 
 func (f *File) Clone() *File {
-	decls:= []Decl{}
-	for _, decl:= range f.DeclList {
+	decls := []Decl{}
+	for _, decl := range f.DeclList {
 		decls = append(decls, decl)
 	}
-	return &File {
-		PkgName: f.PkgName,
+	return &File{
+		PkgName:  f.PkgName,
 		DeclList: decls,
-		Lines: f.Lines,
+		Lines:    f.Lines,
 		SectName: f.SectName,
 		FileName: f.FileName,
 		OwnerPkg: f.OwnerPkg,
@@ -102,9 +106,9 @@ func (f *File) Clone() *File {
 }
 
 func (f *File) Imports() []*ImportDecl {
-	ids:= []*ImportDecl{}
-	for _, decl:= range f.DeclList {
-		if decl, ok:= decl.(*ImportDecl); ok {
+	ids := []*ImportDecl{}
+	for _, decl := range f.DeclList {
+		if decl, ok := decl.(*ImportDecl); ok {
 			ids = append(ids, decl)
 		}
 	}
@@ -112,8 +116,8 @@ func (f *File) Imports() []*ImportDecl {
 }
 
 func (f *File) ImportsString() string {
-	impStr:= ""
-	for _, imp:= range f.Imports() {
+	impStr := ""
+	for _, imp := range f.Imports() {
 		impStr += fmt.Sprintf("%p ", imp)
 	}
 	return impStr
@@ -139,7 +143,7 @@ type (
 
 	// isolated comments among declarations
 	CommentDecl struct {
-		CommentList  []Comment
+		CommentList []Comment
 		decl
 	}
 
@@ -155,17 +159,6 @@ type (
 		decl
 	}
 
-	// NameList
-	// NameList      = Values
-	// NameList Type = Values
-	ConstDecl struct {
-		NameList []*Name
-		Type     Expr   // nil means no type
-		Values   Expr   // nil means no values
-		Group    *Group // nil means not part of a group
-		decl
-	}
-
 	// Name Type
 	TypeDecl struct {
 		Name   *Name
@@ -176,16 +169,18 @@ type (
 		decl
 	}
 
-	// NameList Type
-	// NameList Type = Values
+	// NameList
 	// NameList      = Values
-	VarDecl struct {
+	// NameList Type = Values
+	ConstOrVarDecl struct {
 		NameList []*Name
 		Type     Expr   // nil means no type
 		Values   Expr   // nil means no values
 		Group    *Group // nil means not part of a group
 		decl
 	}
+	VarDecl   struct{ ConstOrVarDecl }
+	ConstDecl struct{ ConstOrVarDecl }
 
 	// func          Name Type { Body }
 	// func          Name Type

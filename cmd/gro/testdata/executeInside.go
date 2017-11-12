@@ -9,9 +9,6 @@ import (
 
 func init() {
 	fmt.Println("'Hello, world!' from executeInside.gro")
-}
-
-func init() {
 	sys.Execute("testdata/sayhi.gro")
 }
 

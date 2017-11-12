@@ -62,8 +62,9 @@ type scanner struct {
 	op        Operator // valid if tok is _Operator, _AssignOp, or _IncOp
 	prec      int      // valid if tok is _Operator, _AssignOp, or _IncOp
 
-	comments   []string
+	comments       []string
 	numDocComments int
+	dynamicMode    bool
 }
 
 var keywordMap [1 << 6]token // size must be power of two
@@ -605,6 +606,7 @@ func (s *scanner) skipLine(r rune) {
 func (s *scanner) escape(quote rune) bool {
 	var n int
 	var base, max uint32
+	const maxUtf88Point = 0x7fbfffff //TODO: should reference utf88 package
 
 	c := s.getr()
 	switch c {
@@ -620,7 +622,12 @@ func (s *scanner) escape(quote rune) bool {
 		n, base, max = 4, 16, unicode.MaxRune
 	case 'U':
 		c = s.getr()
-		n, base, max = 8, 16, unicode.MaxRune
+		n, base = 8, 16
+		if s.dynamicMode {
+			max = maxUtf88Point
+		} else {
+			max = unicode.MaxRune
+		}
 	default:
 		if c < 0 {
 			return true // complain in caller about EOF
@@ -663,7 +670,7 @@ func (s *scanner) escape(quote rune) bool {
 		return false
 	}
 
-	if x > max || 0xD800 <= x && x < 0xE000 /* surrogate range */ {
+	if x > max || 0xD800 <= x && x < 0xE000 /* surrogate range */ { //TODO: add utf-88 surrogates
 		s.error("escape sequence is invalid Unicode code point")
 		return false
 	}
@@ -678,7 +685,7 @@ func (s *scanner) lineComment() {
 	if s.col != colbase || s.pragh == nil || (r != 'g' && r != 'l') {
 		s.startLit()
 		s.skipLine(r)
-		s.comments = append(s.comments, "//" + string(s.stopLit()))
+		s.comments = append(s.comments, "//"+string(s.stopLit()))
 		s.numDocComments++
 		return
 	}
@@ -693,7 +700,7 @@ func (s *scanner) lineComment() {
 		if r != m {
 			s.startLit()
 			s.skipLine(r)
-			s.comments = append(s.comments, "//" + string(s.stopLit()))
+			s.comments = append(s.comments, "//"+string(s.stopLit()))
 			s.numDocComments++
 			return
 		}
@@ -709,7 +716,7 @@ func (s *scanner) lineComment() {
 	}
 
 	s.pragh(s.line, s.col+2, prefix+string(text)) // +2 since directive text starts after //
-	s.comments = append(s.comments, "//" + string(text))
+	s.comments = append(s.comments, "//"+string(text))
 	s.numDocComments++
 }
 
@@ -722,7 +729,7 @@ func (s *scanner) fullComment() {
 		for r == '*' {
 			r = s.getr()
 			if r == '/' {
-				s.comments = append(s.comments, "/" + string(s.stopLit()))
+				s.comments = append(s.comments, "/"+string(s.stopLit()))
 				s.numDocComments++
 				return
 			}

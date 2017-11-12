@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
 	"github.com/grolang/gro/syntax"
 )
 
@@ -22,8 +23,8 @@ var (
 	Stdout io.Writer = os.Stdout
 	Stdin  io.Reader = os.Stdin
 
-	ProgName = "gro"
-	WantMsgs bool
+	ProgName   = "gro"
+	WantMsgs   bool
 	ExitStatus = 0
 )
 
@@ -92,7 +93,7 @@ func GetFile(filename string) (src string, err error) {
 		return "", err
 	}
 	defer f.Close()
-	s, err:= ioutil.ReadAll(f)
+	s, err := ioutil.ReadAll(f)
 	return string(s), err
 }
 
@@ -121,9 +122,10 @@ func processFile(filename string, in io.Reader, out io.Writer) error {
 	if len(asts) != 0 && WantMsgs {
 		fmt.Fprintf(Stderr, "%s: Received %d files from ParsePackage.\n", ProgName, len(asts))
 	}
-	srcPath:= filepath.Join(os.Getenv("GOPATH"), "src")
-	for name, ast:= range asts {
-		file:= syntax.StringWithLinebreaks(ast)
+	firstGoPath := filepath.SplitList(os.Getenv("GOPATH"))[0]
+	srcPath := filepath.Join(firstGoPath, "src")
+	for name, ast := range asts {
+		file := syntax.StringWithLinebreaks(ast)
 		name = filepath.Join(srcPath, name)
 		err := os.MkdirAll(filepath.Dir(name), os.ModeDir)
 		if err != nil {
@@ -152,21 +154,74 @@ func Execute(args ...string) {
 	if ExitStatus > 0 {
 		return
 	}
-
-	extLen:= len(filepath.Ext(args[0]))
-	outfile:= args[0][:len(args[0])-extLen] + ".go"
-
+	extLen := len(filepath.Ext(args[0]))
+	outfile := args[0][:len(args[0])-extLen] + ".go"
 	if WantMsgs {
 		fmt.Fprintf(Stderr, "%s: running %s\n", ProgName, outfile)
 	}
-
-	c:= exec.Command("go", "run", outfile)
-	c.Stdin =  Stdin
+	c := exec.Command("go", "run", outfile)
+	c.Stdin = Stdin
 	c.Stdout = Stdout
 	c.Stderr = Stderr
-	err:= c.Run()
+	err := c.Run()
 	if err != nil {
 		fmt.Fprintf(Stderr, "%s: Error: %s executing %s\n", ProgName, err, outfile)
+		setExitStatus(2)
+		return
+	}
+}
+
+//================================================================================
+func Run(args ...string) {
+	if len(args) < 1 {
+		fmt.Fprintf(Stderr, "%s: usage: go run path\nNot enough arguments given.\n", ProgName)
+		setExitStatus(2)
+		return
+	}
+	if len(args) > 1 {
+		fmt.Fprintf(Stderr, "%s: usage: go run path\nToo many arguments given.\n", ProgName)
+		setExitStatus(2)
+		return
+	}
+	outfile := args[0]
+	if WantMsgs {
+		fmt.Fprintf(Stderr, "%s: running %s\n", ProgName, outfile)
+	}
+	c := exec.Command("go", "run", outfile)
+	c.Stdin = Stdin
+	c.Stdout = Stdout
+	c.Stderr = Stderr
+	err := c.Run()
+	if err != nil {
+		fmt.Fprintf(Stderr, "%s: Error: %s running %s\n", ProgName, err, outfile)
+		setExitStatus(2)
+		return
+	}
+}
+
+//================================================================================
+func Test(args ...string) {
+	if len(args) < 1 {
+		fmt.Fprintf(Stderr, "%s: usage: go test path\nNot enough arguments given.\n", ProgName)
+		setExitStatus(2)
+		return
+	}
+	if len(args) > 1 {
+		fmt.Fprintf(Stderr, "%s: usage: go test path\nToo many arguments given.\n", ProgName)
+		setExitStatus(2)
+		return
+	}
+	outfile := args[0]
+	if WantMsgs {
+		fmt.Fprintf(Stderr, "%s: running %s\n", ProgName, outfile)
+	}
+	c := exec.Command("go", "test", outfile)
+	c.Stdin = Stdin
+	c.Stdout = Stdout
+	c.Stderr = Stderr
+	err := c.Run()
+	if err != nil {
+		fmt.Fprintf(Stderr, "%s: Error: %s testing %s\n", ProgName, err, outfile)
 		setExitStatus(2)
 		return
 	}

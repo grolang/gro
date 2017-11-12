@@ -7,6 +7,7 @@ package syntax
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -333,8 +334,16 @@ func TestScanErrors(t *testing.T) {
 
 		// former problem cases
 		{"package p\n\n\xef", "invalid UTF-8 encoding", 2, 0},
+
+		// rune U-escapes
+		{`"abc\U0001ffffde"`, "", 0, 0},                                               //don't want error
+		{`"abc\U7fbfffffde"`, "", 0, 0},                                               //don't want error, in dyn mode
+		{`"abc\U7fc00000de"`, "escape sequence is invalid Unicode code point", 0, 14}, //want error
+		{`'\U7fbfffff'`, "", 0, 0},                                                    //don't want error, in dyn mode
+		{`'\U7fc00000'`, "escape sequence is invalid Unicode code point", 0, 11},      //want error
 	} {
 		var s scanner
+		s.dynamicMode = true
 		nerrors := 0
 		s.init(&bytesReader{[]byte(test.src)}, func(line, col uint, msg string) {
 			nerrors++
@@ -362,8 +371,20 @@ func TestScanErrors(t *testing.T) {
 			}
 		}
 
-		if nerrors == 0 {
+		if nerrors == 0 && test.msg != "" {
 			t.Errorf("%q: got no error; want %q", test.src, test.msg)
 		}
+	}
+}
+
+func TestIssue21938(t *testing.T) {
+	s := "/*" + strings.Repeat(" ", 4089) + "*/ .5"
+
+	var got scanner
+	got.init(strings.NewReader(s), nil, nil)
+	got.next()
+
+	if got.tok != _Literal || got.lit != ".5" {
+		t.Errorf("got %s %q; want %s %q", got.tok, got.lit, _Literal, ".5")
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+
 	"github.com/grolang/gro/syntax/src"
 )
 
@@ -59,8 +60,8 @@ type PragmaHandler func(pos src.Pos, text string) Pragma
 // If a PragmaHandler is provided, it is called with each pragma encountered.
 //
 // The Mode argument is currently ignored.
-func Parse(filename string, base *src.PosBase, src io.Reader, errh ErrorHandler, pragh PragmaHandler, mode Mode, f func(string)(string,error)) (
-		_ map[string]*File, first error) {
+func Parse(filename string, base *src.PosBase, src io.Reader, errh ErrorHandler, pragh PragmaHandler, mode Mode, f func(string) (string, error)) (
+	_ map[string]*File, first error) {
 	defer func() {
 		if p := recover(); p != nil {
 			if err, ok := p.(Error); ok {
@@ -74,7 +75,7 @@ func Parse(filename string, base *src.PosBase, src io.Reader, errh ErrorHandler,
 	var p parser
 	p.init(filename, base, src, errh, pragh, mode, f)
 	p.next()
-	files:= p.files()
+	files := p.files()
 	return files, p.first
 }
 
@@ -83,8 +84,8 @@ func Parse(filename string, base *src.PosBase, src io.Reader, errh ErrorHandler,
 // NOTE: called from sys.go:      asts, err := syntax.ParseBytes(filename, nil, src,             nil, nil, 0, GetFile)
 
 // ParseBytes behaves like Parse but it reads the source from the []byte slice provided.
-func ParseBytes(filename string, base *src.PosBase, src []byte, errh ErrorHandler, pragh PragmaHandler, mode Mode, f func(string)(string,error)) (
-		map[string]*File, error) {
+func ParseBytes(filename string, base *src.PosBase, src []byte, errh ErrorHandler, pragh PragmaHandler, mode Mode, f func(string) (string, error)) (
+	map[string]*File, error) {
 	return Parse(filename, base, &bytesReader{src}, errh, pragh, mode, f)
 }
 
@@ -104,8 +105,8 @@ func (r *bytesReader) Read(p []byte) (int, error) {
 //--------------------------------------------------------------------------------
 
 // ParseFile behaves like Parse but it reads the source from the named file.
-func ParseFile(filename string, errh ErrorHandler, pragh PragmaHandler, mode Mode, getFile func(string)(string,error)) (
-		map[string]*File, error) {
+func ParseFile(filename string, errh ErrorHandler, pragh PragmaHandler, mode Mode, getFile func(string) (string, error)) (
+	map[string]*File, error) {
 	f, err := os.Open(filename)
 	if err != nil {
 		if errh != nil {
@@ -115,32 +116,6 @@ func ParseFile(filename string, errh ErrorHandler, pragh PragmaHandler, mode Mod
 	}
 	defer f.Close()
 	return Parse(filename, src.NewFileBase(filename, filename), f, errh, pragh, mode, getFile)
-}
-
-//--------------------------------------------------------------------------------
-
-// ParseReplCmd accepts as input a .gro file written out to disk from the previous
-// run and a sequence of entered strings, joins them together and parses them,
-// then returns a .gro file for execution, which will write out another .gro file
-// to be read by the next call of ParseReplCmd.
-func ParseReplCmd(fin string, sin []string) (string, error) {
-
-	replVars:= []string{"a", "b"}
-	replConsts:= []string{"a", "b"}
-	outp:= "\"var(\\n"
-	for _, r:= range replVars {
-		outp = outp + r + "=\" + fmt.Sprintf(\"%#v\", " + r + ") + \"\\n"
-	}
-	outp = outp + ")\\n"
-	outp = outp + "const(\\n"
-	for _, r:= range replConsts {
-		outp = outp + r + "=\" + fmt.Sprintf(\"%#v\", " + r + ") + \"\\n"
-	}
-	outp = outp + ")\\n\""
-	impFragment:= "import(\n\t\"io/ioutil\"\n\t\"os\"\n)\n"
-	varFragment:= "_= ioutil.WriteFile(\"temp/repl-var.gro\", []byte(" + outp + "), os.ModeExclusive)"
-
-	return impFragment + varFragment, nil
 }
 
 //--------------------------------------------------------------------------------

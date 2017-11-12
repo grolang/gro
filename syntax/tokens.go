@@ -102,7 +102,7 @@ const (
 //--------------------------------------------------------------------------------
 var tokstrings = [...]string{
 	// source control
-	_EOF: "EOF",
+	_EOF:     "EOF",
 	_Comment: "",
 
 	// names and literals

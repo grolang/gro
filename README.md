@@ -8,6 +8,7 @@ Various features:
 * various syntactic shortcuts enable one-line programs to be written in Gro
 * packages can be defined with parameters and imported with arguments, thus supporting basic Generics
 * Go's 6 top-level keywords are supplemented with more top-level Gro keywords to give extra functionality
+* various macros are available, including dynamic typing
 * Go and Gro code can be mixed freely in the same source file
 
 
@@ -22,6 +23,10 @@ Visit the [wiki](https://github.com/grolang/gro/wiki/Home) for:
 * [2. One-liners](https://github.com/grolang/gro/wiki/Oneliners)
 
 * [3. Generics in Gro](https://github.com/grolang/gro/wiki/Generics)
+
+* [4. Gro Macros](https://github.com/grolang/gro/wiki/Macros)
+
+* [5. Dynamic Typing](https://github.com/grolang/gro/wiki/Dynamic)
 
 
 ## Operation
@@ -70,7 +75,7 @@ Run `gro help` to see a list of commands available, or visit the [wiki](https://
 
 ## Status
 
-Version 0.7.2, released on 30 October 2017.
+Version 0.7.3, released on 12 November 2017.
 
 All functionality documented in the wiki is implemented.
 
@@ -92,7 +97,7 @@ Gro aims ultimately to supplement Go's functionality similar to how the original
 The next steps in building Gro will be to:
 
 * ensure all comments in gro source code are in the generated go code
-* add macros, allowing Go developers to add their own top-level keywords to Gro
+* allow Go developers to add their own macros to Gro
 
 The core of Gro is restricted to a small handful of features, in the same minimal style as Go. In fact, version 0.7 removed many core features from version 0.6, intending to re-introduce them as optional macros later on.
 

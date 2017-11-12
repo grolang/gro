@@ -22,7 +22,7 @@ func TestDump(t *testing.T) {
 	if len(asts) != 1 {
 		t.Error(fmt.Sprintf("More than one file returned from parse of %s.", *src_))
 	}
-	for _, ast:= range asts {
+	for _, ast := range asts {
 		Fdump(os.Stdout, ast)
 	}
 }

@@ -15,7 +15,7 @@ package pkgs
 // be used as dependencies by other rules.
 //
 var PkgDeps = map[string][]string{
-	"builtin":                 {}, // dud package
+	"builtin": {}, // dud package
 
 	// L0 is the lowest level, core, nearly unavoidable packages.
 	"unsafe":                  {},
@@ -51,10 +51,10 @@ var PkgDeps = map[string][]string{
 	"math/bits":     {},
 	"math":          {"internal/cpu", "unsafe"},
 	"math/cmplx":    {"math"},
-	"math/rand":     {"math", /*L0*/"sync"},
+	"math/rand":     {"math" /*L0*/, "sync"},
 	"unicode/utf16": {},
 	"unicode/utf8":  {},
-	"strconv":       {"unicode/utf8", "math", /*L0*/"errors"},
+	"strconv":       {"unicode/utf8", "math" /*L0*/, "errors"},
 
 	"L1": {
 		"L0",
@@ -71,10 +71,10 @@ var PkgDeps = map[string][]string{
 	//--------------------------------------------------------------------------------
 	// L2 adds Unicode and strings processing.
 	"unicode": {},
-	"bytes":   {"unicode", "unicode/utf8", /*L0*/"io", "errors", "internal/cpu"},
-	"bufio":   {"unicode/utf8", "bytes", /*L0*/"io", "errors"},
-	"strings": {"unicode", "unicode/utf8", /*L0*/"io", "errors", "internal/cpu"},
-	"path":    {"unicode/utf8", "strings", /*L0*/"errors"},
+	"bytes":   {"unicode", "unicode/utf8" /*L0*/, "io", "errors", "internal/cpu"},
+	"bufio":   {"unicode/utf8", "bytes" /*L0*/, "io", "errors"},
+	"strings": {"unicode", "unicode/utf8" /*L0*/, "io", "errors", "internal/cpu"},
+	"path":    {"unicode/utf8", "strings" /*L0*/, "errors"},
 
 	"L2": {
 		"L1",
@@ -90,26 +90,26 @@ var PkgDeps = map[string][]string{
 	// L3 adds reflection and some basic utility packages
 	// and interface definitions, but nothing that makes
 	// system calls.
-	"hash":                {/*L2*/"io"}, // interfaces
-	"hash/adler32":        {"hash" /*L2*/},
-	"hash/crc32":          {"hash", /*L2*/"internal/cpu", "sync", "unsafe"},
-	"hash/crc64":          {"hash" /*L2*/},
-	"hash/fnv":            {"hash" /*L2*/},
+	"hash":         { /*L2*/ "io"}, // interfaces
+	"hash/adler32": {"hash" /*L2*/},
+	"hash/crc32":   {"hash" /*L2*/, "internal/cpu", "sync", "unsafe"},
+	"hash/crc64":   {"hash" /*L2*/},
+	"hash/fnv":     {"hash" /*L2*/},
 
-	"crypto/internal/cipherhw": {}, //#### Added
-	"crypto":              {"hash", /*L2*/"io", "strconv"}, // interfaces
-	"crypto/subtle":       {},
-	"crypto/cipher":       {"crypto/subtle", /*L2*/"unsafe", "runtime", "io", "errors"},
+	"crypto/internal/cipherhw": {},                               //#### Added
+	"crypto":                   {"hash" /*L2*/, "io", "strconv"}, // interfaces
+	"crypto/subtle":            {},
+	"crypto/cipher":            {"crypto/subtle" /*L2*/, "unsafe", "runtime", "io", "errors"},
 
-	"image/color":         {/*L2*/},                // interfaces
+	"image/color":         { /*L2*/ }, // interfaces
 	"image/color/palette": {"image/color" /*L2*/},
-	"image":               {"image/color", /*L2*/"errors", "strconv", "bufio", "io"}, // interfaces
+	"image":               {"image/color" /*L2*/, "errors", "strconv", "bufio", "io"}, // interfaces
 
-	"encoding/base32":     {/*L2*/"io", "strings", "bytes", "strconv"},
-	"encoding/base64":     {/*L2*/"io", "strconv"},
-	"encoding/binary":     {"reflect", /*L2*/"io", "errors", "math"},
+	"encoding/base32": { /*L2*/ "io", "strings", "bytes", "strconv"},
+	"encoding/base64": { /*L2*/ "io", "strconv"},
+	"encoding/binary": {"reflect" /*L2*/, "io", "errors", "math"},
 
-	"reflect":             {/*L2*/"runtime", "sync", "math", "strconv", "unicode", "unicode/utf8", "unsafe"},
+	"reflect": { /*L2*/ "runtime", "sync", "math", "strconv", "unicode", "unicode/utf8", "unsafe"},
 
 	"L3": {
 		"L2",
@@ -133,15 +133,15 @@ var PkgDeps = map[string][]string{
 
 	// End of linear dependency definitions.
 	//--------------------------------------------------------------------------------
-	"sort":                {"reflect"},
+	"sort": {"reflect"},
 
 	//--------------------------------------------------------------------------------
 	// Operating system access.
 	"internal/syscall/windows/sysdll":   {}, //#### Added
-	"syscall":                           {"internal/race", "internal/syscall/windows/sysdll", "unicode/utf16", /*L0*/"sync", "runtime", "unsafe", "errors", "io", "sync/atomic"},
-	"internal/syscall/unix":             {"syscall", /*L0*/ "unsafe", "sync/atomic"},
-	"internal/syscall/windows":          {"internal/syscall/windows/sysdll", "syscall", /*L0*/"unsafe"},
-	"internal/syscall/windows/registry": {"syscall", "internal/syscall/windows/sysdll", "unicode/utf16", /*L0*/"io", "errors", "unsafe"},
+	"syscall":                           {"internal/race", "internal/syscall/windows/sysdll", "unicode/utf16" /*L0*/, "sync", "runtime", "unsafe", "errors", "io", "sync/atomic"},
+	"internal/syscall/unix":             {"syscall" /*L0*/, "unsafe", "sync/atomic"},
+	"internal/syscall/windows":          {"internal/syscall/windows/sysdll", "syscall" /*L0*/, "unsafe"},
+	"internal/syscall/windows/registry": {"syscall", "internal/syscall/windows/sysdll", "unicode/utf16" /*L0*/, "io", "errors", "unsafe"},
 	"time": {
 		// "L0" without the "io" package:
 		"errors",
@@ -156,18 +156,18 @@ var PkgDeps = map[string][]string{
 	},
 
 	"internal/poll": {"internal/race", "syscall", "time", "unicode/utf16", "unicode/utf8",
-	                  /*L0*/"errors", "io", "sync", "sync/atomic", "unsafe", "runtime"},
+		/*L0*/ "errors", "io", "sync", "sync/atomic", "unsafe", "runtime"},
 
-	"os":            {"syscall", "time", "internal/poll", "internal/syscall/windows",
-	                  /*L1*/"sync/atomic", "sync", "errors", "io", "runtime", "unsafe", "unicode/utf16"},
-	"fmt":           {"os", "reflect", /*L1*/"io", "errors", "math", "strconv", "sync", "unicode/utf8"},
-	                  // Formatted I/O: few dependencies (L1) but we must add reflect.
-	"context":       {"errors", "fmt", "reflect", "sync", "time"},
+	"os": {"syscall", "time", "internal/poll", "internal/syscall/windows",
+		/*L1*/ "sync/atomic", "sync", "errors", "io", "runtime", "unsafe", "unicode/utf16"},
+	"fmt": {"os", "reflect" /*L1*/, "io", "errors", "math", "strconv", "sync", "unicode/utf8"},
+	// Formatted I/O: few dependencies (L1) but we must add reflect.
+	"context": {"errors", "fmt", "reflect", "sync", "time"},
 
-	"os/signal":     {"os", "syscall", /*L2*/"sync"},
-	"path/filepath": {"os", "syscall", "sort", /*L2*/"errors", "runtime", "strings", "unicode/utf8"}, //#### Added: "sort"
-	"io/ioutil":     {"os", "path/filepath", "time", "sort", /*L2*/"sync", "io", "bytes", "strconv"}, //#### Added: "sort"
-	"os/exec":       {"os", "context", "path/filepath", "syscall", /*L2*/"runtime", "strings", "bytes", "strconv", "errors", "io", "sync"},
+	"os/signal":     {"os", "syscall" /*L2*/, "sync"},
+	"path/filepath": {"os", "syscall", "sort" /*L2*/, "errors", "runtime", "strings", "unicode/utf8"}, //#### Added: "sort"
+	"io/ioutil":     {"os", "path/filepath", "time", "sort" /*L2*/, "sync", "io", "bytes", "strconv"}, //#### Added: "sort"
+	"os/exec":       {"os", "context", "path/filepath", "syscall" /*L2*/, "runtime", "strings", "bytes", "strconv", "errors", "io", "sync"},
 
 	// OS enables basic operating system functionality,
 	// but not direct use of package syscall, nor os/signal.
@@ -180,7 +180,7 @@ var PkgDeps = map[string][]string{
 	},
 
 	//--------------------------------------------------------------------------------
-	"log": {"os", "fmt", "time", /*L1*/"sync", "io", "runtime"},
+	"log": {"os", "fmt", "time" /*L1*/, "sync", "io", "runtime"},
 
 	// L4 is defined as L3+fmt+log+time, because in general once
 	// you're using L3 packages, use of fmt, log, or time is not a big deal.
@@ -190,25 +190,25 @@ var PkgDeps = map[string][]string{
 		"fmt",
 		"log",
 	},
-	"flag":                     {/*L4,OS*/"time", "errors", "os", "io", "fmt", "strconv", "reflect", "sort"},
+	"flag": { /*L4,OS*/ "time", "errors", "os", "io", "fmt", "strconv", "reflect", "sort"},
 
 	// Packages used by testing must be low-level (L2+fmt).
-	"regexp/syntax":  {"sort", /*L2*/"bytes", "unicode", "strings", "unicode/utf8", "strconv"}, //#### Added: "sort"
-	"regexp":         {"regexp/syntax", "sort", /*L2*/"sync", "strconv", "io", "bytes", "unicode", "unicode/utf8", "strings"}, //#### Added: "sort"
+	"regexp/syntax": {"sort" /*L2*/, "bytes", "unicode", "strings", "unicode/utf8", "strconv"},                                //#### Added: "sort"
+	"regexp":        {"regexp/syntax", "sort" /*L2*/, "sync", "strconv", "io", "bytes", "unicode", "unicode/utf8", "strings"}, //#### Added: "sort"
 
-	"runtime/debug":  {"fmt", "os", "time", "sort", /*L2*/"runtime"}, //#### Added: "sort"
+	"runtime/debug": {"fmt", "os", "time", "sort" /*L2*/, "runtime"}, //#### Added: "sort"
 
-	"runtime/trace":  {/*L0*/"io", "runtime"},
-	"text/tabwriter": {/*L2*/"io", "bytes", "unicode/utf8"},
-	"runtime/pprof":  {"compress/gzip"/*below*/, "context", "encoding/binary", "fmt", "io/ioutil", "os", "text/tabwriter", "time", "sort",
-	                   /*L2*/"sync", "math", "io", "strings", "bufio", "bytes", "strconv", "errors", "runtime", "unsafe"}, //#### Added: "sort"
+	"runtime/trace":  { /*L0*/ "io", "runtime"},
+	"text/tabwriter": { /*L2*/ "io", "bytes", "unicode/utf8"},
+	"runtime/pprof": {"compress/gzip" /*below*/, "context", "encoding/binary", "fmt", "io/ioutil", "os", "text/tabwriter", "time", "sort",
+		/*L2*/ "sync", "math", "io", "strings", "bufio", "bytes", "strconv", "errors", "runtime", "unsafe"}, //#### Added: "sort"
 
-	"testing":          {"flag", "fmt", "internal/race", "runtime/debug", "runtime/trace", "time", "sort",
-	                     /*L2*/"sync/atomic", "bytes", "strings", "sort", "errors", "os", "io", "sync", "runtime", "strconv"}, //#### Added: "sort"
-	"testing/iotest":   {"log", /*L2*/"io", "errors"},
-	"testing/quick":    {"flag", "fmt", "reflect", "time", /*L2*/"math/rand", "math", "strings"},
+	"testing": {"flag", "fmt", "internal/race", "runtime/debug", "runtime/trace", "time", "sort",
+		/*L2*/ "sync/atomic", "bytes", "strings", "sort", "errors", "os", "io", "sync", "runtime", "strconv"}, //#### Added: "sort"
+	"testing/iotest": {"log" /*L2*/, "io", "errors"},
+	"testing/quick":  {"flag", "fmt", "reflect", "time" /*L2*/, "math/rand", "math", "strings"},
 	"internal/testenv": {"flag", "testing", "syscall",
-	                     /*L2/OS*/"errors", "strings", "path/filepath", "os/exec", "strconv", "os", "runtime", "io/ioutil", "sync"},
+		/*L2/OS*/ "errors", "strings", "path/filepath", "os/exec", "strconv", "os", "runtime", "io/ioutil", "sync"},
 
 	//--------------------------------------------------------------------------------
 	//--------------------------------------------------------------------------------
@@ -243,8 +243,8 @@ var PkgDeps = map[string][]string{
 
 	//--------------------------------------------------------------------------------
 	// One of a kind.
-	"container/list":           {}, //#### Added.
-	"container/ring":           {}, //#### Added.
+	"container/list": {}, //#### Added.
+	"container/ring": {}, //#### Added.
 
 	"archive/tar":              {"L4", "OS", "syscall"},
 	"archive/zip":              {"L4", "OS", "compress/flate"},

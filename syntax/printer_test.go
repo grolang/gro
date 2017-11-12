@@ -21,7 +21,7 @@ func TestPrint(t *testing.T) {
 	if len(asts) != 1 {
 		t.Error(fmt.Sprintf("More than one file returned from parse of %s.", *src_))
 	}
-	for _, ast:= range asts {
+	for _, ast := range asts {
 		Fprint(os.Stdout, ast, true)
 		fmt.Println()
 	}
@@ -33,7 +33,7 @@ func TestPrintString(t *testing.T) {
 		"package p; type _ = int; type T1 = struct{}; type ( _ = *struct{}; T2 = float32 )",
 		// TODO(gri) expand
 	} {
-		asts, err:= ParseBytes("dud", nil, []byte(want), nil, nil, 0, nil)
+		asts, err := ParseBytes("dud", nil, []byte(want), nil, nil, 0, nil)
 		if err != nil {
 			t.Error(err)
 			continue
@@ -41,11 +41,10 @@ func TestPrintString(t *testing.T) {
 		if len(asts) != 1 {
 			t.Error(fmt.Sprintf("More than one file returned from parse of supplied string:\n%s", want))
 		}
-		for _, ast:= range asts {
+		for _, ast := range asts {
 			if got := String(ast); got != want {
 				t.Errorf("%q: got %q", want, got)
 			}
 		}
 	}
 }
-

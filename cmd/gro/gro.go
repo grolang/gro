@@ -19,19 +19,20 @@ import (
 	"text/template"
 	"unicode"
 	"unicode/utf8"
+
 	"github.com/grolang/gro/sys"
 )
 
 const (
-	versionNo = "0.7.2"
-	progDesc = "managing Gro scripts"
+	versionNo = "0.7.3"
+	progDesc  = "managing Gro scripts"
 )
 
 //================================================================================
 func main() {
 	log.SetFlags(0)
 	flag.Parse()
-	args:= flag.Args()
+	args := flag.Args()
 	Main(args)
 	os.Exit(sys.ExitStatus)
 }
@@ -71,7 +72,7 @@ func Main(args []string) {
 	// Diagnose common mistake: GOPATH==GOROOT.
 	// This setting is equivalent to not setting GOPATH at all,
 	// which is not what most people want when they do it.
-	goroot:= runtime.GOROOT()
+	goroot := runtime.GOROOT()
 	if gopath := os.Getenv("GOPATH"); gopath == goroot {
 		fmt.Fprintf(sys.Stderr, "%s: warning: GOPATH set to GOROOT (%s) has no effect\n", sys.ProgName, gopath)
 	} else {
@@ -190,7 +191,7 @@ func (c *Command) Runnable() bool {
 // ============================================================================
 // Commands lists the available commands and help topics.
 // The order here is the order in which they are printed by 'gro help'.
-var Commands = []*Command {
+var Commands = []*Command{
 	cmdPrepare,
 	cmdExecute,
 	cmdVersion,
@@ -233,7 +234,7 @@ var cmdVersion = &Command{
 	Run:       version,
 	UsageLine: "version",
 	Short:     "print Gro version",
-	Long:      `
+	Long: `
 Version prints the Gro version.
 
 `,
@@ -275,12 +276,12 @@ func (w *errWriter) Write(b []byte) (int, error) {
 func MakeTemplate(w io.Writer, text string, data interface{}) {
 	t := template.New("top")
 	t.Funcs(template.FuncMap{
-		"trim": strings.TrimSpace,
+		"trim":       strings.TrimSpace,
 		"capitalize": capitalize,
-		"progname": ProgName,
-		"progdesc": ProgDesc,
-		"progvers": ProgVers,
-		"suffix":   Suffix,
+		"progname":   ProgName,
+		"progdesc":   ProgDesc,
+		"progvers":   ProgVers,
+		"suffix":     Suffix,
 	})
 	template.Must(t.Parse(text))
 	ew := &errWriter{w: w}
@@ -304,7 +305,7 @@ func MakeTemplate(w io.Writer, text string, data interface{}) {
 func ProgName() string { return sys.ProgName }
 func ProgDesc() string { return progDesc }
 func ProgVers() string { return versionNo }
-func Suffix() string { return sys.Suffix }
+func Suffix() string   { return sys.Suffix }
 
 //--------------------------------------------------------------------------------
 func capitalize(s string) string {
@@ -376,4 +377,3 @@ const helpTemplate = `
 `
 
 //================================================================================
-

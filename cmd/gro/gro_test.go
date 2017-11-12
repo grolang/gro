@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"testing"
+
 	"github.com/grolang/gro/cmd/gro"
 	"github.com/grolang/gro/sys"
 )
@@ -59,7 +60,7 @@ func TestMain(t *testing.T) {
 
 	//--------------------------------------------------------------------------------
 	//calling 'gro help prepare'
-	prepareStr:= `
+	prepareStr := `
 usage: gro prepare [flags] [path ...]
 
 Prepare generates formatted Go programs from Gro scripts.
@@ -83,8 +84,8 @@ It then prints the generated Go source to the output files as determined by the 
 	w = new(bytes.Buffer)
 	sys.Stderr = w
 	main.Main([]string{"startrek"})
-	if fmt.Sprintf("%s", w) != "gro: unknown subcommand \"startrek\"\n" +
-			"Run 'gro help' for usage.\n" {
+	if fmt.Sprintf("%s", w) != "gro: unknown subcommand \"startrek\"\n"+
+		"Run 'gro help' for usage.\n" {
 		t.Errorf("wrong text received from Stderr for unknown subcommand:\n%s\n", w)
 	}
 
@@ -93,7 +94,7 @@ It then prints the generated Go source to the output files as determined by the 
 	w = new(bytes.Buffer)
 	sys.Stderr = w
 	main.Main([]string{"version"})
-	if fmt.Sprintf("%s", w) != "Gro version 0.7.2, running on Go version go1.9.2 for OS:windows and arch:amd64\n" {
+	if fmt.Sprintf("%s", w) != "Gro version 0.7.3, running on Go version go1.9.2 for OS:windows and arch:amd64\n" {
 		t.Errorf("wrong version text received from Stderr:\n%s\n", w)
 	}
 
@@ -111,8 +112,8 @@ It then prints the generated Go source to the output files as determined by the 
 	w = new(bytes.Buffer)
 	sys.Stderr = w
 	main.Main([]string{"prepare"})
-	if fmt.Sprintf("%s", w) != "gro: usage: gro prepare path\n" +
-			"Not enough arguments given.\n" {
+	if fmt.Sprintf("%s", w) != "gro: usage: gro prepare path\n"+
+		"Not enough arguments given.\n" {
 		t.Errorf("wrong text received from Stderr for prepare with no args:\n%s\n", w)
 	}
 
@@ -132,8 +133,8 @@ It then prints the generated Go source to the output files as determined by the 
 	sys.Stderr = w
 	fn = "testdata/sayhi.gro" // we don't put "src/github.com/grolang/gro/cmd/gro/" in front
 	main.Main([]string{"prepare", "-v", fn})
-	if fmt.Sprintf("%s", w) != "gro: preparing testdata/sayhi.gro\n" +
-			"gro: Received 1 files from ParsePackage.\n" {
+	if fmt.Sprintf("%s", w) != "gro: preparing testdata/sayhi.gro\n"+
+		"gro: Received 1 files from ParsePackage.\n" {
 		t.Errorf("wrong text received from Stderr for prepare with file %s as arg:\n%s\n", fn, w)
 	}
 
@@ -153,10 +154,10 @@ It then prints the generated Go source to the output files as determined by the 
 	sys.Stderr = w
 	fn = "testdata/grodir"
 	main.Main([]string{"prepare", "-v", fn})
-	if fmt.Sprintf("%s", w) != "gro: preparing testdata/grodir/saycat.gro\n" +
-			"gro: Received 1 files from ParsePackage.\n" +
-			"gro: preparing testdata/grodir/saydog.gro\n" +
-			"gro: Received 1 files from ParsePackage.\n" {
+	if fmt.Sprintf("%s", w) != "gro: preparing testdata/grodir/saycat.gro\n"+
+		"gro: Received 1 files from ParsePackage.\n"+
+		"gro: preparing testdata/grodir/saydog.gro\n"+
+		"gro: Received 1 files from ParsePackage.\n" {
 		t.Errorf("wrong text received from Stderr for prepare with file %s as arg:\n%s\n", fn, w)
 	}
 
@@ -174,10 +175,10 @@ It then prints the generated Go source to the output files as determined by the 
 	w = new(bytes.Buffer)
 	sys.Stderr = w
 	main.Main([]string{"prepare", "-v", "testdata/sayhi.gro", "testdata/saybye.gro"})
-	if fmt.Sprintf("%s", w) != "gro: preparing testdata/sayhi.gro\n" +
-			"gro: Received 1 files from ParsePackage.\n" +
-			"gro: preparing testdata/saybye.gro\n" +
-			"gro: Received 2 files from ParsePackage.\n" {
+	if fmt.Sprintf("%s", w) != "gro: preparing testdata/sayhi.gro\n"+
+		"gro: Received 1 files from ParsePackage.\n"+
+		"gro: preparing testdata/saybye.gro\n"+
+		"gro: Received 2 files from ParsePackage.\n" {
 		t.Errorf("wrong text received from Stderr for prepare with files as arg:\n%s\n", w)
 	}
 
@@ -196,8 +197,8 @@ It then prints the generated Go source to the output files as determined by the 
 	w = new(bytes.Buffer)
 	sys.Stderr = w
 	main.Main([]string{"execute"})
-	if fmt.Sprintf("%s", w) != "gro: usage: gro execute path\n" +
-			"Not enough arguments given.\n" {
+	if fmt.Sprintf("%s", w) != "gro: usage: gro execute path\n"+
+		"Not enough arguments given.\n" {
 		t.Errorf("wrong text received from Stderr for execute with no args:\n%s\n", w)
 	}
 
@@ -206,8 +207,8 @@ It then prints the generated Go source to the output files as determined by the 
 	w = new(bytes.Buffer)
 	sys.Stderr = w
 	main.Main([]string{"execute", "file_one.gro", "file_two.gro"})
-	if fmt.Sprintf("%s", w) != "gro: usage: gro execute path\n" +
-			"Too many arguments given.\n" {
+	if fmt.Sprintf("%s", w) != "gro: usage: gro execute path\n"+
+		"Too many arguments given.\n" {
 		t.Errorf("wrong text received from Stderr for execute with no args:\n%s\n", w)
 	}
 
@@ -237,9 +238,9 @@ It then prints the generated Go source to the output files as determined by the 
 	if fmt.Sprintf("%s", u) != "Hello, world!\n" {
 		t.Errorf("wrong text received from Stdout for execute with file %s as arg:\n%s\n", fn, u)
 	}
-	if fmt.Sprintf("%s", w) != "gro: preparing testdata/sayhi.gro\n" +
-			"gro: Received 1 files from ParsePackage.\n" +
-			"gro: running testdata/sayhi.go\n" {
+	if fmt.Sprintf("%s", w) != "gro: preparing testdata/sayhi.gro\n"+
+		"gro: Received 1 files from ParsePackage.\n"+
+		"gro: running testdata/sayhi.go\n" {
 		t.Errorf("wrong text received from Stderr for execute with file %s as arg:\n%s\n", fn, w)
 	}
 
@@ -251,16 +252,15 @@ It then prints the generated Go source to the output files as determined by the 
 	sys.Stderr = w
 	fn = "testdata/executeInside.gro"
 	main.Main([]string{"execute", "-v", fn})
-	if fmt.Sprintf("%s", u) != "'Hello, world!' from executeInside.gro\n" +
-			"Hello, world!\n" {
+	if fmt.Sprintf("%s", u) != "'Hello, world!' from executeInside.gro\n"+
+		"Hello, world!\n" {
 		t.Errorf("wrong text received from Stdout for execute with file %s as arg:\n%s\n", fn, u)
 	}
-	if fmt.Sprintf("%s", w) != "gro: preparing testdata/executeInside.gro\n" +
-			"gro: Received 1 files from ParsePackage.\n" +
-			"gro: running testdata/executeInside.go\n" { //only executeInside.gro is run in verbose mode, not sayhi.gro
+	if fmt.Sprintf("%s", w) != "gro: preparing testdata/executeInside.gro\n"+
+		"gro: Received 1 files from ParsePackage.\n"+
+		"gro: running testdata/executeInside.go\n" { //only executeInside.gro is run in verbose mode, not sayhi.gro
 		t.Errorf("wrong text received from Stderr for execute with file %s as arg:\n%s\n", fn, w)
 	}
 
-//--------------------------------------------------------------------------------
+	//--------------------------------------------------------------------------------
 }
-

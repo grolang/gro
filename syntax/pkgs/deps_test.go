@@ -407,16 +407,16 @@ func TestStdLib(t *testing.T) {
 		filename string
 		lines    uint
 	}
-	processed:= map[string]bool{}
+	processed := map[string]bool{}
 	for _, dir := range []string{
 		filepath.Join(runtime.GOROOT(), "src"),
 	} {
 		walkDirs(t, dir, func(filename string) {
-			pth, _:= filepath.Split(filename)
+			pth, _ := filepath.Split(filename)
 			pth = strings.Trim(pth[len(dir):], "\\")
 			pth = strings.Replace(pth, "\\", "/", -1)
-			if _, ok:= PkgDeps[pth]; !ok {
-				if _, ok:= processed[pth]; !ok && !strings.HasPrefix(pth, "vendor") && !strings.HasPrefix(pth, "cmd") {
+			if _, ok := PkgDeps[pth]; !ok {
+				if _, ok := processed[pth]; !ok && !strings.HasPrefix(pth, "vendor") && !strings.HasPrefix(pth, "cmd") {
 					t.Errorf("not in PkgDeps: %s\n", pth)
 					processed[pth] = true
 				}

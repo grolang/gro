@@ -291,7 +291,7 @@ func testPos(t *testing.T, list []test, prefix, suffix string, extract func(*Fil
 		}
 
 		// build syntax tree
-		asts, err:= ParseBytes("dud", nil, []byte(src), nil, nil, 0, nil)
+		asts, err := ParseBytes("dud", nil, []byte(src), nil, nil, 0, nil)
 		if err != nil {
 			t.Errorf("parse error: %s: %v (%s)", src, err, test.nodetyp)
 			continue
@@ -299,7 +299,7 @@ func testPos(t *testing.T, list []test, prefix, suffix string, extract func(*Fil
 		if len(asts) != 1 {
 			t.Error(fmt.Sprintf("More than one file returned from parse of %s.", *src_))
 		}
-		for _, file:= range asts {
+		for _, file := range asts {
 			// extract desired node
 			node := extract(file)
 			if typ := typeOf(node); typ != test.nodetyp {
