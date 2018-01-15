@@ -20,7 +20,8 @@ func TestMacros(t *testing.T) {
 prepare "afile.gro"
 func main() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `// +build ignore
@@ -39,7 +40,8 @@ func init() {
 
 func main() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		{
@@ -49,7 +51,8 @@ func main() {
 execute "afile.gro"
 func main() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `// +build ignore
@@ -68,7 +71,8 @@ func init() {
 
 func main() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		{
@@ -78,7 +82,8 @@ func main() {
 run "afile.go"
 func main() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `// +build ignore
@@ -97,7 +102,8 @@ func init() {
 
 func main() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		{
@@ -109,6 +115,7 @@ let b = 3
 do c:= 4
 let d, a = 7, 8
 do e = 9
+let _ = 789
 `,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
@@ -125,11 +132,15 @@ func init() {
 		{
 			d, a := 7, 8
 			e = 9
+			{
+				_ = 789
+			}
 		}
 	}
 }
 
-func main() {}`}},
+func main() {}
+`}},
 
 		//--------------------------------------------------------------------------------
 		{
@@ -157,7 +168,8 @@ func init() {
 	assert.AssertTrue(d == 1)
 }
 
-func main() {}`}},
+func main() {}
+`}},
 
 		//--------------------------------------------------------------------------------
 	})
@@ -176,7 +188,8 @@ package abc
 import "fmt"
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"abc/abc.go": `package abc
@@ -185,7 +198,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		// "include" cmd
@@ -196,17 +210,23 @@ func run() {
 package def
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			xtr: map[string]string{
-				"mymy": ``},
+				"mymy": `package goa
+`},
 
 			// - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
-				"dud.go": `package def
+				"def/def.go": `package def
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`,
+
+				"goa/goa.go": `package goa
+`}},
 
 		//--------------------------------------------------------------------------------
 		// "include" cmd group
@@ -220,18 +240,26 @@ func run() {
 package def
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			xtr: map[string]string{
-				"mymy":   ``,
-				"youyou": ``},
+				"mymy":   `package goa`,
+				"youyou": `package whoah`},
 
 			// - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
-				"dud.go": `package def
+				"def/def.go": `package def
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`,
+
+				"goa/goa.go": `package goa
+`,
+
+				"whoah/whoah.go": `package whoah
+`}},
 
 		//--------------------------------------------------------------------------------
 		// multiple "include" cmds
@@ -246,19 +274,30 @@ include "itit"
 package def
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			xtr: map[string]string{
-				"mymy":   ``,
-				"youyou": ``,
-				"itit":   ``},
+				"mymy":   `package goa`,
+				"youyou": `package whoah`,
+				"itit":   `package noah`},
 
 			// - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
-				"dud.go": `package def
+				"def/def.go": `package def
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`,
+
+				"goa/goa.go": `package goa
+`,
+
+				"whoah/whoah.go": `package whoah
+`,
+
+				"noah/noah.go": `package noah
+`}},
 
 		//--------------------------------------------------------------------------------
 		// multiple "include" cmds using subdirs
@@ -273,19 +312,30 @@ include "itit"
 package def
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			xtr: map[string]string{
-				"adir/mymy":              ``,
-				"adir/anotherdir/youyou": ``,
-				"adir/itit":              ``},
+				"adir/mymy":              `package goa`,
+				"adir/anotherdir/youyou": `package whoah`,
+				"adir/itit":              `package noah`},
 
 			// - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
-				"adir/dud.go": `package def
+				"adir/def/def.go": `package def
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`,
+
+				"adir/goa/goa.go": `package goa
+`,
+
+				"adir/whoah/whoah.go": `package whoah
+`,
+
+				"adir/noah/noah.go": `package noah
+`}},
 
 		//--------------------------------------------------------------------------------
 		// multiple "include" and "use" cmds mixed up
@@ -301,19 +351,30 @@ include "itit"
 package def
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			xtr: map[string]string{
-				"mymy":              ``,
-				"anotherdir/youyou": ``,
-				"itit":              ``},
+				"mymy":              `package goa`,
+				"anotherdir/youyou": `package whoah`,
+				"itit":              `package noah`},
 
 			// - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
-				"dud.go": `package def
+				"def/def.go": `package def
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`,
+
+				"goa/goa.go": `package goa
+`,
+
+				"whoah/whoah.go": `package whoah
+`,
+
+				"noah/noah.go": `package noah
+`}},
 
 		//--------------------------------------------------------------------------------
 	})
@@ -333,11 +394,13 @@ import "fmt"
 var v int; const c = 2; type t int
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package abc
 
+import groo "github.com/grolang/gro/ops"
 import fmt "fmt"
 
 var v int
@@ -350,7 +413,13 @@ func run() {
 	fmt.Println("Hello, world!")
 }
 
-type any = interface{}`}},
+type (
+	any = interface{}
+	void = struct{}
+)
+
+var inf = groo.Inf
+`}},
 
 		//--------------------------------------------------------------------------------
 		//use "dynamic" but "any" already in use (as TYPE) causes "type any" NOT to be added
@@ -366,11 +435,13 @@ type any string
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package abc
 
+import groo "github.com/grolang/gro/ops"
 import fmt "fmt"
 
 var v int
@@ -382,7 +453,14 @@ type any string
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+
+type (
+	void = struct{}
+)
+
+var inf = groo.Inf
+`}},
 
 		//--------------------------------------------------------------------------------
 		//use "dynamic" but "any" already in use (as VAR) causes "type any" NOT to be added
@@ -401,10 +479,13 @@ var any = 2
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package abc
+
+import groo "github.com/grolang/gro/ops"
 
 import (
 	fmt "fmt"
@@ -421,7 +502,14 @@ var any = 2
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+
+type (
+	void = struct{}
+)
+
+var inf = groo.Inf
+`}},
 
 		//--------------------------------------------------------------------------------
 		//use "dynamic" but "any" already in use (as CONST inside a group) causes "type any" NOT to be added
@@ -438,11 +526,13 @@ const (
 )
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package abc
 
+import groo "github.com/grolang/gro/ops"
 import fmt "fmt"
 
 var v int
@@ -458,7 +548,14 @@ const (
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+
+type (
+	void = struct{}
+)
+
+var inf = groo.Inf
+`}},
 
 		//--------------------------------------------------------------------------------
 		//use "dynamic" but "any" already in use (as CONST in a list) causes "type any" NOT to be added
@@ -474,11 +571,13 @@ const any, another = 2, 3
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package abc
 
+import groo "github.com/grolang/gro/ops"
 import fmt "fmt"
 
 var v int
@@ -491,7 +590,14 @@ const any, another = 2, 3
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+
+type (
+	void = struct{}
+)
+
+var inf = groo.Inf
+`}},
 
 		//--------------------------------------------------------------------------------
 		//use "dynamic" but "any" already in use (as IMPORT local name) causes "type any" NOT to be added
@@ -504,17 +610,26 @@ import "fmt"
 import any "my/path/to/swh"
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package abc
 
+import groo "github.com/grolang/gro/ops"
 import fmt "fmt"
 import any "my/path/to/swh"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+
+type (
+	void = struct{}
+)
+
+var inf = groo.Inf
+`}},
 
 		//--------------------------------------------------------------------------------
 		//use "dynamic" but "any" already in use (as default IMPORT name) causes "type any" NOT to be added
@@ -527,17 +642,26 @@ import "fmt"
 import "my/path/to/any"
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package abc
 
+import groo "github.com/grolang/gro/ops"
 import fmt "fmt"
 import any "my/path/to/any"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+
+type (
+	void = struct{}
+)
+
+var inf = groo.Inf
+`}},
 
 		//--------------------------------------------------------------------------------
 		//use "dynamic" with return value (here, "dyn") causes "any" to be added, ...
@@ -557,10 +681,13 @@ dyn {
 	"fmt".Println(4 + 5) //in real code, better not use "fmt" in-place when "fmt" already imported
 	"fmt".Println(true && false)
 	do fmt.Println(-true)
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package abc
+
+import groo "github.com/grolang/gro/ops"
 
 import (
 	fmt "fmt"
@@ -576,7 +703,7 @@ func init() {
 		fmt.Println(-true)
 	}
 	{
-		fmt.Println(dyn.Plus(4, 5))
+		fmt.Println(dyn.Plus(4, 5)) //in real code, better not use "fmt" in-place when "fmt" already imported
 		fmt.Println(dyn.And(true, func() interface{} {
 			return false
 		}))
@@ -584,7 +711,13 @@ func init() {
 	}
 }
 
-type any = interface{}`}},
+type (
+	any = interface{}
+	void = struct{}
+)
+
+var inf = groo.Inf
+`}},
 
 		//--------------------------------------------------------------------------------
 		//use "dynamic" with return value (here, "dyn") causes dynamic interp of strings and runes
@@ -601,14 +734,16 @@ dyn {
 	"fmt".Println("abcdefg")
 	"fmt".Println("hijklmnop")
 	"fmt".Println('a')
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package abc
 
+import groo "github.com/grolang/gro/ops"
+
 import (
 	fmt "fmt"
-	utf88 "github.com/grolang/gro/utf88"
 	dyn "github.com/grolang/gro/ops"
 )
 
@@ -618,13 +753,19 @@ func init() {
 		fmt.Println('a')
 	}
 	{
-		fmt.Println(utf88.Desur("abcdefg"))
-		fmt.Println(utf88.Desur("hijklmnop"))
+		fmt.Println(dyn.MakeText("abcdefg"))
+		fmt.Println(dyn.MakeText("hijklmnop"))
 		fmt.Println(dyn.Runex("a"))
 	}
 }
 
-type any = interface{}`}},
+type (
+	any = interface{}
+	void = struct{}
+)
+
+var inf = groo.Inf
+`}},
 
 		//--------------------------------------------------------------------------------
 		//use _ "dynamic" should enable full dynamic mode
@@ -637,57 +778,197 @@ do {
 	"fmt".Println("abcdefg")
 	"fmt".Println("hijklmnop")
 	"fmt".Println('a')
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package abc
 
 import (
 	fmt "fmt"
-	utf88 "github.com/grolang/gro/utf88"
 	groo "github.com/grolang/gro/ops"
 )
 
 func init() {
 	{
-		fmt.Println(utf88.Desur("abcdefg"))
-		fmt.Println(utf88.Desur("hijklmnop"))
+		fmt.Println(groo.MakeText("abcdefg"))
+		fmt.Println(groo.MakeText("hijklmnop"))
 		fmt.Println(groo.Runex("a"))
 	}
 }
 
-type any = interface{}`}},
+type (
+	any = interface{}
+	void = struct{}
+)
+
+var inf = groo.Inf
+`}},
+
+		//--------------------------------------------------------------------------------
+		//use _ "dynamic"("utf88") should enable full dynamic mode with utf88
+		{
+			num: 230,
+			fnm: "dud.gro",
+			src: `use _ "dynamic" ("utf88")
+package abc
+do {
+	"fmt".Println("abcdefg")
+	"fmt".Println("hijklmnop")
+	"fmt".Println('a')
+}
+`,
+
+			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+			prt: map[string]string{
+				"dud.go": `package abc
+
+import (
+	fmt "fmt"
+	groo "github.com/grolang/gro/ops"
+)
+
+func init() {
+	{
+		fmt.Println(groo.MakeText("abcdefg"))
+		fmt.Println(groo.MakeText("hijklmnop"))
+		fmt.Println(groo.Runex("a"))
+	}
+}
+
+type (
+	any = interface{}
+	void = struct{}
+)
+
+var inf = groo.Inf
+
+func init() {
+	groo.UseUtf88 = true
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//the "groo" file type should enable full dynamic mode
 		{
-			num: 230,
+			num: 240,
 			fnm: "dud.groo", // <- note ".groo"
 			src: `package abc
 do {
 	"fmt".Println("abcdefg")
 	"fmt".Println("hijklmnop")
 	"fmt".Println('a')
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package abc
 
 import (
 	fmt "fmt"
-	utf88 "github.com/grolang/gro/utf88"
 	groo "github.com/grolang/gro/ops"
 )
 
 func init() {
 	{
-		fmt.Println(utf88.Desur("abcdefg"))
-		fmt.Println(utf88.Desur("hijklmnop"))
+		fmt.Println(groo.MakeText("abcdefg"))
+		fmt.Println(groo.MakeText("hijklmnop"))
 		fmt.Println(groo.Runex("a"))
 	}
 }
 
-type any = interface{}`}},
+type (
+	any = interface{}
+	void = struct{}
+)
+
+var inf = groo.Inf
+
+func init() {
+	groo.UseUtf88 = true
+}
+`}},
+
+		//--------------------------------------------------------------------------------
+		//the "groo" file type should encode PosIntRange as [x,y]
+		{
+			num: 250,
+			fnm: "dud.groo", // <- note ".groo"
+			src: `package abc
+do {
+	"fmt".Println( [2 : 5] )
+	"fmt".Println( [: 5] )
+	"fmt".Println( [2 :] )
+	"fmt".Println( [ : ] )
+}
+`,
+
+			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+			prt: map[string]string{
+				"dud.go": `package abc
+
+import (
+	fmt "fmt"
+	groo "github.com/grolang/gro/ops"
+)
+
+func init() {
+	{
+		fmt.Println(groo.NewMapEntryOrPosIntRange(2, 5))
+		fmt.Println(groo.NewMapEntryOrPosIntRange(0, 5))
+		fmt.Println(groo.NewMapEntryOrPosIntRange(2, groo.Inf))
+		fmt.Println(groo.NewMapEntryOrPosIntRange(0, groo.Inf))
+	}
+}
+
+type (
+	any = interface{}
+	void = struct{}
+)
+
+var inf = groo.Inf
+
+func init() {
+	groo.UseUtf88 = true
+}
+`}},
+
+		//--------------------------------------------------------------------------------
+		//check short slice literal syntax e.g. []{} to mean []any{}
+		{
+			num: 300,
+			fnm: "dud.groo", // <- note ".groo"
+			src: `package abc
+var a []any = []{1,'a',"abc",1.0}
+"fmt".Println(a)
+`,
+
+			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+			prt: map[string]string{
+				"dud.go": `package abc
+
+import (
+	groo "github.com/grolang/gro/ops"
+	fmt "fmt"
+)
+
+var a []any = []any{1, groo.Runex("a"), groo.MakeText("abc"), 1.0}
+
+func init() {
+	fmt.Println(a)
+}
+
+type (
+	any = interface{}
+	void = struct{}
+)
+
+var inf = groo.Inf
+
+func init() {
+	groo.UseUtf88 = true
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 	})

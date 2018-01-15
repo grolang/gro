@@ -17,7 +17,7 @@ func TestBlacklist(t *testing.T) {
 			num: 100,
 			fnm: "dud.gro",
 			src: `project eggs
-use "blacklist"("if", "fallthrough")
+use "blacklist"("ifKw", "fallthrough")
 package abc
 import "fmt"
 do for a:= range as {
@@ -33,7 +33,8 @@ func init() {
 	for a := range as {
 		fmt.Printf("Hello, %s of Mars!", a)
 	}
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//use macro "blacklist" (project)
@@ -57,7 +58,8 @@ func init() {
 	for a := range as {
 		fmt.Printf("Hello, %s of Mars!", a)
 	}
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//use macro "blacklist" (use)
@@ -84,7 +86,8 @@ func init() {
 	for a := range as {
 		fmt.Printf("Hello, %s of Mars!", a)
 	}
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//use macro "blacklist" (inferMain)
@@ -104,7 +107,8 @@ import "fmt"
 
 func main() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//generate errors by using blacklisted keywords
@@ -112,13 +116,13 @@ func main() {
 			num: 210,
 			fnm: "dud.gro",
 			src: `project eggs
-use "blacklist"("if", "goto")
+use "blacklist"("ifKw", "gotoKw")
 package abc
 import "fmt"
 if true {
 	"fmt".Println("Hi!")
 }`,
-			err: "dud.gro:5:1: syntax error: if-statement has been prohibited by blacklist",
+			err: "dud.gro:5:1: syntax error: if-statement has been disabled but is present",
 		},
 
 		//--------------------------------------------------------------------------------
@@ -164,7 +168,7 @@ if true {
 			fnm: "dud.gro",
 			src: `project eggs
 use (
-	"blacklist"("use")
+	"blacklist"("useKw")
 	"open"
 )
 use "close"
@@ -182,7 +186,7 @@ if true {
 			fnm: "dud.gro",
 			src: `project eggs
 use (
-	"blacklist"("package")
+	"blacklist"("packageKw")
 )
 package abc
 import "fmt"
@@ -197,7 +201,7 @@ if true {
 			fnm: "dud.gro",
 			src: `project eggs
 use (
-	"blacklist"("internal")
+	"blacklist"("internalKw")
 )
 internal abc
 import "fmt"
@@ -212,7 +216,7 @@ if true {
 			fnm: "dud.gro",
 			src: `project eggs
 use (
-	"blacklist"("section")
+	"blacklist"("sectionKw")
 )
 section "sth"
 import "fmt"
@@ -227,7 +231,7 @@ if true {
 			fnm: "dud.gro",
 			src: `project eggs
 use (
-	"blacklist"("main")
+	"blacklist"("mainKw")
 )
 main "swhere"
 import "fmt"
@@ -242,7 +246,7 @@ if true {
 			fnm: "dud.gro",
 			src: `project eggs
 use (
-	"blacklist"("testcode")
+	"blacklist"("testcodeKw")
 )
 testcode "sth"
 import "fmt"
@@ -256,7 +260,7 @@ if true {
 			num: 280,
 			fnm: "dud.gro",
 			src: `project eggs
-use "blacklist" ("import")
+use "blacklist" ("importKw")
 import "fmt"
 if true {
 	"fmt".Println("Hi!")
@@ -270,7 +274,7 @@ if true {
 			num: 290,
 			fnm: "dud.gro",
 			src: `project eggs
-use "blacklist" ("var")
+use "blacklist" ("varKw")
 import "fmt"
 var a = "world"
 "fmt".Printf("Hi, %s!", a)`,
@@ -281,18 +285,19 @@ var a = "world"
 			num: 291,
 			fnm: "dud.gro",
 			src: `project eggs
-use "blacklist" ("const")
+use "blacklist" ("constKw")
 import "fmt"
 const a = "world"
 "fmt".Printf("Hi, %s!", a)`,
 			err: "dud.gro:4:1: syntax error: \"const\" keywords are disabled but keyword is present",
 		},
+
 		//--------------------------------------------------------------------------------
 		{
 			num: 292,
 			fnm: "dud.gro",
 			src: `project eggs
-use "blacklist" ("type")
+use "blacklist" ("typeKw")
 import "fmt"
 type a int32
 "fmt".Printf("Hi, %s!", a(123))`,
@@ -303,13 +308,14 @@ type a int32
 			num: 293,
 			fnm: "dud.gro",
 			src: `project eggs
-use "blacklist" ("proc")
+use "blacklist" ("procKw")
 import "fmt"
 proc hi() {
 	"fmt".Printf("Hi, %s!", a)
 }`,
 			err: "dud.gro:4:1: syntax error: \"proc\" keywords are disabled but keyword is present",
 		},
+
 		//--------------------------------------------------------------------------------
 		{
 			num: 300,
@@ -380,6 +386,297 @@ section "this" {
 			err: "dud.gro:4:2: syntax error: using block-style notation for packages and sections is disabled but it is being used",
 			//TODO: correct pos-info to :3:16
 		},
+		//--------------------------------------------------------------------------------
+		{
+			num: 400,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("interfaceKw")
+type myIface interface {
+	myfunc(int) bool
+}`,
+			err: "dud.gro:2:14: syntax error: \"interface\" keywords are disabled but keyword is present",
+		},
+		//--------------------------------------------------------------------------------
+		{
+			num: 410,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("chanKw")
+type myChan chan *int
+`,
+			err: "dud.gro:2:13: syntax error: \"chan\" keywords are disabled but keyword is present",
+		},
+		//--------------------------------------------------------------------------------
+		{
+			num: 420,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("mapKw")
+type myMap map[int]bool
+`,
+			err: "dud.gro:2:12: syntax error: \"map\" keywords are disabled but keyword is present",
+		},
+		//--------------------------------------------------------------------------------
+		{
+			num: 430,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("deferKw")
+func main(){
+	defer func(){return}()
+}
+`,
+			err: "dud.gro:3:2: syntax error: defer-statement has been disabled but is present",
+		},
+		//--------------------------------------------------------------------------------
+		{
+			num: 440,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("goKw")
+func pain(){
+	go func(){return}()
+}
+`,
+			err: "dud.gro:3:2: syntax error: go-statement has been disabled but is present",
+		},
+		//--------------------------------------------------------------------------------
+		{
+			num: 450,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("rangeKw")
+for n:= range ns {
+	break
+}
+`,
+			err: "dud.gro:2:18: syntax error: \"range\" keywords are disabled but keyword is present",
+			//TODO: correct pos-info to :2:9
+		},
+		//--------------------------------------------------------------------------------
+		{
+			num: 460,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("caseKw")
+switch {
+	case a: break
+	case b: fallthrough
+	default: println("abc")
+}
+`,
+			err: "dud.gro:3:2: syntax error: \"case\" keywords are disabled but keyword is present",
+		},
+		//--------------------------------------------------------------------------------
+		{
+			num: 470,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("defaultKw")
+switch {
+	case a: break
+	case b: fallthrough
+	default: println("abc")
+}
+`,
+			err: "dud.gro:5:2: syntax error: \"default\" keywords are disabled but keyword is present",
+		},
+		//--------------------------------------------------------------------------------
+		{
+			num: 480,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("caseKw")
+select {
+	case <-a: break
+	case <-b: break
+	default: println("abc")
+}
+`,
+			err: "dud.gro:3:2: syntax error: \"case\" keywords are disabled but keyword is present",
+		},
+
+		//--------------------------------------------------------------------------------
+		{
+			num: 490,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("defaultKw")
+select {
+	case <-a: break
+	case <-b: break
+	default: println("abc")
+}
+`,
+			err: "dud.gro:5:2: syntax error: \"default\" keywords are disabled but keyword is present",
+		},
+
+		//--------------------------------------------------------------------------------
+		{
+			num: 500,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("fallthroughKw")
+switch {
+	case a: break
+	case b: fallthrough
+	default: println("abc")
+}
+`,
+			err: "dud.gro:4:10: syntax error: fallthrough-statement has been disabled but is present",
+		},
+		//--------------------------------------------------------------------------------
+		{
+			num: 510,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("funcKw")
+func myfunc() {
+	return
+}
+`,
+			err: "dud.gro:2:1: syntax error: \"func\" keywords are disabled but keyword is present",
+		},
+
+		//--------------------------------------------------------------------------------
+		{
+			num: 520,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("funcKw")
+var myfunc = func() {
+	return
+}
+`,
+			err: "dud.gro:2:14: syntax error: \"func\" keywords are disabled but keyword is present",
+		},
+		//--------------------------------------------------------------------------------
+		{
+			num: 530,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("structKw")
+type myStruct struct {
+	a, b *int
+}
+`,
+			err: "dud.gro:2:15: syntax error: \"struct\" keywords are disabled but keyword is present",
+		},
+
+		//--------------------------------------------------------------------------------
+		{
+			num: 540,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("elseKw")
+func main (){
+	if a<10 {
+		return
+	} else {
+		break
+	}
+}
+`,
+			err: "dud.gro:5:4: syntax error: \"else\" keywords are disabled but keyword is present",
+		},
+
+		//--------------------------------------------------------------------------------
+		{
+			num: 550,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("breakKw")
+for i:= 0; i<10; i++ {
+	break
+}
+`,
+			err: "dud.gro:3:2: syntax error: break-statement has been disabled but is present",
+		},
+		//--------------------------------------------------------------------------------
+		{
+			num: 560,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("continueKw")
+for i:= 0; i<10; i++ {
+	continue
+}
+`,
+			err: "dud.gro:3:2: syntax error: continue-statement has been disabled but is present",
+		},
+
+		//--------------------------------------------------------------------------------
+		{
+			num: 570,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("gotoKw")
+func main(){
+a:
+	b:= 7
+	goto a
+}
+`,
+			err: "dud.gro:5:2: syntax error: goto-statement has been disabled but is present",
+		},
+
+		//--------------------------------------------------------------------------------
+		{
+			num: 580,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("selectKw")
+select {
+	case <-a: break
+	case <-b: break
+	default: println("abc")
+}
+`,
+			err: "dud.gro:2:1: syntax error: select-statement has been disabled but is present",
+		},
+
+		//--------------------------------------------------------------------------------
+		{
+			num: 590,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("switchKw")
+switch {
+	case a: break
+	case b: fallthrough
+	default: println("abc")
+}
+`,
+			err: "dud.gro:2:1: syntax error: switch-statement has been disabled but is present",
+		},
+
+		//--------------------------------------------------------------------------------
+		{
+			num: 600,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("returnKw")
+func main (){
+	if a<10 {
+		return
+	} else {
+		break
+	}
+}
+`,
+			err: "dud.gro:4:3: syntax error: return-statement has been disabled but is present",
+		},
+
+		//--------------------------------------------------------------------------------
+		{
+			num: 610,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("forKw")
+for i:= 0; i<10; i++ {
+	break
+}
+`,
+			err: "dud.gro:2:1: syntax error: for-statement has been disabled but is present",
+		},
+
+		//--------------------------------------------------------------------------------
+		{
+			num: 700,
+			fnm: "dud.g", // <--- NOTE: g-file should allow func, for, break, then halt on "range"
+			src: `package main
+func main() {
+	for i:= 0; i<10; i++ {
+		break
+	}
+	for n:= range ns {
+		continue
+	}
+}
+`,
+			err: "dud.g:6:19: syntax error: \"range\" keywords are disabled but keyword is present",
+			//TODO: correct pos-info to :6:10
+		},
+
 		//--------------------------------------------------------------------------------
 
 	})

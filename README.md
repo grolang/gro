@@ -14,26 +14,36 @@ Various features:
 
 ## Wiki contents
 
-Visit the [wiki](https://github.com/grolang/gro/wiki/Home) for:
+If you know Go but nothing about Gro, see the [Basic Features](https://github.com/grolang/gro/wiki/Features).
 
-* [Basic Features](https://github.com/grolang/gro/wiki/Features)
 
-* [1. Gro's syntax](https://github.com/grolang/gro/wiki/Syntax)
+After that, you can read these in any sequence:
 
-* [2. One-liners](https://github.com/grolang/gro/wiki/Oneliners)
+* [Gro's syntax](https://github.com/grolang/gro/wiki/Syntax)
 
-* [3. Generics in Gro](https://github.com/grolang/gro/wiki/Generics)
+* [One-liners in Gro](https://github.com/grolang/gro/wiki/Oneliners)
 
-* [4. Gro Macros](https://github.com/grolang/gro/wiki/Macros)
+* [Generics in Gro](https://github.com/grolang/gro/wiki/Generics)
 
-* [5. Dynamic Typing](https://github.com/grolang/gro/wiki/Dynamic)
+* [Language Spec](https://github.com/grolang/gro/wiki/Spec)
+
+* [Macros in Gro](https://github.com/grolang/gro/wiki/Macros)
+
+All the syntax described is implemented in Gro 0.8.
+
+
+Work in progress:
+
+* [Dynamic Typing with Groo](https://github.com/grolang/gro/wiki/Dynamic)
+
+* [Low-level version of Go](https://github.com/grolang/gro/wiki/Lowlevel)
 
 
 ## Operation
 
 ### Installation
 
-First, make sure Go is already installed. Gro has tested successfully on Go 1.9.2.
+First, make sure Go is already installed. Gro has tested successfully on Go 1.9.3.
 
 Run `go get github.com/grolang/gro` to get the command and support packages for Gro, and `go get github.com/grolang/samples` to get some Gro sample code.
 
@@ -75,14 +85,14 @@ Run `gro help` to see a list of commands available, or visit the [wiki](https://
 
 ## Status
 
-Version 0.7.3, released on 12 November 2017.
+Version 0.8, released on 15 January 2018.
 
-All functionality documented in the wiki is implemented.
+All functionality documented in the wiki is implemented, unless otherwise stated.
 
 
 ## License
 
-Copyright © 2017 The Gro and Go authors
+Copyright © 2018 The Gro and Go authors
 
 Distributed under the same BSD-style license as Go that can be found in the LICENSE file.
 
@@ -93,11 +103,6 @@ Gro aims ultimately to supplement Go's functionality similar to how the original
 
 
 ## Future Direction
-
-The next steps in building Gro will be to:
-
-* ensure all comments in gro source code are in the generated go code
-* allow Go developers to add their own macros to Gro
 
 The core of Gro is restricted to a small handful of features, in the same minimal style as Go. In fact, version 0.7 removed many core features from version 0.6, intending to re-introduce them as optional macros later on.
 

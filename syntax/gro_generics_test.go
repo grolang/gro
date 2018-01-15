@@ -25,7 +25,8 @@ package def (T) //don't want this one to appear
 import "fmt"
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"abc/abc.go": `package abc
@@ -34,7 +35,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//one plain "package" with one explicit section, and one 2-param package
@@ -51,7 +53,8 @@ package def (T, U) //don't want this one to appear
 import "fmt"
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"abc/myfile.go": `package abc
@@ -60,7 +63,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//one 2-param package
@@ -71,7 +75,8 @@ func run() {
 import "fmt"
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 			//expect package to be dropped
@@ -95,7 +100,8 @@ package def (T, U) {
   func run() {
     fmt.Println("Hello, world!")
   }
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"abc/myfile.go": `package abc
@@ -104,7 +110,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//a 1-param package and a calling package
@@ -120,7 +127,8 @@ package hij
 import dint "github.com/grolang/gro/syntax/defg" (int) //...called with an argument
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"hij/hij.go": `package hij
@@ -129,7 +137,8 @@ import dint "github.com/grolang/gro/syntax/generics/hij/hij/dint"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dint/defg.go": `package defg
 
@@ -137,11 +146,13 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dint/generic_args.go": `package defg
 
-type T = int`}},
+type T = int
+`}},
 
 		//--------------------------------------------------------------------------------
 		//calling & 1-param packages, gro-file in subdir
@@ -157,7 +168,8 @@ package hij
 import dint "github.com/grolang/gro/syntax/adir/defg" (int) //...called with an argument
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"adir/hij/hij.go": `package hij
@@ -166,7 +178,8 @@ import dint "github.com/grolang/gro/syntax/adir/generics/hij/hij/dint"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"adir/generics/hij/hij/dint/defg.go": `package defg
 
@@ -174,11 +187,13 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"adir/generics/hij/hij/dint/generic_args.go": `package defg
 
-type T = int`}},
+type T = int
+`}},
 
 		//--------------------------------------------------------------------------------
 		//one plain "package", a 1-param package, and one calling package
@@ -199,7 +214,8 @@ package hij
 import dint "github.com/grolang/gro/syntax/defg" (int)
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"abc/abc.go": `package abc
@@ -208,7 +224,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"hij/hij.go": `package hij
 
@@ -216,7 +233,8 @@ import dint "github.com/grolang/gro/syntax/generics/hij/hij/dint"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dint/defg.go": `package defg
 
@@ -224,11 +242,13 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dint/generic_args.go": `package defg
 
-type T = int`}},
+type T = int
+`}},
 
 		//--------------------------------------------------------------------------------
 		//an implicit plain package, a 1-param package, and a package calling it twice
@@ -250,7 +270,8 @@ import dint   "github.com/grolang/gro/syntax/defg" (int)
 import dfloat "github.com/grolang/gro/syntax/defg" (float)
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package dud
@@ -259,7 +280,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"hij/hij.go": `package hij
 
@@ -269,7 +291,8 @@ import dfloat "github.com/grolang/gro/syntax/generics/hij/hij/dfloat"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dint/defg.go": `package defg
 
@@ -277,11 +300,13 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dint/generic_args.go": `package defg
 
-type T = int`,
+type T = int
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dfloat/defg.go": `package defg
 
@@ -289,11 +314,13 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dfloat/generic_args.go": `package defg
 
-type T = float`}},
+type T = float
+`}},
 
 		//--------------------------------------------------------------------------------
 		//a 2-param package, and an implicit package calling it
@@ -309,7 +336,8 @@ package defg (T, U)
 import "fmt"
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package dud
@@ -319,7 +347,8 @@ import dintfl "github.com/grolang/gro/syntax/generics/dud/dintfl"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/dud/dintfl/defg.go": `package defg
 
@@ -327,12 +356,14 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/dud/dintfl/generic_args.go": `package defg
 
 type T = int
-type U = float`}},
+type U = float
+`}},
 
 		//--------------------------------------------------------------------------------
 		//a 2-param package, and an implicit package calling it twice
@@ -351,7 +382,8 @@ package defg (T, U)
 import "fmt"
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package dud
@@ -365,7 +397,8 @@ import (
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/dud/dint/defg.go": `package defg
 
@@ -373,12 +406,14 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/dud/dint/generic_args.go": `package defg
 
 type T = int
-type U = float`,
+type U = float
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/dud/dfloat/defg.go": `package defg
 
@@ -386,12 +421,14 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/dud/dfloat/generic_args.go": `package defg
 
 type T = float
-type U = int`}},
+type U = int
+`}},
 
 		//--------------------------------------------------------------------------------
 		//a 2-param package, and an implicit package calling it twice (with same first arg in each call)
@@ -410,7 +447,8 @@ package defg (T, U)
 import "fmt"
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package dud
@@ -424,7 +462,8 @@ import (
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/dud/dif/defg.go": `package defg
 
@@ -432,12 +471,14 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/dud/dif/generic_args.go": `package defg
 
 type T = int
-type U = float`,
+type U = float
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/dud/dib/defg.go": `package defg
 
@@ -445,12 +486,14 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/dud/dib/generic_args.go": `package defg
 
 type T = int
-type U = byte`}},
+type U = byte
+`}},
 
 		//--------------------------------------------------------------------------------
 		//one 1-param package, and two calling packages (each using same arg and alias name)
@@ -472,7 +515,8 @@ package hij
 import dint "github.com/grolang/gro/syntax/defg" (int)
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
@@ -483,7 +527,8 @@ import dint "github.com/grolang/gro/syntax/generics/abc/abc/dint"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"hij/hij.go": `package hij
 
@@ -491,7 +536,8 @@ import dint "github.com/grolang/gro/syntax/generics/hij/hij/dint"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/abc/abc/dint/defg.go": `package defg
 
@@ -499,11 +545,13 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/abc/abc/dint/generic_args.go": `package defg
 
-type T = int`,
+type T = int
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dint/defg.go": `package defg
 
@@ -511,11 +559,13 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dint/generic_args.go": `package defg
 
-type T = int`}},
+type T = int
+`}},
 
 		//--------------------------------------------------------------------------------
 		//one 1-param package, and two calling packages (each using same arg, but different alias name)
@@ -537,7 +587,8 @@ package hij
 import deger "github.com/grolang/gro/syntax/xyz/defg" (int)
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"abc/abc.go": `package abc
@@ -547,7 +598,8 @@ import dint "github.com/grolang/gro/syntax/generics/abc/abc/dint"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"hij/hij.go": `package hij
 
@@ -555,7 +607,8 @@ import deger "github.com/grolang/gro/syntax/generics/hij/hij/deger"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/abc/abc/dint/defg.go": `package defg
 
@@ -563,11 +616,13 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/abc/abc/dint/generic_args.go": `package defg
 
-type T = int`,
+type T = int
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/deger/defg.go": `package defg
 
@@ -575,11 +630,13 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/deger/generic_args.go": `package defg
 
-type T = int`}},
+type T = int
+`}},
 
 		//--------------------------------------------------------------------------------
 		//one 1-param package, and two calling packages (each using different arg, but same alias name)
@@ -601,7 +658,8 @@ package defg (T)
 import "fmt"
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"abc/abc.go": `package abc
@@ -611,7 +669,8 @@ import dparam "github.com/grolang/gro/syntax/generics/abc/abc/dparam"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"hij/hij.go": `package hij
 
@@ -619,7 +678,8 @@ import dparam "github.com/grolang/gro/syntax/generics/hij/hij/dparam"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/abc/abc/dparam/defg.go": `package defg
 
@@ -627,11 +687,13 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/abc/abc/dparam/generic_args.go": `package defg
 
-type T = int`,
+type T = int
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dparam/defg.go": `package defg
 
@@ -639,11 +701,13 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dparam/generic_args.go": `package defg
 
-type T = float`}},
+type T = float
+`}},
 
 		//--------------------------------------------------------------------------------
 		//a 2-param package, and 2 packages each calling it twice (with same first arg in each call)
@@ -671,7 +735,8 @@ package defg (T, U)
 import "fmt"
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package dud
@@ -685,7 +750,8 @@ import (
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"abc/abc.go": `package abc
 
@@ -698,7 +764,8 @@ import (
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/abc/abc/dif/defg.go": `package defg
 
@@ -706,12 +773,14 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/abc/abc/dif/generic_args.go": `package defg
 
 type T = int
-type U = int32`,
+type U = int32
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/abc/abc/dib/defg.go": `package defg
 
@@ -719,12 +788,14 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/abc/abc/dib/generic_args.go": `package defg
 
 type T = int
-type U = int64`,
+type U = int64
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/dud/dif/defg.go": `package defg
 
@@ -732,12 +803,14 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/dud/dif/generic_args.go": `package defg
 
 type T = int
-type U = float`,
+type U = float
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/dud/dib/defg.go": `package defg
 
@@ -745,12 +818,14 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/dud/dib/generic_args.go": `package defg
 
 type T = int
-type U = byte`}},
+type U = byte
+`}},
 
 		//--------------------------------------------------------------------------------
 		//a 1-param package and a calling package using in-place string package names
@@ -766,7 +841,8 @@ package hij
 import dint "github.com/grolang/gro/syntax/defg" ("some/other/path".MyStruct)
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"hij/hij.go": `package hij
@@ -775,7 +851,8 @@ import dint "github.com/grolang/gro/syntax/generics/hij/hij/dint"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dint/defg.go": `package defg
 
@@ -783,7 +860,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dint/generic_args.go": `package defg
 
@@ -791,7 +869,8 @@ import (
 	path "some/other/path"
 )
 
-type T = path.MyStruct`}},
+type T = path.MyStruct
+`}},
 
 		//--------------------------------------------------------------------------------
 		//a 2-param package and a calling package using 2 in-place string package names
@@ -809,7 +888,8 @@ import dint "github.com/grolang/gro/syntax/defg" (
 	"github.com/grolang/gro/syntax/yet/another".Strooct)
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
@@ -819,7 +899,8 @@ import dint "github.com/grolang/gro/syntax/generics/hij/hij/dint"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dint/defg.go": `package defg
 
@@ -827,7 +908,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dint/generic_args.go": `package defg
 
@@ -837,7 +919,8 @@ import (
 )
 
 type T = path.MyStruct
-type U = another.Strooct`}},
+type U = another.Strooct
+`}},
 
 		//--------------------------------------------------------------------------------
 		//a two parameterized packages and a calling package calling both using in-place string package names
@@ -861,7 +944,8 @@ import dint "github.com/grolang/gro/syntax/defg" (
 )
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
@@ -872,13 +956,15 @@ import dint "github.com/grolang/gro/syntax/generics/hij/hij/dint"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/powpal/abc.go": `package abc
 
 func pow() {
 	fmt.Println("Pow wow!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/powpal/generic_args.go": `package abc
 
@@ -886,7 +972,8 @@ import (
 	first "yet/first"
 )
 
-type S = first.Streect`,
+type S = first.Streect
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dint/defg.go": `package defg
 
@@ -894,7 +981,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dint/generic_args.go": `package defg
 
@@ -904,7 +992,8 @@ import (
 )
 
 type T = path.MyStruct
-type U = another.Strooct`}},
+type U = another.Strooct
+`}},
 
 		//--------------------------------------------------------------------------------
 		//a package calling a parameterized package supplied in another file
@@ -916,7 +1005,8 @@ package hij
 import dint "github.com/grolang/gro/syntax/defg" (int)
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 			xtr: map[string]string{
 				"defg.gro": `package defg (T)
@@ -929,11 +1019,14 @@ import dint "github.com/grolang/gro/syntax/generics/hij/hij/dint"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
-				"generics/hij/hij/dint/defg.go": `package defg`,
+}
+`,
+				"generics/hij/hij/dint/defg.go": `package defg
+`,
 				"generics/hij/hij/dint/generic_args.go": `package defg
 
-type T = int`}},
+type T = int
+`}},
 
 		//--------------------------------------------------------------------------------
 		//a 1-param "internal" package and a calling package
@@ -949,7 +1042,8 @@ package hij
 import dint "github.com/grolang/gro/syntax/internal/defg" (int) //...called with an argument
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
@@ -959,7 +1053,8 @@ import dint "github.com/grolang/gro/syntax/generics/hij/hij/dint"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dint/defg.go": `package defg
 
@@ -967,11 +1062,13 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"generics/hij/hij/dint/generic_args.go": `package defg
 
-type T = int`}},
+type T = int
+`}},
 
 		//--------------------------------------------------------------------------------
 		// param to package must be type
@@ -982,7 +1079,8 @@ type T = int`}},
 import "fmt"
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			err: "dud.gro:1:14: syntax error: unexpected literal \"bad param\", expecting name",
 		},
 
@@ -999,7 +1097,8 @@ package def
 import "abc" (int)
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			err: "dud.gro:6:14: syntax error: imported parameterized packages need a local name",
 		},
 
@@ -1025,7 +1124,8 @@ package "somedir" myfour (T)
 func DoIt(){
 	var t T
 	"fmt".Printf("'Hi' from src/grotest/sixthseashell.gro:somedir/myfour(%T).DoIt\n", t)
-}`,
+}
+`,
 
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
@@ -1044,7 +1144,8 @@ func init() {
 	yourstruct.RunIt()
 }
 
-func main() {}`,
+func main() {}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/yourthree.go": `package yourthree
@@ -1060,7 +1161,8 @@ func RunIt() {
 	var t T
 	fmt.Printf("'Hi' from src/grotest/sixthseashell.gro:yourthree(%T, %T).RunIt\n", s, t)
 	mycomplex128.DoIt()
-}`,
+}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/generic_args.go": `package yourthree
@@ -1068,7 +1170,8 @@ func RunIt() {
 type S = float64
 type T = struct {
 	a, b int
-}`,
+}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/yourthree/yourthree/mycomplex128/myfour.go": `package myfour
@@ -1080,12 +1183,14 @@ import (
 func DoIt() {
 	var t T
 	fmt.Printf("'Hi' from src/grotest/sixthseashell.gro:somedir/myfour(%T).DoIt\n", t)
-}`,
+}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/yourthree/yourthree/mycomplex128/generic_args.go": `package myfour
 
-type T = complex128`}},
+type T = complex128
+`}},
 
 		//--------------------------------------------------------------------------------
 		//nested generics: parameterized package has 2 invoked imports
@@ -1110,7 +1215,8 @@ package "somedir" myfour (T)
 func DoIt(){
 	var t T
 	"fmt".Printf("'Hi' from src/grotest/sixthseashell.gro:somedir/myfour(%T).DoIt\n", t)
-}`,
+}
+`,
 
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
@@ -1129,7 +1235,8 @@ func init() {
 	yourstruct.RunIt()
 }
 
-func main() {}`,
+func main() {}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/yourthree.go": `package yourthree
@@ -1146,7 +1253,8 @@ func RunIt() {
 	var t T
 	fmt.Printf("'Hi' from src/grotest/sixthseashell.gro:yourthree(%T, %T).RunIt\n", s, t)
 	mycomplex128.DoIt()
-}`,
+}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/generic_args.go": `package yourthree
@@ -1154,7 +1262,8 @@ func RunIt() {
 type S = float64
 type T = struct {
 	a, b int
-}`,
+}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/yourthree/yourthree/mycomplex128/myfour.go": `package myfour
@@ -1166,12 +1275,14 @@ import (
 func DoIt() {
 	var t T
 	fmt.Printf("'Hi' from src/grotest/sixthseashell.gro:somedir/myfour(%T).DoIt\n", t)
-}`,
+}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/yourthree/yourthree/mycomplex128/generic_args.go": `package myfour
 
-type T = complex128`,
+type T = complex128
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/yourthree/yourthree/myint/myfour.go": `package myfour
@@ -1183,12 +1294,14 @@ import (
 func DoIt() {
 	var t T
 	fmt.Printf("'Hi' from src/grotest/sixthseashell.gro:somedir/myfour(%T).DoIt\n", t)
-}`,
+}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/yourthree/yourthree/myint/generic_args.go": `package myfour
 
-type T = int`}},
+type T = int
+`}},
 
 		//--------------------------------------------------------------------------------
 		//nested generics: using package parameter as invoked import argument
@@ -1214,7 +1327,8 @@ package "somedir" myfour (T)
 func DoIt(){
 	var t T
 	"fmt".Printf("'Hi' from src/grotest/sixthseashell.gro:somedir/myfour(%T).DoIt\n", t)
-}`,
+}
+`,
 
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
@@ -1233,7 +1347,8 @@ func init() {
 	yourstruct.RunIt()
 }
 
-func main() {}`,
+func main() {}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/yourthree.go": `package yourthree
@@ -1251,7 +1366,8 @@ func RunIt() {
 	fmt.Printf("'Hi' from src/grotest/sixthseashell.gro:yourthree(%T, %T).RunIt\n", s, t)
 	mycomplex128.DoIt()
 	myess.DoIt()
-}`,
+}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/generic_args.go": `package yourthree
@@ -1259,7 +1375,8 @@ func RunIt() {
 type S = float64
 type T = struct {
 	a, b int
-}`,
+}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/yourthree/yourthree/mycomplex128/myfour.go": `package myfour
@@ -1271,12 +1388,14 @@ import (
 func DoIt() {
 	var t T
 	fmt.Printf("'Hi' from src/grotest/sixthseashell.gro:somedir/myfour(%T).DoIt\n", t)
-}`,
+}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/yourthree/yourthree/mycomplex128/generic_args.go": `package myfour
 
-type T = complex128`,
+type T = complex128
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/generics/yourthree/yourthree/myess/myfour.go": `package myfour
@@ -1288,12 +1407,14 @@ import (
 func DoIt() {
 	var t T
 	fmt.Printf("'Hi' from src/grotest/sixthseashell.gro:somedir/myfour(%T).DoIt\n", t)
-}`,
+}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/generics/yourthree/yourthree/myess/generic_args.go": `package myfour
 
-type T = float64`}},
+type T = float64
+`}},
 
 		//--------------------------------------------------------------------------------
 		//nested generics: using package parameter as invoked import argument -- two such imports both with two pass-thru args
@@ -1324,7 +1445,8 @@ func DoIt(){
 	var t T
 	var u U
 	"fmt".Printf("'Hi' from src/grotest/sixthseashell.gro:somedir/myfour(%T, %T).DoIt\n", t, u)
-}`,
+}
+`,
 
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
@@ -1343,7 +1465,8 @@ func init() {
 	yourstruct.RunIt()
 }
 
-func main() {}`,
+func main() {}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/yourthree.go": `package yourthree
@@ -1363,7 +1486,8 @@ func RunIt() {
 	fmt.Printf("'Hi' from src/grotest/sixthseashell.gro:yourthree(%T, %T, %T, %T).RunIt\n", q, r, s, t)
 	myque.DoIt()
 	myess.DoIt()
-}`,
+}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/generic_args.go": `package yourthree
@@ -1373,7 +1497,8 @@ type R = int
 type S = float64
 type T = struct {
 	a, b int
-}`,
+}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/generics/yourthree/yourthree/myque/myfour.go": `package myfour
@@ -1386,13 +1511,15 @@ func DoIt() {
 	var t T
 	var u U
 	fmt.Printf("'Hi' from src/grotest/sixthseashell.gro:somedir/myfour(%T, %T).DoIt\n", t, u)
-}`,
+}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/generics/yourthree/yourthree/myque/generic_args.go": `package myfour
 
 type T = complex128
-type U = int`,
+type U = int
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/generics/yourthree/yourthree/myess/myfour.go": `package myfour
@@ -1405,7 +1532,8 @@ func DoIt() {
 	var t T
 	var u U
 	fmt.Printf("'Hi' from src/grotest/sixthseashell.gro:somedir/myfour(%T, %T).DoIt\n", t, u)
-}`,
+}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/generics/yourthree/yourthree/myess/generic_args.go": `package myfour
@@ -1413,7 +1541,8 @@ func DoIt() {
 type T = float64
 type U = struct {
 	a, b int
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//nested generics
@@ -1445,7 +1574,8 @@ package "somedir" theirfive (U)
 func DoIt(){
 	var u U
 	"fmt".Printf("'Hi' from src/grotest/sixthseashell.gro:somedir/theirfive(%T).DoIt\n", u)
-}`,
+}
+`,
 
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
@@ -1464,7 +1594,8 @@ func init() {
 	yourstruct.RunIt()
 }
 
-func main() {}`,
+func main() {}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/yourthree.go": `package yourthree
@@ -1480,7 +1611,8 @@ func RunIt() {
 	var t T
 	fmt.Printf("'Hi' from src/grotest/sixthseashell.gro:yourthree(%T, %T).RunIt\n", s, t)
 	myess.DoIt()
-}`,
+}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/generic_args.go": `package yourthree
@@ -1488,7 +1620,8 @@ func RunIt() {
 type S = float64
 type T = struct {
 	a, b int
-}`,
+}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/generics/yourthree/yourthree/myess/myfour.go": `package myfour
@@ -1503,12 +1636,14 @@ func DoIt() {
 	var t T
 	fmt.Printf("'Hi' from src/grotest/sixthseashell.gro:somedir/myfour(%T).DoIt\n", t)
 	mytee.DoIt()
-}`,
+}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/generics/yourthree/yourthree/myess/generic_args.go": `package myfour
 
-type T = float64`,
+type T = float64
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/generics/yourthree/yourthree/myess/generics/somedir/myfour/myfour/mytee/theirfive.go": `package theirfive
@@ -1520,12 +1655,14 @@ import (
 func DoIt() {
 	var u U
 	fmt.Printf("'Hi' from src/grotest/sixthseashell.gro:somedir/theirfive(%T).DoIt\n", u)
-}`,
+}
+`,
 
 				// - - - - - - - - - - - - - - - - - - - -
 				"grotest/generics/dud/yourstruct/generics/yourthree/yourthree/myess/generics/somedir/myfour/myfour/mytee/generic_args.go": `package theirfive
 
-type U = float64`}},
+type U = float64
+`}},
 
 		//--------------------------------------------------------------------------------
 		//nested generics: using package parameter as invoked import argument, with a cycle
@@ -1555,9 +1692,10 @@ func DoIt(){
 	var t T
 	var u U
 	"fmt".Printf("'Hi' from src/grotest/sixthseashell.gro:somedir/myfour(%T, %T).DoIt\n", t, u)
-}`,
-			//err: "grotest/dud.gro:24:2: syntax error: cycles not allowed for parameterized imports",
-			err: "grotest/dud.gro:24:2: syntax error: parameterized package not present in file, or there's a cycle in the parameterized imports",
+}
+`,
+			//err: "grotest/dud.gro:25:1: syntax error: cycles not allowed for parameterized imports",
+			err: "grotest/dud.gro:25:1: syntax error: parameterized package not present in file, or there's a cycle in the parameterized imports",
 		},
 
 		//--------------------------------------------------------------------------------

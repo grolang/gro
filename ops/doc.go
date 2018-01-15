@@ -6,6 +6,9 @@
 Package ops implements various functions to be called when triggered by infix operators
 in a dynamic language, with particular emphasis on handling UTF-88 correctly.
 
+The 3 structs in package big (i.e. Int, Rat, and Float) are aliased so a String method is accessable when the value rather than the pointer is passed into printf.
+The 3 basic types (int64, float64, and complex128) are aliased to have a better name, without a number in it.
+
 Types Codepoint and Text from package utf88 are used extensively, being UTF-88 friendly replacements
 for rune and string respectively.
 This package introduces types CharClass and Regex, both redefinitions of string.
@@ -14,44 +17,6 @@ Regex is used for representing regexes, and CharClass for a character class with
 Function Runex accepts a string as input, and returns either a Codepoint or a CharClass.
 The string accepted merges the formats for a rune constant and a regexp character class into a single format,
 and Runex analyses the formats, in a UTF-88 friendly manner.
-
-This package also uses 9 numeric types, arranged in a hierarchy:
-  nil
-  bool
-  Int (which is int64, a "quintillion-bounded" integer)
-  BigInt (which is math/big.Int, an unbounded integer)
-  BigRat (which is math/big.Rat, an unbounded rational)
-  Float (which is float64)
-  BigFloat (which is math/big.Float, a float which can have greater precision than float64)
-  Complex (which is complex128)
-  BigComplex (which is composed of two math/big.Float)
-
-The only valid infinity and not-a-number values are:
-  Inf (Riemann infinity, which is positive real and imaginary infinities in complex128)
-  NaN (not-a-number in complex128)
-
-All other possible infinity and not-a-number representations will be converted to one of those two.
-
-When two numbers of different types in the numeric hierarchy are passed as args into:
-  Plus(x, y interface{})interface{}
-  Minus(x, y interface{})interface{}
-  Mult(x, y interface{})interface{}
-  Divide(x, y interface{})interface{}
-  Power(x, y interface{})interface{}
-the result will generally be of the same type as whichever argument is higher in the numeric hierarchy,
-e.g. for a BigInt plus a Float, the result is a Float.
-
-The exceptions to this rule are:
-  two Ints added, subtracted, or multiplied together is promoted to BigInt if it overflows
-  division by nil or false generates Inf (+ or -)
-  division by a Int or BigInt promotes to a BigRat
-  raising to the power of a nil or false generates a panic //TODO: change to Complex.NaN ???
-  a Int to the power of a Int is a BigInt
-  a Int or BigInt to the power of a BigRat is a Float
-  a BigRat to the power of a Int, BigInt, or BigRat is a Float
-
-The 3 structs in package big (i.e. Int, Rat, and Float) are aliased so a String method is accessable when the value rather than the pointer is passed into printf.
-The 3 basic types (int64, float64, and complex128) are aliased to have a better name, without a number in it.
 
 Operator associativity in Gro will be:
   =         //right-assoc

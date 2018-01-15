@@ -11,10 +11,25 @@ import (
 	"unicode"
 )
 
+//NOTE: go vet gives "unicode.Range32 composite literal uses unkeyed fields"
+//but ignores unicode.Range16 doing the same thing -- best to ignore
+
 type (
 	Codepoint int32       //TODO: remove, use rune instead
 	Text      []Codepoint //TODO: change to []rune
 )
+
+// String returns a string representation of the Codepoint between single quotes.
+func (r Codepoint) String() string {
+	return "'" + string(r) + "'"
+}
+
+// String returns a string representation of the Text.
+func (t Text) String() string {
+	return Surr(t)
+	//s := Surr(t)
+	//return "\"" + s + "\""
+}
 
 const (
 	rune1ByteMax = 0x7f
@@ -189,16 +204,6 @@ var (
 	Variation_Selector                 = unicode.Variation_Selector
 	White_Space                        = unicode.White_Space
 )
-
-// String returns a string representation of the Codepoint between single quotes.
-func (r Codepoint) String() string {
-	return "'" + string(r) + "'"
-}
-
-// String returns a string representation of the Text.
-func (t Text) String() string {
-	return Surr(t)
-}
 
 // SurrogatePoint returns the surrogate-based encoding for the given codepoint.
 // If the point does not need encoding, returns an array containing the given point as a rune.

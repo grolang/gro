@@ -1,11 +1,12 @@
-// Copyright 2016 The Go Authors. All rights reserved.
+// Copyright 2016-17 The Go and Gro Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package syntax
+package nodes
 
 import (
 	"fmt"
+
 	"github.com/grolang/gro/syntax/src"
 )
 
@@ -22,71 +23,89 @@ type Node interface {
 	//    associated with that production; usually the left-most one
 	//    ('[' for IndexExpr, 'if' for IfStmt, etc.)
 	Pos() src.Pos
+	SetPos(src.Pos)
 	LineDirect() src.Pos
+	TagLineDirect()
 	Comments() *Comments
+	MakeComments()
+	SetAboveComment(string)
+	SetRightComment(string)
+	AppendAloneComment(string)
+	Print(printer)
+	Walk(*Walker) Node
 	aNode()
 }
 
 type node struct {
 	pos        src.Pos
-	linedirect src.Pos   // nil means no line-directive to be printed
+	lineDirect src.Pos   // nil means no line-directive to be printed
 	comments   *Comments // nil means no comment(s) attached
 }
 
-func (n *node) Pos() src.Pos        { return n.pos }
-func (n *node) Comments() *Comments { return n.comments }
-func (n *node) LineDirect() src.Pos { return n.linedirect }
-func (*node) aNode()                {}
+func (n *node) Pos() src.Pos             { return n.pos }
+func (n *node) SetPos(pos src.Pos)       { n.pos = pos }
+func (n *node) LineDirect() src.Pos      { return n.lineDirect }
+func (n *node) TagLineDirect()           { n.lineDirect = n.pos }
+func (n *node) Comments() *Comments      { return n.comments }
+func (n *node) MakeComments()            { n.comments = &Comments{Alone: []*Comment{}} }
+func (n *node) SetAboveComment(s string) { n.comments.Above = &Comment{Text: s} }
+func (n *node) SetRightComment(s string) { n.comments.Right = &Comment{Text: s} }
+func (n *node) AppendAloneComment(s string) {
+	n.comments.Alone = append(n.comments.Alone, &Comment{Text: s})
+}
+func (*node) aNode() {}
 
-// ----------------------------------------------------------------------------
-// Comments
+type Comments struct {
+	Alone []*Comment
+	Above *Comment
+	Left  *Comment
+	Right *Comment
+	Below *Comment
+}
 
 type Comment struct {
 	Text string
 	pos  src.Pos
 }
 
-type Comments struct {
-	Alone []Comment
-	Above []Comment
-	Left  []Comment
-	Right []Comment
-	Below []Comment
-}
-
 // ----------------------------------------------------------------------------
 // Files
 
-// project and package nodes are used during parsing, but only a map of file nodes are passed out
 type Project struct {
 	Name       string // project name
-	Str        string // dir-string
-	Root       string
-	Locn       string // absolute path
-	ExplicitKw bool
-	Doc        []string // doc-comment
 	FileExt    string
+	Locn       string // absolute path
+	Root       string
+	HasKw      bool
+	DirStr     string   // dir-string
+	Doc        []string // doc-comment
+	Pkgs       []*Package
+	ArgImports []*ImportDecl
 	node
 }
 
 type Package struct {
 	Name    string
 	Dir     string
-	Kw      bool
-	Files   []*File
 	Params  []*Name
+	Files   []*File
 	IdsUsed map[string]bool
 	node
 }
 
 // package PkgName; DeclList[0], DeclList[1], ...
 type File struct {
-	PkgName  *Name
-	DeclList []Decl
-	Lines    uint
-	SectName string
-	FileName string
-	OwnerPkg *Package
+	PkgName    *Name
+	SectName   string
+	FileName   string
+	OwnerPkg   *Package
+	DeclList   []Decl
+	InfImports []*ImportDecl     //infered imports based on occurrences of, say, "fmt".Println
+	InfImpMap  map[string]string //assoc with InfImports
+	Lines      uint
+	HasMain    bool // does it have a main() function?
+	HasStmts   bool // does it have standalone stmts?
+	HeadKw     string
 	node
 }
 
@@ -143,7 +162,12 @@ type (
 
 	// isolated comments among declarations
 	CommentDecl struct {
-		CommentList []Comment
+		CommentList []*Comment
+		Group       *DeclGroup // nil means not part of a group
+		decl
+	}
+
+	EmptyDecl struct {
 		decl
 	}
 
@@ -152,7 +176,7 @@ type (
 	ImportDecl struct {
 		LocalPkgName *Name // including "."; nil means no rename present
 		Path         *BasicLit
-		Group        *Group // nil means not part of a group
+		Group        *DeclGroup // nil means not part of a group
 		OwnerFile    *File
 		Args         []Expr // empty or nil means not an import invoked with args
 		Infers       []*ImportDecl
@@ -161,49 +185,49 @@ type (
 
 	// Name Type
 	TypeDecl struct {
-		Name   *Name
-		Alias  bool
-		Type   Expr
-		Group  *Group // nil means not part of a group
-		Pragma Pragma
+		Name  *Name
+		Alias bool
+		Type  Expr
+		Group *DeclGroup // nil means not part of a group
+		//Pragma Pragma
 		decl
 	}
 
 	// NameList
 	// NameList      = Values
 	// NameList Type = Values
-	ConstOrVarDecl struct {
+	constOrVarDecl struct {
 		NameList []*Name
-		Type     Expr   // nil means no type
-		Values   Expr   // nil means no values
-		Group    *Group // nil means not part of a group
+		Type     Expr       // nil means no type
+		Values   Expr       // nil means no values
+		Group    *DeclGroup // nil means not part of a group
 		decl
 	}
-	VarDecl   struct{ ConstOrVarDecl }
-	ConstDecl struct{ ConstOrVarDecl }
+	VarDecl   struct{ constOrVarDecl }
+	ConstDecl struct{ constOrVarDecl }
 
 	// func          Name Type { Body }
 	// func          Name Type
 	// func Receiver Name Type { Body }
 	// func Receiver Name Type
 	FuncDecl struct {
-		Attr   map[string]bool // go:attr map
-		Recv   *Field          // nil means regular function
-		Name   *Name
-		Type   *FuncType
-		Body   *BlockStmt // nil means no body (forward declaration)
-		Pragma Pragma     // TODO(mdempsky): Cleaner solution.
-		decl
-	}
-
-	EmptyDecl struct {
+		Attr map[string]bool // go:attr map
+		Recv *Field          // nil means regular function
+		Name *Name
+		Type *FuncType
+		Body *BlockStmt // nil means no body (forward declaration)
+		//Pragma Pragma     // TODO(mdempsky): Cleaner solution.
 		decl
 	}
 )
 
-// All declarations belonging to the same group point to the same Group node.
-type Group struct {
-	dummy int // not empty so we are guaranteed different Group instances
+// All declarations belonging to the same group point to the same DeclGroup node.
+type DeclGroup struct {
+	//dummy int // not empty so we are guaranteed different DeclGroup instances
+	node
+
+	Tok   Token // these 2 fields used by printer.go
+	Decls []Decl
 }
 
 // ----------------------------------------------------------------------------
@@ -222,6 +246,12 @@ type (
 
 	EmptyStmt struct {
 		simpleStmt
+	}
+
+	// isolated comments among statements
+	CommentStmt struct {
+		CommentList []*Comment
+		stmt
 	}
 
 	LabeledStmt struct {
@@ -258,7 +288,7 @@ type (
 	}
 
 	BranchStmt struct {
-		Tok   token // Break, Continue, Fallthrough, or Goto
+		Tok   Token // Break, Continue, Fallthrough, or Goto
 		Label *Name
 		// Target is the continuation of the control flow after executing
 		// the branch; it is computed by the parser if CheckBranches is set.
@@ -270,7 +300,7 @@ type (
 	}
 
 	CallStmt struct {
-		Tok  token // Go or Defer
+		Tok  Token // Go or Defer
 		Call *CallExpr
 		stmt
 	}
@@ -296,27 +326,19 @@ type (
 		stmt
 	}
 
+	RangeClause struct {
+		Lhs Expr // nil means no Lhs = or Lhs :=
+		Def bool // means :=
+		X   Expr // range X
+		simpleStmt
+	}
+
 	SwitchStmt struct {
 		Init   SimpleStmt
 		Tag    Expr
 		Body   []*CaseClause
 		Rbrace src.Pos
 		stmt
-	}
-
-	SelectStmt struct {
-		Body   []*CommClause
-		Rbrace src.Pos
-		stmt
-	}
-)
-
-type (
-	RangeClause struct {
-		Lhs Expr // nil means no Lhs = or Lhs :=
-		Def bool // means :=
-		X   Expr // range X
-		simpleStmt
 	}
 
 	TypeSwitchGuard struct {
@@ -330,13 +352,21 @@ type (
 		Cases Expr // nil means default clause
 		Body  []Stmt
 		Colon src.Pos
+		Final bool
 		node
+	}
+
+	SelectStmt struct {
+		Body   []*CommClause
+		Rbrace src.Pos
+		stmt
 	}
 
 	CommClause struct {
 		Comm  SimpleStmt // send or receive stmt; nil means default clause
 		Body  []Stmt
 		Colon src.Pos
+		Final bool
 		node
 	}
 )
@@ -352,7 +382,7 @@ type simpleStmt struct {
 func (simpleStmt) aSimpleStmt() {}
 
 // ----------------------------------------------------------------------------
-// Expressions and types
+// Expressions
 
 type (
 	Expr interface {
@@ -396,13 +426,20 @@ type (
 
 	// func Type { Body }
 	FuncLit struct {
-		Type *FuncType
-		Body *BlockStmt
+		Type      *FuncType
+		Body      *BlockStmt
+		ShortForm bool
 		expr
 	}
 
 	// (X)
 	ParenExpr struct {
+		X Expr
+		expr
+	}
+
+	// indicate is the RHS-side of dynamic-mode expression
+	RhsExpr struct {
 		X Expr
 		expr
 	}
@@ -461,6 +498,17 @@ type (
 		expr
 	}
 
+	// Name Type
+	//      Type
+	Field struct {
+		Name *Name // nil means anonymous field/parameter (structs/parameters), or embedded interface (interfaces)
+		Type Expr  // field names declared in a list share the same Type (identical pointers)
+		node
+	}
+
+	// ----------------------------------------------------------------------------
+	// Types
+
 	// [Len]Elem
 	ArrayType struct {
 		// TODO(gri) consider using Name{"..."} instead of nil (permits attaching of comments)
@@ -488,23 +536,15 @@ type (
 		expr
 	}
 
-	// Name Type
-	//      Type
-	Field struct {
-		Name *Name // nil means anonymous field/parameter (structs/parameters), or embedded interface (interfaces)
-		Type Expr  // field names declared in a list share the same Type (identical pointers)
-		node
+	FuncType struct {
+		ParamList  []*Field
+		ResultList []*Field
+		expr
 	}
 
 	// interface { MethodList[0]; MethodList[1]; ... }
 	InterfaceType struct {
 		MethodList []*Field
-		expr
-	}
-
-	FuncType struct {
-		ParamList  []*Field
-		ResultList []*Field
 		expr
 	}
 

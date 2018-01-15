@@ -29,7 +29,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "package" directive; file in subdirectory
@@ -49,7 +50,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "package" directive with explicit directory "."
@@ -69,7 +71,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single implicit package
@@ -88,7 +91,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//implicit package and explicit "package"; semicolon after 1st package defn
@@ -112,7 +116,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 				"abc/abc.go": `package abc
 
@@ -120,7 +125,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//implicit package and explicit "package"; semicolon after 1st package defn
@@ -144,7 +150,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 				"adir/abc/abc.go": `package abc
 
@@ -152,7 +159,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		// 2 explicit "package"s - doc to recommend using "project" keyword
@@ -178,14 +186,16 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"defg/defg.go": `package defg
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		// 2 explicit "package"s, one with "." directory - doc to recommend using "project" keyword
@@ -211,14 +221,16 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"defg/defg.go": `package defg
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//implicit package and 3 explicit "package"s -- 2 with directory strings
@@ -253,7 +265,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 				"abc/abc.go": `package abc
 
@@ -261,7 +274,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 				"somebase/defg/defg.go": `package defg
 
@@ -269,7 +283,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 				"somebase/defg/hij/hij.go": `package hij
 
@@ -277,7 +292,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		// 2 packages, one headed with "package", one headed with "internal"
@@ -303,14 +319,16 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"internal/defg/defg.go": `package defg
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		// project dir-string and both "internal" and normal packages
@@ -327,7 +345,8 @@ internal "another" defg
 import "fmt"
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"projlevel/packlevel/abc/abc.go": `package abc
@@ -336,14 +355,16 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"projlevel/internal/another/defg/defg.go": `package defg
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "project" and "package" directives
@@ -364,7 +385,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "project" with 2 explicit "package"s
@@ -390,7 +412,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 				"defg/defg.go": `package defg
 
@@ -398,7 +421,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "project" with 2 explicit "package"s, and project dir-string
@@ -424,7 +448,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 				"deep/down/defg/defg.go": `package defg
 
@@ -432,7 +457,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "project" with implicit package and explicit "package"
@@ -457,7 +483,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 				"abc/abc.go": `package abc
 
@@ -465,7 +492,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "package" directive and single "section" directive
@@ -486,7 +514,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "package" directive and 2 "section" directives
@@ -512,14 +541,16 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"that.go": `package abc
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "section" directive
@@ -539,7 +570,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single implicit "package", with both implicit and explicit "section"s
@@ -563,14 +595,16 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"this.go": `package dud
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single explicit "package", with both implicit and explicit "section"s
@@ -580,12 +614,12 @@ func run() {
 			src: `package abc
 import "fmt"
 func run() {
-	fmt.Println("Hello, world!")
+	fmt.Println("Nihao, world!")
 }
 section "this"
 import "fmt"
 func run() {
-	fmt.Println("Hello, world!")
+	fmt.Println("Konichiwa, world!")
 }`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
@@ -594,15 +628,17 @@ func run() {
 import "fmt"
 
 func run() {
-	fmt.Println("Hello, world!")
-}`,
+	fmt.Println("Nihao, world!")
+}
+`,
 				"this.go": `package abc
 
 import "fmt"
 
 func run() {
-	fmt.Println("Hello, world!")
-}`}},
+	fmt.Println("Konichiwa, world!")
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//implicit package (with both implicit and explicit "section") and explicit "package" (with both implicit and explicit "section")
@@ -637,14 +673,16 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"afile.go": `package dud
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 				"abc/abc.go": `package abc
 
@@ -652,14 +690,16 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"abc/bfile.go": `package abc
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//implicit package (with sections) and 2 explicit "package"s with directory strings (each with sections)
@@ -701,42 +741,48 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"afile.go": `package dud
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"somebase/defg/bfile.go": `package defg
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"somebase/defg/cfile.go": `package defg
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"somebase/defg/hij/hij.go": `package hij
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"somebase/defg/hij/dfile.go": `package hij
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "project", "package" and "section" directives
@@ -758,7 +804,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "project" with implicit package (with implicit and explicit "section") and explicit "package" (with implicit and explicit "section")
@@ -793,14 +840,16 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"afile.go": `package mypack
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 				"abc/abc.go": `package abc
 
@@ -808,14 +857,16 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"abc/bfile.go": `package abc
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//empty file
@@ -927,7 +978,8 @@ import "fmt"
 
 func main() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single implicit package (with main fn)
@@ -948,7 +1000,8 @@ import "fmt"
 
 func main() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//implicit package (with main fn) and explicit "package"; semicolon after 1st package defn
@@ -974,7 +1027,8 @@ import "fmt"
 
 func main() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 				"abc/abc.go": `package abc
 
@@ -982,7 +1036,8 @@ import "fmt"
 
 func main() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "project" and "package" directives (with main fn)
@@ -1003,7 +1058,8 @@ import "fmt"
 
 func main() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "project" with implicit package (with main fn) and explicit "package"
@@ -1030,7 +1086,8 @@ import "fmt"
 
 func main() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 				"abc/abc.go": `package abc
 
@@ -1038,7 +1095,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "package" directive and single "main" directive
@@ -1063,7 +1121,8 @@ func run() {
 	fmt.Println("Hello, world!")
 }
 
-func main() {}`}},
+func main() {}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "package" directive and single "testcode" directive
@@ -1084,7 +1143,8 @@ import "fmt"
 
 func TestRun() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "package" directive and single "testcode" directive, with imported package of same name
@@ -1105,7 +1165,8 @@ import "abc"
 
 func TestRun() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 	})
@@ -1133,7 +1194,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//implicit package and explicit curlied "package"
@@ -1158,7 +1220,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 				"abc/abc.go": `package abc
 
@@ -1166,7 +1229,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		// 2 explicit curlied "package"s
@@ -1194,14 +1258,16 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"defg/defg.go": `package defg
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//implicit package, 2 curlied packages (1 with directory string), 1 go-style package (with dir string)
@@ -1238,7 +1304,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 				"abc/abc.go": `package abc
 
@@ -1246,7 +1313,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 				"somebase/defg/defg.go": `package defg
 
@@ -1254,7 +1322,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 
 				"somebase/defg/hij/hij.go": `package hij
 
@@ -1262,7 +1331,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "project" and curlied package
@@ -1284,7 +1354,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "project" and curlied internal
@@ -1306,7 +1377,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single go-style package and single curlied section
@@ -1328,7 +1400,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single curlied package and single go-style section
@@ -1350,7 +1423,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single curlied package and single curlied section
@@ -1373,7 +1447,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "package" directive and 2 curlied "section" directives
@@ -1401,14 +1476,16 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"that.go": `package abc
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single curlied "section" directive
@@ -1429,7 +1506,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single implicit "package", with both implicit and curlied "section"s
@@ -1454,14 +1532,16 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"this.go": `package dud
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single go-style "package", with both implicit and curlied "section"s
@@ -1487,14 +1567,16 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"this.go": `package abc
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single curlied "package", with both implicit and curlied "section"s
@@ -1521,14 +1603,16 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"this.go": `package abc
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//implicit package (with curlied sections) and 2 curlied "package"s with directory strings (each with curlied sections)
@@ -1574,42 +1658,48 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"afile.go": `package dud
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"somebase/defg/bfile.go": `package defg
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"somebase/defg/cfile.go": `package defg
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"somebase/defg/hij/hij.go": `package hij
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"somebase/defg/hij/dfile.go": `package hij
 
 import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "project" and curlied "package" directive
@@ -1631,7 +1721,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//project keyword, and single curlied "section" directive
@@ -1653,7 +1744,8 @@ import "fmt"
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//project keyword, and single curlied "main" directive
@@ -1679,7 +1771,8 @@ func run() {
 	fmt.Println("Hello, world!")
 }
 
-func main() {}`}},
+func main() {}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single curlied "package", with both implicit "section" and curlied "testcode"
@@ -1705,12 +1798,14 @@ import "fmt"
 
 func run(s string) {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				"this_test.go": `package abc
 
 func TestRun() {
 	run("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 	})
@@ -1745,7 +1840,8 @@ func main() {
 	path.Join("Hi, you!")
 	fmt.Println("Bye bye.")
 	hoot.Println("Bye bye.")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//string shorthand in one-liner
@@ -1768,7 +1864,8 @@ func init() {
 	fmt.Println("Hi, earth!")
 }
 
-func main() {}`}},
+func main() {}
+`}},
 
 		//--------------------------------------------------------------------------------
 		{

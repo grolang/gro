@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"go/format"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -19,8 +20,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/grolang/gro/nodes"
 	"github.com/grolang/gro/syntax/src"
 )
+
+var fast = flag.Bool("fast", false, "parse package files in parallel")
+var src_ = flag.String("src", "parser.go", "source file to parse")
+var verify = flag.Bool("verify", false, "verify idempotent printing")
+var fullprint = flag.Bool("fullprint", false, "full print for output heavy tests")
 
 //================================================================================
 /*
@@ -28,7 +35,7 @@ The tests of the Gro extensions to Go's syntax are in files
 with no gro_xxxx_test.go where xxxx is:
 
 	blacklist - TestBlacklist
-	comments - TestComments, TestLineTags, TestElseClause
+	comments - TestComments, TestLineTags, TestNewSyntax
 	divisions - TestDivisions, TestMain, TestCurlies, TestShorthandAliases
 	generics - TestGenerics
 	initwrap - TestInitwrap, TestWithinProc
@@ -127,15 +134,11 @@ func groTest(t *testing.T, groTests groTestData) {
 }
 
 //================================================================================
-
-var fast = flag.Bool("fast", false, "parse package files in parallel")
-var src_ = flag.String("src", "parser.go", "source file to parse")
-var verify = flag.Bool("verify", false, "verify idempotent printing")
-
 func TestParse(t *testing.T) {
 	ParseFile(*src_, func(err error) { t.Error(err) }, nil, 0, nil)
 }
 
+//================================================================================
 func TestParseFile(t *testing.T) {
 	_, err := ParseFile("", nil, nil, 0, nil)
 	if err == nil {
@@ -156,13 +159,7 @@ func TestParseFile(t *testing.T) {
 	}
 }
 
-/*func TestIssue17697(t *testing.T) {
-	_, err := ParseBytes(nil, nil, nil, nil, 0, nil) // return with parser error, don't panic
-	if err == nil {
-		t.Errorf("no error reported")
-	}
-}*/
-
+//================================================================================
 func TestLineDirectives(t *testing.T) {
 	for _, test := range []struct {
 		src, msg  string
@@ -213,11 +210,8 @@ func TestLineDirectives(t *testing.T) {
 	}
 }
 
+//================================================================================
 func TestStdLib(t *testing.T) {
-	/*if testing.Short() {
-		t.Skip("skipping test in short mode")
-	}*/
-
 	var m1 runtime.MemStats
 	runtime.ReadMemStats(&m1)
 	start := time.Now()
@@ -225,13 +219,14 @@ func TestStdLib(t *testing.T) {
 	type parseResult struct {
 		filename string
 		lines    uint
+		err1     bool
+		err2     bool
 	}
 
 	results := make(chan parseResult)
 	go func() {
 		defer close(results)
 		for _, dir := range []string{
-			//runtime.GOROOT(),
 			filepath.Join(runtime.GOROOT(), "src"),
 		} {
 			walkDirs(t, dir, func(filename string) {
@@ -239,27 +234,36 @@ func TestStdLib(t *testing.T) {
 					fmt.Printf("parsing %s\n", filename)
 				}
 				asts, err := ParseFile(filename, nil, nil, 0, nil)
+				if err != nil {
+					t.Error(err)
+					return
+				}
 				if len(asts) != 1 {
 					t.Error(fmt.Sprintf("More than one file returned from parse of %s.", filename))
 				}
 				for _, ast := range asts {
-					if err != nil {
-						t.Error(err)
-						return
-					}
 					if *verify {
-						verifyPrint(filename, ast)
+						results <- parseResult{filename, ast.Lines, verifyPrint1(filename, ast), verifyPrint2(filename, ast)}
+					} else {
+						results <- parseResult{filename, ast.Lines, false, false}
 					}
-					results <- parseResult{filename, ast.Lines}
 				}
 			})
 		}
 	}()
 
-	var count, lines uint
+	var count, lines, err1, err2 uint
 	for res := range results {
 		count++
 		lines += res.lines
+		if *verify {
+			if res.err1 {
+				err1++
+			}
+			if res.err2 {
+				err2++
+			}
+		}
 		if testing.Verbose() {
 			//fmt.Printf("%5d  %s (%d lines)\n", count, res.filename, res.lines)
 		}
@@ -270,10 +274,18 @@ func TestStdLib(t *testing.T) {
 	runtime.ReadMemStats(&m2)
 	dm := float64(m2.TotalAlloc-m1.TotalAlloc) / 1e6
 
-	fmt.Printf("parsed %d lines (%d files) in %v (%d lines/s)\n", lines, count, dt, int64(float64(lines)/dt.Seconds()))
-	fmt.Printf("allocated %.3fMb (%.3fMb/s)\n", dm, dm/dt.Seconds())
+	t.Logf("parsed %d lines (%d files) in %v (%d lines/s)\n",
+		lines, count, dt, int64(float64(lines)/dt.Seconds()))
+	t.Logf("allocated %.3fMb (%.3fMb/s)\n", dm, dm/dt.Seconds())
+	if *verify {
+		t.Logf("Note: %d files in StdLib (out of %d) verified 1st stage Ok (%d%%)\n",
+			count-err1, count, (count-err1)*100/count)
+		t.Logf("Note: %d files in StdLib (out of %d) verified 2nd stage Ok (%d%%)\n",
+			count-err2, count, (count-err2)*100/count)
+	}
 }
 
+//================================================================================
 func walkDirs(t *testing.T, dir string, action func(string)) {
 	fis, err := ioutil.ReadDir(dir)
 	if err != nil {
@@ -317,7 +329,49 @@ func walkDirs(t *testing.T, dir string, action func(string)) {
 	}
 }
 
-func verifyPrint(filename string, ast1 *File) {
+//================================================================================
+func verifyPrint1(filename string, ast1 *nodes.File) bool {
+	text, err := ioutil.ReadFile(filename)
+	if err != nil {
+		panic(err)
+	}
+	buf0 := *bytes.NewBuffer(text)
+	text0, err := format.Source(buf0.Bytes())
+	if err != nil {
+		panic(err)
+	}
+	buf0 = *bytes.NewBuffer(text0) //just in case std-lib file isn't formatted
+
+	var buf1 bytes.Buffer
+	_, err = Fprint(&buf1, ast1, true)
+	if err != nil {
+		panic(err)
+	}
+	text1, err := format.Source(buf1.Bytes())
+	if err != nil {
+		panic(err)
+	}
+	buf1 = *bytes.NewBuffer(text1)
+
+	if bytes.Compare(buf0.Bytes(), buf1.Bytes()) != 0 {
+		//if strings.HasSuffix(filename, "graphic.go") { //&& len(buf1.Bytes()) < 1000 {
+		if false {
+			fmt.Printf("len before: %d; len after: %d\n", len(buf0.Bytes()), len(buf1.Bytes()))
+			fmt.Printf("BEFORE: --- %s ---\n", filename)
+			fmt.Printf("%s\n", buf0.Bytes())
+			fmt.Println("--------------------------------------------------------------------------------")
+			fmt.Printf("AFTER: --- %s ---\n", filename)
+			fmt.Printf("%s\n", buf1.Bytes())
+			fmt.Println("================================================================================")
+		}
+		return true
+	} else {
+		return false
+	}
+}
+
+//================================================================================
+func verifyPrint2(filename string, ast1 *nodes.File) bool {
 	var buf1 bytes.Buffer
 	_, err := Fprint(&buf1, ast1, true)
 	if err != nil {
@@ -337,16 +391,21 @@ func verifyPrint(filename string, ast1 *File) {
 		if err != nil {
 			panic(err)
 		}
-
 		if bytes.Compare(buf1.Bytes(), buf2.Bytes()) != 0 {
-			fmt.Printf("--- %s ---\n", filename)
-			fmt.Printf("%s\n", buf1.Bytes())
-			fmt.Println()
-
-			fmt.Printf("--- %s ---\n", filename)
-			fmt.Printf("%s\n", buf2.Bytes())
-			fmt.Println()
-			panic("not equal")
+			if false {
+				fmt.Printf("BEFORE: --- %s ---\n", filename)
+				fmt.Printf("%s\n", buf1.Bytes())
+				fmt.Println("--------------------------------------------------------------------------------")
+				fmt.Printf("AFTER: --- %s ---\n", filename)
+				fmt.Printf("%s\n", buf2.Bytes())
+				fmt.Println("################################################################################")
+			}
+			return true
+		} else {
+			return false
 		}
 	}
+	panic("should never reach here")
 }
+
+//================================================================================

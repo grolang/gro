@@ -21,16 +21,18 @@ func TestPrint(t *testing.T) {
 	if len(asts) != 1 {
 		t.Error(fmt.Sprintf("More than one file returned from parse of %s.", *src_))
 	}
-	for _, ast := range asts {
-		Fprint(os.Stdout, ast, true)
-		fmt.Println()
+	if *fullprint {
+		for _, ast := range asts {
+			Fprint(os.Stdout, ast, true)
+			fmt.Println()
+		}
 	}
 }
 
 func TestPrintString(t *testing.T) {
 	for _, want := range []string{
-		"package p",
-		"package p; type _ = int; type T1 = struct{}; type ( _ = *struct{}; T2 = float32 )",
+		"package p\n",
+		"package p; type _ = int; type T1 = struct{}; type ( _ = *struct{}; T2 = float32 )\n",
 		// TODO(gri) expand
 	} {
 		asts, err := ParseBytes("dud", nil, []byte(want), nil, nil, 0, nil)

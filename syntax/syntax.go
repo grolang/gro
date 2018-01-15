@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/grolang/gro/nodes"
 	"github.com/grolang/gro/syntax/src"
 )
 
@@ -60,8 +61,9 @@ type PragmaHandler func(pos src.Pos, text string) Pragma
 // If a PragmaHandler is provided, it is called with each pragma encountered.
 //
 // The Mode argument is currently ignored.
-func Parse(filename string, base *src.PosBase, src io.Reader, errh ErrorHandler, pragh PragmaHandler, mode Mode, f func(string) (string, error)) (
-	_ map[string]*File, first error) {
+func Parse(filename string, base *src.PosBase, src io.Reader, errh ErrorHandler, pragh PragmaHandler, mode Mode,
+	f func(string) (string, error)) (
+	_ map[string]*nodes.File, first error) {
 	defer func() {
 		if p := recover(); p != nil {
 			if err, ok := p.(Error); ok {
@@ -73,9 +75,10 @@ func Parse(filename string, base *src.PosBase, src io.Reader, errh ErrorHandler,
 	}()
 
 	var p parser
-	p.init(filename, base, src, errh, pragh, mode, f)
-	p.next()
-	files := p.files()
+	p.init(base, src, errh, pragh, mode, f)
+	p.Next()
+	proj := p.Proj(filename)
+	files := p.ProjToFiles(proj)
 	return files, p.first
 }
 
@@ -85,7 +88,7 @@ func Parse(filename string, base *src.PosBase, src io.Reader, errh ErrorHandler,
 
 // ParseBytes behaves like Parse but it reads the source from the []byte slice provided.
 func ParseBytes(filename string, base *src.PosBase, src []byte, errh ErrorHandler, pragh PragmaHandler, mode Mode, f func(string) (string, error)) (
-	map[string]*File, error) {
+	map[string]*nodes.File, error) {
 	return Parse(filename, base, &bytesReader{src}, errh, pragh, mode, f)
 }
 
@@ -106,7 +109,7 @@ func (r *bytesReader) Read(p []byte) (int, error) {
 
 // ParseFile behaves like Parse but it reads the source from the named file.
 func ParseFile(filename string, errh ErrorHandler, pragh PragmaHandler, mode Mode, getFile func(string) (string, error)) (
-	map[string]*File, error) {
+	map[string]*nodes.File, error) {
 	f, err := os.Open(filename)
 	if err != nil {
 		if errh != nil {

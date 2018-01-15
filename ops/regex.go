@@ -6,22 +6,33 @@ package ops
 
 import (
 	"fmt"
-	"math/big"
-	//"reflect"
+	"reflect"
 	"regexp"
 	"strconv"
 
-	kn "github.com/grolang/gro/parsec"
+	"github.com/grolang/gro/parsec"
 	u8 "github.com/grolang/gro/utf88"
 )
+
+var UseUtf88 bool
 
 type (
 	CharClass string
 	Regex     string
-	//Slice     []interface{}
-	//Map       map[interface{}]interface{}
-	//MapEntry  struct{ Key, Val interface{} }
 )
+
+/*
+RegexMatch is a struct returned from a regex match to indicate the results
+of one of the capturing groups, or of the whole match if there's no groups.
+Name is the name of the group in the regex.
+Start and End are the starting and ending positions in the regex.
+Match is the result of the match.
+*/
+type RegexMatch struct {
+	Name       string
+	Start, End int
+	Match      string
+}
 
 func (x CharClass) unwrap() (string, bool) {
 	mid := string(x)[1 : len(x)-1]
@@ -32,6 +43,17 @@ func (x CharClass) unwrap() (string, bool) {
 	}
 	return mid, neg
 }
+
+//==============================================================================
+
+/*
+MakeText accepts a string as input, and returns Text.
+*/
+func MakeText(x interface{}) interface{} {
+	return u8.Desur(x.(string))
+}
+
+//==============================================================================
 
 /*
 Runex accepts either a rune or a string as input,
@@ -250,75 +272,54 @@ func convertForCC2(m, n string) (cc, rg string, ok bool) {
 	}
 }
 
-/*
-RegexGroupMatch is a struct returned from a regex match using capturing groups
-to indicate the results of one of the capturing groups.
-Name is the name of the group in the regex.
-Start and End are the starting and ending positions in the regex.
-Match is the result of the match.
-*/
-type RegexGroupMatch struct {
-	Name       string
-	Start, End int
-	Match      string
-}
+//==============================================================================
 
 /*
-FindAll returns a slice of a slice of RegexGroupMatch structs.
-The outer slice contains an inner slice for each match.
-The 0-index in each inner slice will contain the full match details.
-The subsequent indexes in each inner slice will contain the matches for each capturing group.
-
-TODO: Write example function.
+ParserRepeat returns a Parser matching Codepoint, Text, CharClass, or Parser
+specified by parameter a based on values in parameter n.
+If n is an Int, parser.Times(n) is called.
+If n is a PosIntRange, parser is run according to this table:
+  n.From  n.To    parser func
+  ------  ------  -----------
+  0       Inf     Many
+  1       Inf     Many1
+  0       1       Optional
+TODO:
+  x       Inf     Times(x), then Many
+  x       y       Times(x), then no more than y-x
 */
-func FindAll(x interface{}, s string) [][]RegexGroupMatch {
-	var p string
-	switch x.(type) {
-	case u8.Codepoint:
-		p = string(x.(u8.Codepoint))
-	case u8.Text:
-		p = `\Q` + u8.Sur(x.(u8.Text)...) + `\E`
-	case CharClass:
-		p = string(x.(CharClass))
-	case Regex:
-		p = string(x.(Regex))
-	default:
-		panic("FindAll: invalid input type, must be codepoint, string, char class, or regex")
-	}
-
-	re := regexp.MustCompile(p)
-	arr := re.FindAllStringSubmatchIndex(s, -1)
-	names := re.SubexpNames()
-	numGrTot := re.NumSubexp() + 1
-	rgm := make([][]RegexGroupMatch, len(arr))
-	for n, _ := range arr {
-		rgm[n] = make([]RegexGroupMatch, numGrTot)
-		for m := 0; m < numGrTot; m++ {
-			x, y := arr[n][2*m], arr[n][2*m+1]
-			var ss string
-			if x != -1 && y != -1 {
-				ss = s[x:y]
-			}
-			rgm[n][m] = RegexGroupMatch{names[m], x, y, ss}
+func ParserRepeat(a interface{}, n interface{}) interface{} {
+	switch n.(type) {
+	case Int:
+		return parsec.Times(n.(Int), a.(parsec.Parser))
+	case multiusePair:
+		from := n.(multiusePair).From()
+		inf := n.(multiusePair).IsToInf()
+		to := n.(multiusePair).To()
+		if from == 0 && inf {
+			return parsec.Many(a.(parsec.Parser))
+		} else if from == to {
+			return parsec.Times(from, a.(parsec.Parser))
+		} else if from == 1 && inf {
+			return parsec.Many1(a.(parsec.Parser))
+		} else if from == 0 && to == 1 {
+			return parsec.Optional(a.(parsec.Parser))
+		} else if inf {
+			panic("ParserRepeat: this combo of nums not yet implemented")
+		} else {
+			panic("ParserRepeat: this combo of nums not implemented")
 		}
+	default:
+		panic("ParserRepeat: invalid input type")
 	}
-	return rgm
 }
 
-/*
-FindFirst returns a slice of RegexGroupMatch structs.
-The 0-index in the slice will contain the full match details.
-The subsequent indexes in the slice will contain the matches for each capturing group.
-
-TODO: Write logic; test it; write example function.
-*/
-func FindFirst(x interface{}, s string) []RegexGroupMatch {
-	panic("FindFirst: invalid first arg")
-}
+//==============================================================================
 
 /*
-RegexRepeat returns a Regex matching Codepoint, Text, CharClass, or Regex specified by parameter a
-based on values in parameter b. If b is an Int, regex will specify {b} times.
+RegexRepeat returns a Regex matching Codepoint, Text, CharClass, or Regex
+specified by parameter a based on values in parameter b.
+If b is an Int, regex will specify {b} times.
 If b is a PosIntRange, regex suffix is according to this table:
   n.From  n.To    regex suffix
   ------  ------  ------------
@@ -334,10 +335,10 @@ func RegexRepeat(a interface{}, n interface{}, reluctant bool) interface{} {
 	switch n.(type) {
 	case Int:
 		return times(a, n.(Int), reluctant) //TODO: distinguish between Codepoint/Text and CharClass/Regex
-	case PosIntRange:
-		from := n.(PosIntRange).FromVal()
-		inf := n.(PosIntRange).IsToInf()
-		to := n.(PosIntRange).ToVal()
+	case multiusePair:
+		from := n.(multiusePair).From()
+		inf := n.(multiusePair).IsToInf()
+		to := n.(multiusePair).To()
 		if from == 0 && inf {
 			return many(a, reluctant)
 		} else if from == to {
@@ -434,6 +435,8 @@ func atLeastButNoMoreThan(a interface{}, n, m Int, reluctant bool) interface{} {
 	}
 }
 
+//==============================================================================
+
 /*
 Group returns a Regex embedded in a capturing group, with name if supplied.
 */
@@ -457,9 +460,26 @@ func Group(x interface{}, name string) interface{} {
 }
 
 /*
-ToRegex converts a Codepoint, Text, or CharClass into a Regex.
+Parenthesize puts regex parentheses around a CharClass or Regex,
+and returns everything else unchanged.
 
-//TODO: TEST IT
+//TODO: check this logic
+*/
+func Parenthesize(x interface{}) interface{} {
+	switch x.(type) {
+	case CharClass:
+		return Regex("(?:" + string(x.(CharClass)) + ")")
+	case Regex:
+		return Regex("(?:" + string(x.(Regex)) + ")")
+	default:
+		return x
+	}
+}
+
+//==============================================================================
+
+/*
+ToRegex converts a Codepoint, Text, or CharClass into a Regex.
 */
 func ToRegex(x interface{}) Regex {
 	switch x.(type) {
@@ -478,124 +498,63 @@ func ToRegex(x interface{}) Regex {
 
 /*
 ToParser converts a Codepoint, Text, CharClass, or Regex into a Parser.
-
-//TODO: TEST IT
 */
-func ToParser(x interface{}) kn.Parser {
+func ToParser(x interface{}) parsec.Parser {
 	switch x.(type) {
 	case rune:
 		return codepointParser(string(x.(rune)))
 	case string:
-		return kn.Token(u8.Desur(x.(string)))
+		return parsec.Token(u8.Desur(x.(string)))
 
 	case u8.Codepoint:
 		return codepointParser(u8.Sur(x.(u8.Codepoint)))
 	case u8.Text:
-		return kn.Token(x.(u8.Text))
+		return parsec.Token(x.(u8.Text))
 	case CharClass:
 		return runexParser(x.(CharClass))
 	case Regex:
-		return kn.Regexp(string(x.(Regex)))
-	case kn.Parser:
-		return x.(kn.Parser)
+		return parsec.Regexp(string(x.(Regex)))
+	case parsec.Parser:
+		return x.(parsec.Parser)
 	default:
 		panic(fmt.Sprintf("ToParser: invalid input type: %T", x))
 	}
 }
 
-func codepointParser(r string) kn.Parser {
+func codepointParser(r string) parsec.Parser {
 	f := func(c interface{}) interface{} {
 		return []u8.Codepoint(c.(u8.Text))[0]
 	}
-	return kn.Apply(f, kn.Token(u8.Desur(r)))
+	return parsec.Apply(f, parsec.Token(u8.Desur(r)))
 }
 
-func runexParser(r CharClass) kn.Parser {
+func runexParser(r CharClass) parsec.Parser {
 	f := func(c interface{}) interface{} {
 		return []u8.Codepoint(c.(u8.Text))[0]
 	}
-	return kn.Apply(f, kn.Regexp(string(r)))
+	return parsec.Apply(f, parsec.Regexp(string(r)))
 }
+
+//==============================================================================
 
 /*
-ToBool converts nil, false, zeroes, the empty string or utf88.Text to false,
-and all other values to true.
-
-//TODO: TEST IT
+Reflect returns reflection object of interface value, or vice versa.
 */
-func ToBool(x interface{}) bool {
+func Reflect(x interface{}) interface{} {
 	x = widen(x)
 	switch x.(type) {
-	case nil:
-		return false
-	case bool:
-		return x.(bool)
-	case Int:
-		return x.(Int) != 0
-	case BigInt:
-		ax := big.Int(x.(BigInt))
-		return big.NewInt(0).Cmp(&ax) != 0
-	case BigRat:
-		ax := big.Rat(x.(BigRat))
-		return big.NewRat(0, 1).Cmp(&ax) != 0
-	case Float:
-		return x.(Float) != 0
-	case BigFloat:
-		ax := big.Float(x.(BigFloat))
-		return big.NewFloat(0.0).Cmp(&ax) != 0
-	case Complex:
-		return x.(Complex) != 0
-	case BigComplex:
-		axx := big.Float(BigFloat(x.(BigComplex).Re))
-		axy := big.Float(BigFloat(x.(BigComplex).Im))
-		return big.NewFloat(0.0).Cmp(&axx) != 0 || big.NewFloat(0.0).Cmp(&axy) != 0
-
-	case u8.Text:
-		if len(x.(u8.Text)) == 0 {
-			return false
-		} else {
-			return true
-		}
-
-	//MAYBE TODO: Codepoint, CharClass, Regex ???
-
+	case reflect.Value:
+		return x.(reflect.Value).Interface()
 	default:
-		return true
+		return reflect.ValueOf(x)
 	}
 }
 
-/*
-Parenthesize puts regex parentheses around a CharClass or Regex,
-and returns everything else unchanged.
-
-//TODO: CHECK AND FINISH TESTING
-*/
-func Parenthesize(x interface{}) interface{} {
-	switch x.(type) {
-	case CharClass:
-		return Regex("(?:" + string(x.(CharClass)) + ")")
-	case Regex:
-		return Regex("(?:" + string(x.(Regex)) + ")")
-	default:
-		return x
-	}
-}
-
-//TODO: get rid of this when no longer required by testing
-/*func UnaryConvert (x interface{}) interface{}{ //converts Text into a Regex
-  switch x.(type){
-  case u8.Text:
-    return Regex(u8.Surr(x.(u8.Text)))
-  default:
-    return x
-  }
-}*/
+//==============================================================================
 
 /*
 Not returns the boolean-not of the parameter converted to a boolean.
 For Codepoint or CharClass, it returns the CharClass that matches the complement.
-
-//TODO: FINISH TESTING
 */
 func Not(x interface{}) interface{} {
 	x = widen(x)
@@ -630,6 +589,8 @@ func Or(x interface{}, y func() interface{}) bool {
 	return ToBool(x) || ToBool(y())
 }
 
+//==============================================================================
+
 /*
 Alt accepts a Codepoint, Text, CharClass, Regex, or Parser for each parameter,
 and returns a CharClass, Regex, or Parser using ordered alternation on the inputs.
@@ -639,8 +600,6 @@ The args convert such that:
   a CharClass or Codepoint with a CharClass may remain a CharClass, but might become a Regex
   anything with a Parser becomes a Parser
   anything else with Text or a Regex becomes a Regex
-
-//TODO: FINISH TESTING
 */
 func Alt(x, y interface{}) interface{} {
 	switch x.(type) {
@@ -660,8 +619,8 @@ func Alt(x, y interface{}) interface{} {
 			}
 		case Regex:
 			return Regex(u8.Sur(x.(u8.Codepoint)) + "|(?:" + string(y.(Regex)) + ")")
-		case kn.Parser:
-			return kn.Alt(ToParser(x), y.(kn.Parser))
+		case parsec.Parser:
+			return parsec.Alt(ToParser(x), y.(parsec.Parser))
 		default:
 			panic("Alt: invalid input type")
 		}
@@ -676,8 +635,8 @@ func Alt(x, y interface{}) interface{} {
 			return Regex(`(?:\Q` + u8.Sur(x.(u8.Text)...) + `\E)|` + string(y.(CharClass)))
 		case Regex:
 			return Regex(`(?:\Q` + u8.Sur(x.(u8.Text)...) + `\E)|(?:` + string(y.(Regex)) + ")")
-		case kn.Parser:
-			return kn.Alt(ToParser(x), y.(kn.Parser))
+		case parsec.Parser:
+			return parsec.Alt(ToParser(x), y.(parsec.Parser))
 		default:
 			panic("Alt: invalid input type")
 		}
@@ -707,8 +666,8 @@ func Alt(x, y interface{}) interface{} {
 			}
 		case Regex:
 			return Regex(string(x.(CharClass)) + "|(?:" + string(y.(Regex)) + ")")
-		case kn.Parser:
-			return kn.Alt(ToParser(x), y.(kn.Parser))
+		case parsec.Parser:
+			return parsec.Alt(ToParser(x), y.(parsec.Parser))
 		default:
 			panic("Alt: invalid input type")
 		}
@@ -723,18 +682,18 @@ func Alt(x, y interface{}) interface{} {
 			return Regex("(?:" + string(x.(Regex)) + ")|" + string(y.(CharClass)))
 		case Regex:
 			return Regex("(?:" + string(x.(Regex)) + ")|(?:" + string(y.(Regex)) + ")")
-		case kn.Parser:
-			return kn.Alt(ToParser(x), y.(kn.Parser))
+		case parsec.Parser:
+			return parsec.Alt(ToParser(x), y.(parsec.Parser))
 		default:
 			panic("Alt: invalid input type")
 		}
 
-	case kn.Parser:
+	case parsec.Parser:
 		switch y.(type) {
 		case u8.Codepoint, u8.Text, CharClass, Regex:
-			return kn.Alt(x.(kn.Parser), ToParser(y))
-		case kn.Parser:
-			return kn.Alt(x.(kn.Parser), y.(kn.Parser))
+			return parsec.Alt(x.(parsec.Parser), ToParser(y))
+		case parsec.Parser:
+			return parsec.Alt(x.(parsec.Parser), y.(parsec.Parser))
 		default:
 			panic("Alt: invalid input type")
 		}
@@ -743,6 +702,8 @@ func Alt(x, y interface{}) interface{} {
 		panic("Alt: invalid arg/s")
 	}
 }
+
+//==============================================================================
 
 /*
 Seq accepts a Codepoint, Text, CharClass, or Regex for each parameter,
@@ -753,8 +714,6 @@ The args convert such that:
   2 Texts remain a Text
   2 CharClasses become a Regex, as does a Codepoint or Text combined with a CharClass
   2 Regexes remain a Regex, as does a Codepoint, Text, or CharClass combined with a Regex
-
-//TODO: FINISH TESTING
 */
 func Seq(x, y interface{}) interface{} {
 	switch x.(type) {
@@ -821,114 +780,117 @@ func Seq(x, y interface{}) interface{} {
 	}
 }
 
-/*
-LeftShift calls kern.LeftShift with the 2 parsers supplied as args.
+//==============================================================================
 
-//TODO: TEST IT
+/*
+LeftAnd calls parsec.SeqLeft with the 2 parsers supplied as args.
+
+TODO: Write example function.
 */
-func LeftShift(x, y interface{}) interface{} {
-	switch x.(type) {
-	case kn.Parser:
-		switch y.(type) {
-		case kn.Parser:
-			return kn.SeqLeft(x.(kn.Parser), y.(kn.Parser))
-		default:
-			panic("LeftShift: invalid input type" + fmt.Sprintf("; %T; %T", x, y))
-		}
-	default:
-		panic("LeftShift: invalid input type" + fmt.Sprintf("; %T; %T", x, y))
-	}
+func LeftAnd(x, y interface{}) interface{} {
+	return directionalAnd(parsec.SeqLeft, "SeqLeft", x, y)
 }
 
 /*
-RightShift calls kern.RightShift with the 2 parsers supplied as args.
+RightAnd calls parsec.SeqRight with the 2 parsers supplied as args.
 
-//TODO: TEST IT
+TODO: Write example function.
 */
-func RightShift(x, y interface{}) interface{} {
-	switch x.(type) {
-	case kn.Parser:
-		switch y.(type) {
-		case kn.Parser:
-			return kn.SeqRight(x.(kn.Parser), y.(kn.Parser))
-		default:
-			panic("RightShift: invalid input type" + fmt.Sprintf("; %T; %T", x, y))
-		}
-	default:
-		panic("RightShift: invalid input type" + fmt.Sprintf("; %T; %T", x, y))
-	}
+func RightAnd(x, y interface{}) interface{} {
+	return directionalAnd(parsec.SeqRight, "SeqRight", x, y)
 }
 
-/*
-Matcher takes a Parser, Regex, CharClass, Text, or Codepoint as first arg,
-and calls kern.ParseText with it on the Text supplied as the second arg.
-In Gro, operator ==~ will be used.
-
-//TODO: TEST IT
-*/
-func Matcher(x, y interface{}) interface{} {
-	y = widen(y)
-	switch x.(type) {
-	case u8.Codepoint, u8.Text, CharClass, Regex, kn.Parser:
-		switch y.(type) {
-		case u8.Text:
-			r, _ := kn.ParseText(ToParser(x), y.(u8.Text))
-			return r
-		default:
-			panic("Matcher: invalid input type" + fmt.Sprintf("; %T; %T", x, y))
-		}
-	default:
-		panic("Matcher: invalid input type" + fmt.Sprintf("; %T; %T", x, y))
-	}
-}
-
-/*
-Matcher takes a Regex, CharClass, Text, or Codepoint as first arg,
-and calls FindAll with it on the Text supplied as the second arg.
-In Gro, operator =~ will be used.
-
-//TODO: TEST IT
-*/
-func Finder(x, y interface{}) interface{} {
-	y = widen(y)
-	switch x.(type) {
-	case u8.Codepoint, u8.Text, CharClass, Regex: //MAYBE TODO: also use Parser, calling kern.Search ???
-		switch y.(type) {
-		case u8.Text:
-			return FindAll(x, u8.Surr(y.(u8.Text)))
-		default:
-			panic("Finder: invalid input type" + fmt.Sprintf("; %T; %T", x, y))
-		}
-
-	default:
-		panic("Finder: invalid input type" + fmt.Sprintf("; %T; %T", x, y))
-	}
-}
-
-/*
-Mod takes two Ints and calls Go's % operator on them.
-
-//TODO: TEST IT
-*/
-func Mod(x, y interface{}) interface{} {
+func directionalAnd(
+	function func(...interface{}) interface{},
+	text string,
+	x, y interface{},
+) interface{} {
 	x, y = widen(x), widen(y)
 	switch x.(type) {
-	case Int:
+
+	case u8.Codepoint:
+		ax := x.(u8.Codepoint)
 		switch y.(type) {
-		case Int:
-			return Int(int64(x.(Int)) % int64(y.(Int)))
+		case u8.Codepoint:
+			return function(parsec.Symbol(ax), parsec.Symbol(y.(u8.Codepoint)))
+		case u8.Text:
+			return function(parsec.Symbol(ax), parsec.Token(y.(u8.Text)))
+		case parsec.Parser:
+			return function(parsec.Symbol(ax), y.(parsec.Parser))
+		case func(...interface{}) interface{}:
+			ay := y.(func(...interface{}) interface{})
+			//yfwd := parsec.Fwd(ay().(func(...interface{}) interface{})).(parsec.Parser)
+			yfwd := unforwardFunc(ay)
+			return function(parsec.Symbol(ax), yfwd)
 		default:
-			panic("Mod: invalid input type" + fmt.Sprintf("; %T; %T", x, y))
+			panic(text + ": invalid input type" + fmt.Sprintf("; %T; %T", x, y))
 		}
+
+	case u8.Text:
+		ax := x.(u8.Text)
+		switch y.(type) {
+		case u8.Codepoint:
+			return function(parsec.Token(ax), parsec.Symbol(y.(u8.Codepoint)))
+		case u8.Text:
+			return function(parsec.Token(ax), parsec.Token(y.(u8.Text)))
+		case parsec.Parser:
+			return function(parsec.Token(ax), y.(parsec.Parser))
+		case func(...interface{}) interface{}:
+			ay := y.(func(...interface{}) interface{})
+			//yfwd := parsec.Fwd(ay().(func(...interface{}) interface{})).(parsec.Parser)
+			yfwd := unforwardFunc(ay)
+			return function(parsec.Token(ax), yfwd)
+		default:
+			panic(text + ": invalid input type" + fmt.Sprintf("; %T; %T", x, y))
+		}
+
+	case parsec.Parser:
+		ax := x.(parsec.Parser)
+		switch y.(type) {
+		case u8.Codepoint:
+			return function(ax, parsec.Symbol(y.(u8.Codepoint)))
+		case u8.Text:
+			return function(ax, parsec.Token(y.(u8.Text)))
+		case parsec.Parser:
+			return function(ax, y.(parsec.Parser))
+		case func(...interface{}) interface{}:
+			ay := y.(func(...interface{}) interface{})
+			//yfwd := parsec.Fwd(ay().(func(...interface{}) interface{})).(parsec.Parser)
+			yfwd := unforwardFunc(ay)
+			return function(ax, yfwd)
+		default:
+			panic(text + ": invalid input type" + fmt.Sprintf("; %T; %T", x, y))
+		}
+
+	case func(...interface{}) interface{}:
+		ax := x.(func(...interface{}) interface{})
+		//xfwd := parsec.Fwd(ax().(func(...interface{}) interface{})).(parsec.Parser)
+		xfwd := unforwardFunc(ax)
+		switch y.(type) {
+		case u8.Codepoint:
+			return function(xfwd, parsec.Symbol(y.(u8.Codepoint)))
+		case u8.Text:
+			return function(xfwd, parsec.Token(y.(u8.Text)))
+		case parsec.Parser:
+			return function(xfwd, y.(parsec.Parser))
+		case func(...interface{}) interface{}:
+			ay := y.(func(...interface{}) interface{})
+			//yfwd := parsec.Fwd(ay().(func(...interface{}) interface{})).(parsec.Parser)
+			yfwd := unforwardFunc(ay)
+			return function(xfwd, yfwd)
+		default:
+			panic(text + ": invalid input type" + fmt.Sprintf("; %T; %T", x, y))
+		}
+
 	default:
-		panic("Mod: invalid input type" + fmt.Sprintf("; %T; %T", x, y))
+		panic(text + ": invalid input type" + fmt.Sprintf("; %T; %T", x, y))
 	}
 }
+
+//==============================================================================
 
 /*
 Xor takes two Ints and calls Go's ^ operator on them.
-
-//TODO: TEST IT
 */
 func Xor(x, y interface{}) interface{} {
 	x, y = widen(x), widen(y)
@@ -947,8 +909,6 @@ func Xor(x, y interface{}) interface{} {
 
 /*
 SeqXor takes two Ints and calls Go's &^ operator on them.
-
-//TODO: TEST IT
 */
 func SeqXor(x, y interface{}) interface{} {
 	x, y = widen(x), widen(y)
@@ -965,539 +925,138 @@ func SeqXor(x, y interface{}) interface{} {
 	}
 }
 
-/*
-Assign makes the first arg point to the second arg.
-*/
-func Assign(pp *interface{}, k interface{}) *interface{} {
-	switch k.(type) {
-	case nil, bool, Int, BigInt, BigRat, Float, Complex,
-		string:
-		k = widen(k)
-	default:
-		k = widen(k)
-	}
-	*pp = k
-	return pp
+//==============================================================================
+
+/*func unforwardFunc(ay func(...interface{}) interface{}) interface{} {
+	yfwd := parsec.Fwd(ay().(func(...interface{}) interface{})).(parsec.Parser)
+	return yfwd
+}*/
+
+func unforwardFunc(ay func(...interface{}) interface{}) interface{} {
+	aa := ay()
+	yfwd := parsec.Fwd(aa.(func(...interface{}) interface{})).(parsec.Parser)
+	return yfwd
 }
 
-//MAYBE TODO: MultipleAssign ???
+func unwrapFunc(y func(...interface{}) interface{}) interface{} {
+	ret := y()
+	for {
+		if z, ok := ret.(func(...interface{}) interface{}); ok {
+			ret = z()
+		} else {
+			break
+		}
+	}
+	return ret
+}
 
 /*
-PlusAssign adds the value/s to a vector or the key-value pair/s to a map,
-otherwise calls Plus and Assign on the args.
+LeftShift calls parsec.SeqLeft with the 2 parsers supplied as args.
 */
-func PlusAssign(pp *interface{}, it ...interface{}) *interface{} {
-	//TODO: widen pp
-	switch (*pp).(type) {
-	/*case Slice:
-		v := (*pp).(Slice)
-		v = append(v, it...)
-		*pp = v
-		return pp
+func LeftShift(x, y interface{}) interface{} {
+	x, y = widen(x), widen(y)
+	switch x.(type) {
+	case Slice:
+		return Slice(append([]interface{}(x.(Slice)), y))
 
-	case Map:
-		m := (*pp).(Map)
-		for _, u := range it {
-			m[u.(MapEntry).Key] = u.(MapEntry).Val
-		}
-		return pp
-	*/
+	case Map: //TODO: is this correct ??? Test it!
+		ax, ay := x.(Map), y.(MapEntry)
+		ax.lkp[ay.Key()] = ay.Val()
+		ax.seq = append(ax.seq, ay.Key()) //####
+		return ax
 
 	default:
-		for _, n := range it {
-			nn := widen(n)
+		panic("LeftShift: invalid input type" + fmt.Sprintf("; %T; %T", x, y))
+	}
+}
 
-			switch nn.(type) {
-			case nil, bool, Int, BigInt, BigRat, Float, Complex,
-				string:
-				*pp = Plus(*pp, nn)
+/*
+The the 1st arg must be some Text.
+If the 2nd arg is a Regex, CharClass, Text, or Codepoint,
+it is used to match the Text.
+It will return a slice of a slice of RegexGroupMatch structs.
+The outer slice contains an inner slice for each match.
+The 0-index in each inner slice will contain the full match details.
+The subsequent indexes in each inner slice will contain the matches for each capturing group.
 
-			default:
-				//TODO: any logic for arbitrary object?
-				panic(fmt.Sprintf("PlusAssign: invalid parameter/s: %T", nn))
+If the 2nd arg is a Parser, calls parsec.ParseText with it on the Text.
+
+TODO: Write example function.
+*/
+func RightShift(x, y interface{}) interface{} {
+	x, y = widen(x), widen(y)
+	switch x.(type) {
+	case u8.Text:
+		var p string
+		switch y := y.(type) {
+		case u8.Codepoint:
+			p = string(y)
+		case u8.Text:
+			//p = `\Q` + u8.Sur(y.(u8.Text)...) + `\E`
+			p = u8.Sur(y...)
+		case CharClass:
+			p = string(y)
+		case Regex:
+			p = string(y)
+		case parsec.Parser:
+			r, _ := parsec.ParseItem(y, x.(u8.Text))
+			return r
+		case func(...interface{}) interface{}:
+			r, _ := parsec.ParseItem(ToParser(unwrapFunc(y)), x.(u8.Text))
+			return r
+		default:
+			//MAYBE TODO: also use Parser, calling parsec.Search ???
+			panic("RightShift: invalid input type" + fmt.Sprintf("; %T; %T", x, y) +
+				"; must be codepoint, string, char class, or regex")
+		}
+
+		ax := u8.Surr(x.(u8.Text))
+		re := regexp.MustCompile(p)
+		arr := re.FindAllStringSubmatchIndex(ax, -1)
+		names := re.SubexpNames()
+		numGrTot := re.NumSubexp() + 1
+		rgm := make([][]RegexMatch, len(arr))
+		for n, _ := range arr {
+			rgm[n] = make([]RegexMatch, numGrTot)
+			for m := 0; m < numGrTot; m++ {
+				a, b := arr[n][2*m], arr[n][2*m+1]
+				var ss string
+				if a != -1 && b != -1 {
+					ss = ax[a:b]
+				}
+				rgm[n][m] = RegexMatch{names[m], a, b, ss}
 			}
 		}
-		return pp
-	}
-}
+		return rgm
 
-/*
-MinusAssign deletes an entry from a Map, otherwise calls Minus and Assign on the args.
-*/
-func MinusAssign(pp *interface{}, k interface{}) *interface{} { // TODO: add Slice functionality
-	//TODO: widen pp
-	/*if m, ok := (*pp).(Map); ok {
-		delete(m, k)
-		return pp
-	} else {*/
+	//TODO: case Map
 
-	nn := widen(k)
-
-	switch nn.(type) {
-	case nil, bool, Int, BigInt, BigRat, Float, Complex,
-		string:
-		*pp = Minus(*pp, nn)
-		return pp
-
-	default:
-		//TODO: any logic for arbitrary object?
-		panic(fmt.Sprintf("MinusAssign: invalid parameter/s: %T", nn))
-	}
-
-	//}
-}
-
-/*
-MultAssign calls Mult and Assign on the args.
-
-//TODO: TEST IT
-*/
-func MultAssign(pp *interface{}, it ...interface{}) *interface{} {
-	//TODO: widen pp
-	for _, n := range it {
-		nn := widen(n)
-		switch nn.(type) {
-		case nil, bool, Int, BigInt, BigRat, Float, Complex,
-			string:
-			*pp = Mult(*pp, nn)
-
-		default:
-			//TODO: any logic for arbitrary object?
-			panic(fmt.Sprintf("MultAssign: invalid parameter/s: %T", nn))
-		}
-	}
-	return pp
-}
-
-/*
-DivideAssign calls Divide and Assign on the args.
-
-//TODO: TEST IT
-*/
-func DivideAssign(pp *interface{}, k interface{}) *interface{} {
-	//TODO: widen pp
-	nn := widen(k)
-	switch nn.(type) {
-	case nil, bool, Int, BigInt, BigRat, Float, Complex,
-		string:
-		*pp = Divide(*pp, nn)
-
-	default:
-		//TODO: any logic for arbitrary object?
-		panic(fmt.Sprintf("DivideAssign: invalid parameter/s: %T", nn))
-	}
-	return pp
-}
-
-/*
-ModAssign calls Mod and Assign on the args.
-
-//TODO: TEST IT
-*/
-func ModAssign(pp *interface{}, k interface{}) *interface{} {
-	//TODO: widen pp
-	nn := widen(k)
-	switch nn.(type) {
-	case nil, bool, Int, BigInt, BigRat, Float, Complex,
-		string:
-		*pp = Mod(*pp, nn)
-
-	default:
-		//TODO: any logic for arbitrary object?
-		panic(fmt.Sprintf("ModAssign: invalid parameter/s: %T", nn))
-	}
-	return pp
-}
-
-/*
-LeftShiftAssign calls LeftShift and Assign on the args.
-
-//TODO: TEST IT
-*/
-func LeftShiftAssign(pp *interface{}, k interface{}) *interface{} {
-	//TODO: widen pp
-	nn := widen(k)
-	switch nn.(type) {
-	case nil, bool, Int, BigInt, BigRat, Float, Complex,
-		string:
-		*pp = LeftShift(*pp, nn)
-
-	default:
-		//TODO: any logic for arbitrary object?
-		panic(fmt.Sprintf("LeftShiftAssign: invalid parameter/s: %T", nn))
-	}
-	return pp
-}
-
-/*
-RightShiftAssign calls RightShift and Assign on the args.
-
-//TODO: TEST IT
-*/
-func RightShiftAssign(pp *interface{}, k interface{}) *interface{} {
-	//TODO: widen pp
-	nn := widen(k)
-	switch nn.(type) {
-	case nil, bool, Int, BigInt, BigRat, Float, Complex,
-		string:
-		*pp = RightShift(*pp, nn)
-
-	default:
-		//TODO: any logic for arbitrary object?
-		panic(fmt.Sprintf("RightShiftAssign: invalid parameter/s: %T", nn))
-	}
-	return pp
-}
-
-/*
-SeqAssign calls Seq and Assign on the args.
-
-//TODO: TEST IT
-*/
-func SeqAssign(pp *interface{}, k interface{}) *interface{} {
-	//TODO: widen pp
-	nn := widen(k)
-	switch nn.(type) {
-	case nil, bool, Int, BigInt, BigRat, Float, Complex,
-		string:
-		*pp = Seq(*pp, nn)
-
-	default:
-		//TODO: any logic for arbitrary object?
-		panic(fmt.Sprintf("SeqAssign: invalid parameter/s: %T", nn))
-	}
-	return pp
-}
-
-/*
-SeqXorAssign calls Xor and Assign on the args.
-
-//TODO: TEST IT
-*/
-func SeqXorAssign(pp *interface{}, k interface{}) *interface{} {
-	//TODO: widen pp
-	nn := widen(k)
-	switch nn.(type) {
-	case nil, bool, Int, BigInt, BigRat, Float, Complex,
-		string:
-		*pp = SeqXor(*pp, nn)
-
-	default:
-		//TODO: any logic for arbitrary object?
-		panic(fmt.Sprintf("SeqXorAssign: invalid parameter/s: %T", nn))
-	}
-	return pp
-}
-
-/*
-AltAssign calls Alt and Assign on the args.
-
-//TODO: TEST IT
-*/
-func AltAssign(pp *interface{}, k interface{}) *interface{} {
-	//TODO: widen pp
-	nn := widen(k)
-	switch nn.(type) {
-	case nil, bool, Int, BigInt, BigRat, Float, Complex,
-		string:
-		*pp = Alt(*pp, nn)
-
-	default:
-		//TODO: any logic for arbitrary object?
-		panic(fmt.Sprintf("AltAssign: invalid parameter/s: %T", nn))
-	}
-	return pp
-}
-
-/*
-XorAssign calls Xor and Assign on the args.
-
-//TODO: TEST IT
-*/
-func XorAssign(pp *interface{}, k interface{}) *interface{} {
-	//TODO: widen pp
-	nn := widen(k)
-	switch nn.(type) {
-	case nil, bool, Int, BigInt, BigRat, Float, Complex,
-		string:
-		*pp = Xor(*pp, nn)
-
-	default:
-		//TODO: any logic for arbitrary object?
-		panic(fmt.Sprintf("XorAssign: invalid parameter/s: %T", nn))
-	}
-	return pp
-}
-
-/*
-Incr increments the arg in-place.
-
-//TODO: FINISH TESTING
-*/
-func Incr(pn *interface{}) interface{} {
-	temp := *pn
-	switch (*pn).(type) {
-	case Int, BigInt:
-		*pn = Plus(*pn, 1)
-	default:
-		panic("Incr: non-integral arg")
-	}
-	return temp
-}
-
-/*
-Decr decrements the arg in-place.
-
-//TODO: FINISH TESTING
-*/
-func Decr(pn *interface{}) interface{} {
-	temp := *pn
-	switch (*pn).(type) {
-	case Int, BigInt:
-		*pn = Minus(*pn, 1)
-	default:
-		panic("Decr: non-integral arg")
-	}
-	return temp
-}
-
-/*
-GetIndex gets the index specified by the second arg of the first arg.
-
-//TODO: FINISH TESTING
-*/
-/*func GetIndex(pa *interface{}, n interface{}) *interface{} {
-	switch (*pa).(type) {
-	case []interface{}:
-		return &(*pa).([]interface{})[n.(int)]
-	case map[interface{}]interface{}:
-		an := (*pa).(map[interface{}]interface{})[n]
-		return &an
 	case Slice:
-		return &[]interface{}((*pa).(Slice))[n.(int)]
-	case Map:
-		an := (*pa).(Map)[n]
-		return &an
+		ax := x.(Slice)
+		ns := NewSlice(0)
+		for _, a := range ax {
+			if !IsEqual(a, y) {
+				_ = LeftShiftAssign(&ns, a)
+			}
+		}
+		return ns.(Slice)
+
 	default:
-		panic(fmt.Sprintf("GetIndex: invalid aggregate type: %T", *pa))
+		panic("RightShift: invalid input type" + fmt.Sprintf("; %T; %T", x, y))
 	}
 }
 
-//TODO: MERGE INTO GetIndex
-func substring(s string, b, e int) string {
-	if b > 0 {
-		if e > 0 {
-			return s[b:e]
-		} else {
-			return s[b : len(s)+e]
-		}
-	} else {
-		if e > 0 {
-			return s[len(s)+b : e]
-		} else {
-			return s[len(s)+b : len(s)+e]
-		}
-	}
-}*/
+//==============================================================================
 
 /*
-SetIndex sets the index specified by the second arg of the first arg to the third arg.
+FindFirst returns a slice of RegexGroupMatch structs.
+The 0-index in the slice will contain the full match details.
+The subsequent indexes in the slice will contain the matches for each capturing group.
 
-//TODO: FINISH TESTING
+TODO: Write logic; test it; write example function.
 */
-/*func SetIndex(pa *interface{}, n, u interface{}) *interface{} {
-	v := widen(u)
-	switch (*pa).(type) {
-	case []interface{}:
-		(*pa).([]interface{})[n.(int)] = v
-		an := (*pa).([]interface{})[n.(int)]
-		return &an
-	case map[interface{}]interface{}:
-		(*pa).(map[interface{}]interface{})[n] = v
-		an := (*pa).(map[interface{}]interface{})[n]
-		return &an
-	case Slice:
-		[]interface{}((*pa).(Slice))[n.(int)] = v
-		an := []interface{}((*pa).(Slice))[n.(int)]
-		return &an
-	case Map:
-		map[interface{}]interface{}((*pa).(Map))[n] = v
-		an := map[interface{}]interface{}((*pa).(Map))[n]
-		return &an
-	default:
-		panic("SetIndex: invalid type")
-	}
-}*/
-
-/*
-NewSlice creates a new Slice.
-
-//TODO: FINISH TESTING
-*/
-/*func NewSlice(n interface{}) interface{} {
-	return Slice(make([]interface{}, n.(int)))
-}*/
-
-/*
-NewMap creates a new Map.
-
-//TODO: FINISH TESTING
-*/
-/*func NewMap() interface{} {
-	return Map(make(map[interface{}]interface{}))
-}*/
-
-/*
-InitSlice creates a new Slice and initializes it to the supplied values.
-
-//TODO: FINISH TESTING
-*/
-/*func InitSlice(vs ...interface{}) interface{} {
-	s := make([]interface{}, 0)
-	s = append(s, vs...)
-	return Slice(s)
-}*/
-
-//TODO: write method String for Slice
-
-/*
-InitMap creates a new Map and initializes it to the supplied pair-values.
-
-//TODO: FINISH TESTING
-*/
-/*func InitMap(es ...interface{}) interface{} {
-	m := make(map[interface{}]interface{})
-	for _, e := range es {
-		ee := []interface{}(e.(Slice))
-		if len(ee) == 2 {
-			m[ee[0]] = ee[1]
-		} else {
-			panic("InitMap: each arg must be a Slice of size 2.")
-		}
-	}
-	return Map(m)
-}*/
-
-//TODO: write method String for Map
-
-/*
-Len returns the length of the supplied Slice or Map.
-
-//TODO: FINISH TESTING
-*/
-/*func Len(s interface{}) int {
-	switch s.(type) {
-	case Slice:
-		return len([]interface{}(s.(Slice)))
-	case Map:
-		return len(s.(Map))
-	default:
-		panic("Len: unknown type")
-	}
-}*/
-
-/*
-Copy copies the values of a Slice or the entries of a Map
-to a new one.
-
-//TODO: FINISH TESTING
-*/
-/*func Copy(s interface{}) interface{} {
-	switch s.(type) {
-	case Slice:
-		so := make([]interface{}, len([]interface{}(s.(Slice))))
-		copy(so, s.(Slice))
-		return Slice(so)
-	case Map:
-		mo := make(map[interface{}]interface{})
-		for k, v := range s.(Map) {
-			mo[k] = v
-		}
-		return Map(mo)
-	default:
-		panic("Copy: unknown type")
-	}
-}*/
-
-/*
-Unwrap unwraps tuply-returned args into a slice.
-
-//TODO: TEST IT
-*/
-/*func Unwrap(a ...interface{}) interface{} {
-	if len(a) == 0 { //never happens
-		return nil
-	} else if len(a) == 1 {
-		return a[0]
-	} else {
-		return a
-	}
-}*/
-
-/*
-Assert asserts the arg is true.
-
-//TODO: TEST IT
-*/
-/*func Assert(b interface{}) {
-	if !b.(bool) {
-		fmt.Printf("assert failed.\n....found:%v (%[1]T)\n", b)
-	}
-}*/
-
-/*
-StructToMap converts a struct to a map of string to data.
-
-//TODO: TEST IT
-*/
-/*func StructToMap(f interface{}) map[string]interface{} {
-	fv := reflect.ValueOf(f)
-	ft := reflect.TypeOf(f)
-	m := map[string]interface{}{}
-	for i := 0; i < fv.NumField(); i++ {
-		m[ft.Field(i).Name] = fv.Field(i).Interface()
-	}
-	return m
-}*/
-
-/*
-ArrayToSlice converts an array to a slice.
-
-//TODO: TEST IT
-*/
-/*func ArrayToSlice(f interface{}) []interface{} {
-	fv := reflect.ValueOf(f)
-	//ft:= reflect.TypeOf(f) //need to check it's really an array
-	vec := []interface{}{}
-	for i := 0; i < fv.Len(); i++ {
-		vec = append(vec, fv.Index(i).Interface())
-	}
-	return vec
-}*/
-
-/*
-Prf printf's an untyped parameter, accepting any number of additional args
-as values.
-
-//TODO: TEST IT
-*/
-func Prf(fs interface{}, is ...interface{}) {
-	fmt.Print(Sprf(fs, is...))
+func FindFirst(x interface{}, s string) []RegexMatch {
+	panic("FindFirst: invalid first arg")
 }
 
-func Sprf(fs interface{}, is ...interface{}) string {
-	switch fs.(type) {
-	case u8.Text:
-		return fmt.Sprintf(u8.Surr(fs.(u8.Text)), is...)
-	case string:
-		return fmt.Sprintf(fs.(string), is...)
-	case nil:
-		return fmt.Sprintln(is...)
-	default:
-		as := []interface{}{fs}
-		for _, i := range is {
-			as = append(as, i)
-		}
-		return fmt.Sprintln(as...)
-	}
-}
+//==============================================================================

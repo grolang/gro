@@ -12,15 +12,17 @@ import (
 	"reflect"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/grolang/gro/nodes"
 )
 
 // Fdump dumps the structure of the syntax tree rooted at n to w.
 // It is intended for debugging purposes; no specific output format
 // is guaranteed.
-func Fdump(w io.Writer, n Node) (err error) {
+func Fdump(w io.Writer, n nodes.Node) (err error) {
 	p := dumper{
 		output: w,
-		ptrmap: make(map[Node]int),
+		ptrmap: make(map[nodes.Node]int),
 		last:   '\n', // force printing of line number on first line
 	}
 
@@ -42,10 +44,10 @@ func Fdump(w io.Writer, n Node) (err error) {
 
 type dumper struct {
 	output io.Writer
-	ptrmap map[Node]int // node -> dump line number
-	indent int          // current indentation level
-	last   byte         // last byte processed by Write
-	line   int          // current line number
+	ptrmap map[nodes.Node]int // node -> dump line number
+	indent int                // current indentation level
+	last   byte               // last byte processed by Write
+	line   int                // current line number
 }
 
 var indentBytes = []byte(".  ")
@@ -102,7 +104,7 @@ func (p *dumper) printf(format string, args ...interface{}) {
 // comments fields of the embedded isNode field by
 // calling the Span() and Comment() instead of using
 // reflection.
-func (p *dumper) dump(x reflect.Value, n Node) {
+func (p *dumper) dump(x reflect.Value, n nodes.Node) {
 	switch x.Kind() {
 	case reflect.Interface:
 		if x.IsNil() {
@@ -118,7 +120,7 @@ func (p *dumper) dump(x reflect.Value, n Node) {
 		}
 
 		// special cases for identifiers w/o attached comments (common case)
-		if x, ok := x.Interface().(*Name); ok {
+		if x, ok := x.Interface().(*nodes.Name); ok {
 			p.printf("%s @ %v", x.Value, x.Pos())
 			return
 		}
@@ -127,7 +129,7 @@ func (p *dumper) dump(x reflect.Value, n Node) {
 		// Fields may share type expressions, and declarations
 		// may share the same group - use ptrmap to keep track
 		// of nodes that have been printed already.
-		if ptr, ok := x.Interface().(Node); ok {
+		if ptr, ok := x.Interface().(nodes.Node); ok {
 			if line, exists := p.ptrmap[ptr]; exists {
 				p.printf("(Node @ %d)", line)
 				return

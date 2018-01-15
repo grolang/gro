@@ -5,297 +5,177 @@
 package ops
 
 import (
+	"fmt"
 	"math"
 	"math/big"
 	"math/cmplx"
 	"reflect"
 	"time"
 
+	"github.com/grolang/gro/parsec"
 	u8 "github.com/grolang/gro/utf88"
 )
 
+/*
+We need to define BigRat as a separate type so we can define
+a (BigRat)String() method on the contents of big.Rat,
+because only the method on the pointer (*big.Rat)String() exists.
+Ditto, big.Int and big.Float.
+*/
 type (
-	Int      int64
-	BigInt   big.Int
-	BigRat   big.Rat
-	Float    float64
-	BigFloat big.Float
-	Complex  complex128
+	Int        = int64
+	BigInt     big.Int
+	BigRat     big.Rat
+	Float      = float64
+	BigFloat   big.Float
+	Complex    = complex128
+	BigComplex struct{ Re, Im big.Float }
+	Infinity   struct{} //Riemann-style infinity
 )
 
-var (
-	Inf = Complex(cmplx.Inf())
-	NaN = Complex(cmplx.NaN())
-)
+var Inf = Infinity{}
 
-/*
-BigComplex consists of real and imaginary components, each of type big.Float
-as introduced in the Go 1.5 math/big package.
-*/
-type BigComplex struct {
-	Re, Im big.Float
+var typeWeights = map[reflect.Type]int{
+	reflect.TypeOf(nil):                                                1,
+	reflect.TypeOf(false):                                              2,
+	reflect.TypeOf(Int(0)):                                             3,
+	reflect.TypeOf(BigInt(*big.NewInt(0))):                             4,
+	reflect.TypeOf(BigRat(*big.NewRat(0, 1))):                          5,
+	reflect.TypeOf(Float(0.0)):                                         6,
+	reflect.TypeOf(BigFloat(*big.NewFloat(0.0))):                       7,
+	reflect.TypeOf(Complex(0 + 0i)):                                    8,
+	reflect.TypeOf(BigComplex{*big.NewFloat(0.0), *big.NewFloat(0.0)}): 9,
+	reflect.TypeOf(Inf):                                                10,
 }
 
-/*
-PosIntRange represents a range in the positive integers.
-From can be any Int or BigInt from 0 up.
-To can be any Int or BigInt from 0 up, or be Float.Inf(1).
-*/
-type PosIntRange struct {
-	From, To interface{}
+func numericTypes(x, y interface{}) bool {
+	return typeWeights[reflect.TypeOf(x)] != 0 && typeWeights[reflect.TypeOf(y)] != 0 &&
+		typeWeights[reflect.TypeOf(x)] > typeWeights[reflect.TypeOf(y)]
 }
 
-/*
-FromVal of PosIntRange returns From as an Int. It returns 0, however, if it's negative,
-or returns the maximum Int if it's a BigInt greater than that.
+//==============================================================================
 
-TODO: more tests.
-*/
-func (r PosIntRange) FromVal() Int {
-	switch r.From.(type) {
-	case Int:
-		if r.From.(Int) < 0 {
-			return Int(0)
-		} else {
-			return r.From.(Int)
-		}
-	case BigInt:
-		ar := big.Int(r.From.(BigInt))
-		if big.NewInt(0).Cmp(&ar) == 1 {
-			return Int(0)
-		} else if big.NewInt(0x7fffffffffffffff).Cmp(&ar) == -1 {
-			return Int(0x7fffffffffffffff)
-		} else {
-			return Int(ar.Int64())
-		}
-	default:
-		panic("PosIntRange.FromVal: invalid input type")
-	}
-}
-
-/*
-ToVal of PosIntRange returns To as an Int. It returns 0, however, if it's negative,
-and returns the maximum Int if it's a BigInt greater than that, or infinity.
-
-TODO: more tests.
-*/
-func (r PosIntRange) ToVal() Int {
-	switch r.To.(type) {
-	case float64:
-		if math.IsInf(r.To.(float64), 1) {
-			return Int(0x7fffffffffffffff)
-		} else {
-			panic("PosIntRange.ToVal: invalid input type")
-		}
-	case Int:
-		if r.To.(Int) < 0 {
-			return Int(0)
-		} else {
-			return r.To.(Int)
-		}
-	case BigInt:
-		ar := big.Int(r.To.(BigInt))
-		if big.NewInt(0).Cmp(&ar) == 1 {
-			return Int(0)
-		} else if big.NewInt(0x7fffffffffffffff).Cmp(&ar) == -1 {
-			return Int(0x7fffffffffffffff)
-		} else {
-			return Int(ar.Int64())
-		}
-	default:
-		panic("PosIntRange.ToVal: invalid input type")
-	}
-}
-
-/*
-IsToInf of PosIntRange returns true if To is infinity, otherwise false.
-*/
-func (r PosIntRange) IsToInf() bool {
-	floatVal, isFloat := r.To.(float64)
-	return isFloat && math.IsInf(floatVal, 1)
-}
-
-/*
-NewBigInt returns a new BigInt seeded by an int64 value.
-*/
-func NewBigInt(x int64) BigInt {
-	return BigInt(*big.NewInt(x))
-}
-
-/*
-NewBigRat returns a new BigRat seeded by two int64 values.
-*/
-func NewBigRat(x, y int64) BigRat {
-	return BigRat(*big.NewRat(x, y))
-}
-
-/*
-NewBigFloat returns a new BigFloat seeded by a float64 value,
-a big.Float value, or another BigFloat value.
-*/
-func NewBigFloat(x interface{}) BigFloat {
-	switch x.(type) {
-	case float64:
-		xf := x.(float64)
-		if math.IsInf(xf, 1) || math.IsInf(xf, -1) || math.IsNaN(xf) {
-			panic("NewBigFloat: Arg can't be infinity or NaN")
-		} else {
-			return BigFloat(*big.NewFloat(xf))
-		}
-	case big.Float:
-		return BigFloat(x.(big.Float))
-	case BigFloat:
-		return x.(BigFloat)
-	default:
-		panic("NewBigFloat: invalid input type")
-	}
-}
-
-/*
-NewBigComplex returns a new BigComplex, the real and imaginary values each
-seeded by a float64 value, a big.Float value, or a BigFloat value.
-*/
-func NewBigComplex(x, y interface{}) BigComplex {
-	xf := big.Float(NewBigFloat(x))
-	yf := big.Float(NewBigFloat(y))
-
-	if xf.IsInf() || yf.IsInf() {
-		panic("NewBigComplex: Neither arg can be infinity")
-	} else {
-		return BigComplex{xf, yf}
-	}
-}
-
-/*
-String of BigInt returns a string representation of its value.
-*/
+//String of BigInt returns a string representation of its value.
 func (n BigInt) String() string {
 	nr := big.Int(n)
 	return nr.String()
 }
 
-/*
-String of BigRat returns a string representation of its value.
-*/
+//String of BigRat returns a string representation of its value.
 func (n BigRat) String() string {
 	nr := big.Rat(n)
 	return nr.String()
 }
 
-/*
-String of BigFloat returns a string representation of its value.
-*/
+//String of BigFloat returns a string representation of its value.
 func (n BigFloat) String() string {
 	x := big.Float(n)
 	return x.String()
 }
 
-/*
-String of BigComplex returns a string representation of its value.
-*/
+//String of BigComplex returns a string representation of its value.
 func (n BigComplex) String() string {
 	r := big.Float(n.Re)
 	i := big.Float(n.Im)
 	return r.String() + "+" + i.String() + "i"
 }
 
-/*
-IsEqual of Float returns true if this equals that.
-*/
-func (this Float) IsEqual(that interface{}) bool {
-	switch that.(type) {
-	case Float:
-		x := that.(Float)
-		if math.IsNaN(float64(x)) && math.IsNaN(float64(this)) {
-			return true
-		}
-		return float64(x) == float64(this)
-
-	default:
-		panic("Float.IsEqual: only Floats are valid args for now")
-	}
+//String of Infinity returns a string representation of its value.
+func (n Infinity) String() string {
+	return "inf"
 }
 
+//String of Slice returns a string representation of its value.
+func (s Slice) String() string {
+	str := "{"
+	for i, v := range s {
+		if i > 0 {
+			str = str + ", "
+		}
+		str = str + fmt.Sprintf("%v", v)
+	}
+	return str + "}"
+}
+
+//==============================================================================
 /*
-IsEqual of BigFloat returns true if this equals that.
+narrow returns Inf if x is infinite, nil if x is NaN, otherwise converts
+the type of x to its simplest possible type in the numeric hierarchy.
+x is returned unchanged if it's not in the hierarchy.
 */
-func (this BigFloat) IsEqual(that interface{}) bool {
-	switch that.(type) {
+func narrow(x interface{}) interface{} {
+	switch x.(type) {
+
+	case nil, bool, Int, Infinity:
+		return x
+
+	case BigInt:
+		//TODO: narrow BigInt to Int for low BigInt
+		return x
+
+	case BigRat:
+		xr := big.Rat(x.(BigRat))
+		if reflect.DeepEqual(*xr.Denom(), *big.NewInt(1)) {
+			return BigInt(*xr.Num())
+		} else {
+			return x
+		}
 
 	case Float:
-		x := big.Float(this)
-		y := big.Float(NewBigFloat(that.(Float)))
-		return x.Cmp(&y) == 0
+		//TODO: narrow Float to Int if nothing after decimal point
+		xf := float64(x.(Float))
+		if math.IsInf(xf, 0) {
+			return Inf
+		} else if math.IsNaN(xf) {
+			return nil
+		} else {
+			return x
+		}
 
 	case BigFloat:
-		x := big.Float(this)
-		y := big.Float(that.(BigFloat))
-		return x.Cmp(&y) == 0
-
-	default:
-		panic("BigFloat.IsEqual: only numerics of lower weighting are valid args")
-	}
-}
-
-/*
-IsEqual of Complex returns true if this equals that.
-*/
-func (this Complex) IsEqual(that interface{}) bool {
-	switch that.(type) {
-	case Complex:
-		x := that.(Complex)
-		if cmplx.IsNaN(complex128(x)) && cmplx.IsNaN(complex128(this)) {
-			return true
+		//TODO: narrow BigFloat to BigInt if nothing after decimal point
+		xf := big.Float(x.(BigFloat))
+		if xf.IsInf() {
+			return Inf
+		} else {
+			return x
 		}
-		return complex128(x) == complex128(this)
-
-	default:
-		panic("Complex.IsEqual: only Complexes are valid args for now")
-	}
-}
-
-/*
-IsEqual of BigComplex returns true if this equals that.
-*/
-func (this BigComplex) IsEqual(that interface{}) bool {
-	switch that.(type) {
-
-	case BigFloat:
-		x := big.Float(that.(BigFloat))
-		y := *big.NewFloat(0)
-		return this.Re.Cmp(&x) == 0 && this.Im.Cmp(&y) == 0
 
 	case Complex:
-		x := that.(Complex)
-		xr := *big.NewFloat(real(complex128(x)))
-		xi := *big.NewFloat(imag(complex128(x)))
-		return this.Re.Cmp(&xr) == 0 && this.Im.Cmp(&xi) == 0
+		//TODO: narrow re+0.0i etc to narrower 0
+		xc := complex128(x.(Complex))
+		if cmplx.IsInf(xc) {
+			return Inf
+		} else if cmplx.IsNaN(xc) {
+			return nil
+		} else {
+			return x
+		}
 
 	case BigComplex:
-		x := that.(BigComplex)
-		xr := x.Re
-		xi := x.Im
-		return this.Re.Cmp(&xr) == 0 && this.Im.Cmp(&xi) == 0
+		//TODO: narrow BigComplex re+0.0i etc to narrower 0
+		xr := x.(BigComplex).Re
+		xi := x.(BigComplex).Im
+		if xr.IsInf() || xi.IsInf() {
+			return Inf
+		} else {
+			return x
+		}
 
 	default:
-		panic("BigComplex.IsEqual: only numerics of lower weighting are valid args")
+		return x
 	}
 }
 
-var typeWeights = map[reflect.Type]int{
-	nil: 1,
-	reflect.TypeOf(false):                   2,
-	reflect.TypeOf(Int(0)):                  3,
-	reflect.TypeOf(NewBigInt(0)):            4,
-	reflect.TypeOf(NewBigRat(0, 1)):         5,
-	reflect.TypeOf(Float(0.0)):              6,
-	reflect.TypeOf(NewBigFloat(0.0)):        7,
-	reflect.TypeOf(Complex(0 + 0i)):         8,
-	reflect.TypeOf(NewBigComplex(0.0, 0.0)): 9,
-}
-
+/*
+widen converts values to types in the numeric hierarchy,
+then narrows the type if possible.
+*/
 func widen(x interface{}) interface{} {
 	switch x.(type) {
+	case nil, bool:
+		return x
+
 	case int:
 		return Int(x.(int))
 	case int8:
@@ -318,28 +198,45 @@ func widen(x interface{}) interface{} {
 		if x.(uint64) < (1 << 63) {
 			return Int(x.(uint64))
 		} else {
-			x := big.NewInt(int64(x.(uint64) - (1 << 63)))
-			y := big.NewInt(1 << 62)
-			return BigInt(*x.Add(x, y).Add(x, y))
+			a := big.NewInt(int64(x.(uint64) - (1 << 63)))
+			b := big.NewInt(1 << 62)
+			return BigInt(*a.Add(a, b).Add(a, b))
 		}
 
 	case uint:
 		if uint64(x.(uint)) < (1 << 63) {
 			return Int(x.(uint))
 		} else {
-			x := big.NewInt(int64(x.(uint)) - (1 << 62) - (1 << 62))
-			y := big.NewInt(1 << 62)
-			return BigInt(*x.Add(x, y).Add(x, y))
+			a := big.NewInt(int64(x.(uint)) - (1 << 62) - (1 << 62))
+			b := big.NewInt(1 << 62)
+			return BigInt(*a.Add(a, b).Add(a, b))
 		}
 
 	case float32:
-		return narrow(Float(x.(float32)))
+		if math.IsInf(float64(x.(float32)), 0) {
+			return Inf
+		} else {
+			return narrow(Float(x.(float32)))
+		}
 	case float64:
-		return narrow(Float(x.(float64)))
+		if math.IsInf(x.(float64), 0) {
+			return Inf
+		} else {
+			return narrow(Float(x.(float64)))
+		}
+
 	case complex64:
-		return narrow(Complex(x.(complex64)))
+		if cmplx.IsInf(complex128(x.(complex64))) {
+			return Inf
+		} else {
+			return narrow(Complex(x.(complex64)))
+		}
 	case complex128:
-		return narrow(Complex(x.(complex128)))
+		if cmplx.IsInf(x.(complex128)) {
+			return Inf
+		} else {
+			return narrow(Complex(x.(complex128)))
+		}
 
 	case big.Int:
 		return BigInt(x.(big.Int))
@@ -356,89 +253,117 @@ func widen(x interface{}) interface{} {
 		return u8.Desur(x.(string))
 		//MAYBE TODO: check if string is a valid Codepoint first ???
 
-	/*case []interface{}: //TODO: extend logic to handle slices of any typed value
-	vs := []interface{}{}
-	for _, v := range x.([]interface{}) {
-		vs = append(vs, widen(v))
-	}
-	return Slice(vs)
-	*/
-
-	/*case map[interface{}]interface{}: //TODO: extend logic to handle maps of any typed key and value
-	es := map[interface{}]interface{}{}
-	for k, v := range x.(map[interface{}]interface{}) {
-		es[widen(k)] = widen(v)
-	}
-	return es
-	*/
-
-	default: //includes nil, bool
+	case u8.Text, Slice, Map:
 		return x
-	}
-}
-
-func narrow(x interface{}) interface{} {
-	switch x.(type) {
-	case nil, bool, Int, BigInt:
-		return x
-
-	//TODO: narrow BigInt to Int for low BigInt
-	//MAYBE TODO: narrow 0.0+0.0i etc to narrower 0
-
-	case BigRat:
-		xf := big.Rat(x.(BigRat))
-		if reflect.DeepEqual(*xf.Denom(), *big.NewInt(1)) {
-			return BigInt(*xf.Num())
-		} else {
-			return x
-		}
-
-	case Float:
-		xf := float64(x.(Float))
-		if math.IsInf(xf, -1) || math.IsInf(xf, 1) {
-			return Inf
-		} else if math.IsNaN(xf) {
-			return NaN
-		} else {
-			return x
-		}
-
-	case BigFloat:
-		xf := big.Float(x.(BigFloat))
-		if xf.IsInf() {
-			return Inf
-		} else {
-			return x
-		}
-
-	case Complex:
-		xc := complex128(x.(Complex))
-		if cmplx.IsInf(xc) {
-			return Inf
-		} else if cmplx.IsNaN(xc) {
-			return NaN
-		} else {
-			return x
-		}
-
-	case BigComplex:
-		xr := x.(BigComplex).Re
-		xi := x.(BigComplex).Im
-		if xr.IsInf() || xi.IsInf() {
-			return Inf
-		} else {
-			return x
-		}
 
 	default:
-		return x
+		switch reflect.TypeOf(x).Kind() {
+		case reflect.Slice:
+			vs := []interface{}{}
+			s := reflect.ValueOf(x)
+			for i := 0; i < s.Len(); i++ {
+				vs = append(vs, widen(s.Index(i).Interface()))
+			}
+			return Slice(vs)
+
+		case reflect.Map:
+			es := map[interface{}]interface{}{}
+			ss := []interface{}{}
+			s := reflect.ValueOf(x)
+			for _, k := range s.MapKeys() {
+				kk := widen(k.Interface())
+				vv := widen(s.MapIndex(k).Interface())
+				es[kk] = vv
+				ss = append(ss, kk) //####
+			}
+			return Map{lkp: es, seq: ss}
+
+		default:
+			return x //should panic ???
+		}
+		return x //should panic ???
 	}
 }
+
+//==============================================================================
+
+/*
+ToBool converts nil, false, zeroes, the empty string or utf88.Text to false,
+and all other values to true.
+*/
+func ToBool(x interface{}) bool {
+	x = widen(x)
+	switch x.(type) {
+	case nil:
+		return false
+	case bool:
+		return x.(bool)
+	case Int:
+		return x.(Int) != 0
+	case BigInt:
+		ax := big.Int(x.(BigInt))
+		return big.NewInt(0).Cmp(&ax) != 0
+	case BigRat:
+		ax := big.Rat(x.(BigRat))
+		return big.NewRat(0, 1).Cmp(&ax) != 0
+	case Float:
+		return x.(Float) != 0
+	case BigFloat:
+		ax := big.Float(x.(BigFloat))
+		return big.NewFloat(0.0).Cmp(&ax) != 0
+	case Complex:
+		return x.(Complex) != 0
+	case BigComplex:
+		axx := big.Float(BigFloat(x.(BigComplex).Re))
+		axy := big.Float(BigFloat(x.(BigComplex).Im))
+		return big.NewFloat(0.0).Cmp(&axx) != 0 || big.NewFloat(0.0).Cmp(&axy) != 0
+	case Infinity:
+		return true
+
+	case u8.Text:
+		if len(x.(u8.Text)) == 0 {
+			return false
+		} else {
+			return true
+		}
+
+	//MAYBE TODO: Codepoint, CharClass, Regex ???
+
+	default:
+		return true
+	}
+}
+
+func ToInt(r interface{}) Int {
+	switch r.(type) {
+	case Int:
+		if r.(Int) < 0 {
+			return Int(0)
+		} else {
+			return r.(Int)
+		}
+	case BigInt:
+		ar := big.Int(r.(BigInt))
+		if big.NewInt(0).Cmp(&ar) == 1 {
+			return Int(0)
+		} else if big.NewInt(0x7fffffffffffffff).Cmp(&ar) == -1 {
+			return Int(0x7fffffffffffffff)
+		} else {
+			return Int(ar.Int64())
+		}
+	case Infinity:
+		return Int(0x7fffffffffffffff)
+	default:
+		panic(fmt.Sprintf("toInt: invalid input type %T", r))
+	}
+}
+
+//==============================================================================
 
 /*
 Identity converts:
-  float32 and float64 to Float (float64), but NaN is converted to Complex NaN
-  complex64 and complex128 to Complex (complex128)
+  float32 and float64 to Float (float64), but NaN is converted to nil
+  complex64 and complex128 to Complex (complex128), but NaN converted to nil
   int, int8, int16, int32/rune, int64, uint8, uint16, and uint32 to Int
   uint and uint64 to Int, unless it overflows, in which case it converts to BigInt
   string to u8.Text
@@ -457,7 +382,7 @@ and Text with each other, otherwise, reflect.DeepEqual is called.
 */
 func IsEqual(x, y interface{}) bool {
 	x, y = widen(x), widen(y)
-	if typeWeights[reflect.TypeOf(x)] > typeWeights[reflect.TypeOf(y)] {
+	if numericTypes(x, y) {
 		x, y = y, x
 	}
 
@@ -467,9 +392,11 @@ func IsEqual(x, y interface{}) bool {
 		case nil:
 			return true
 		case bool:
-			return !x.(bool)
+			return !y.(bool)
 		case Int, BigInt, BigRat, Float, BigFloat, Complex, BigComplex:
 			return !ToBool(x)
+		case Infinity:
+			return false
 		default:
 			panic("IsEqual: nil and non-numeric invalid")
 		}
@@ -480,110 +407,113 @@ func IsEqual(x, y interface{}) bool {
 			return x.(bool) == y.(bool)
 		case Int, BigInt, BigRat, Float, BigFloat, Complex, BigComplex:
 			return x.(bool) == ToBool(y)
+		case Infinity:
+			return x.(bool)
 		default:
 			panic("IsEqual: bool and non-numeric invalid")
 		}
 
 	case Int:
+		ax := x.(Int)
 		switch y.(type) {
 		case Int:
-			return x.(Int) == y.(Int)
+			return ax == y.(Int)
 		case BigInt:
 			ay := big.Int(y.(BigInt))
-			return big.NewInt(int64(x.(Int))).Cmp(&ay) == 0
+			return big.NewInt(int64(ax)).Cmp(&ay) == 0
 		case BigRat:
 			ay := big.Rat(y.(BigRat))
-			return big.NewRat(int64(x.(Int)), 1).Cmp(&ay) == 0
+			return big.NewRat(int64(ax), 1).Cmp(&ay) == 0
 		case Float:
-			return Float(x.(Int)) == y.(Float)
+			return Float(ax) == y.(Float)
 		case BigFloat:
 			ay := big.Float(y.(BigFloat))
-			return big.NewFloat(float64(x.(Int))).Cmp(&ay) == 0
+			return big.NewFloat(float64(ax)).Cmp(&ay) == 0
 		case Complex:
-			return Complex(complex(float64(x.(Int)), 0)) == y.(Complex)
+			return Complex(complex(float64(ax), 0)) == y.(Complex)
 		case BigComplex:
-			ayr := big.Float(BigFloat(y.(BigComplex).Re))
-			ayi := big.Float(BigFloat(y.(BigComplex).Im))
-			return big.NewFloat(float64(x.(Int))).Cmp(&ayr) == 0 && big.NewFloat(0.0).Cmp(&ayi) == 0
+			yr := big.Float(BigFloat(y.(BigComplex).Re))
+			yi := big.Float(BigFloat(y.(BigComplex).Im))
+			return big.NewFloat(float64(ax)).Cmp(&yr) == 0 && big.NewFloat(0.0).Cmp(&yi) == 0
+		case Infinity:
+			return false
 		default:
 			panic("IsEqual: Int and non-numeric invalid")
 		}
 
 	case BigInt:
+		ax := big.Int(x.(BigInt))
 		switch y.(type) {
 		case BigInt:
-			ax := big.Int(x.(BigInt))
 			ay := big.Int(y.(BigInt))
 			return ax.Cmp(&ay) == 0
 		case BigRat:
-			ax := big.Int(x.(BigInt))
 			ay := big.Rat(y.(BigRat))
 			return big.NewRat(0, 1).SetFrac(&ax, big.NewInt(1)).Cmp(&ay) == 0
 		case Float:
-			ax := big.Int(x.(BigInt))
 			xf, _ := big.NewRat(0, 1).SetFrac(&ax, big.NewInt(1)).Float64()
 			return Float(xf) == y.(Float)
 		case BigFloat:
-			ax := big.Int(x.(BigInt))
 			xf, _ := big.NewRat(0, 1).SetFrac(&ax, big.NewInt(1)).Float64()
 			ay := big.Float(y.(BigFloat))
 			return big.NewFloat(xf).Cmp(&ay) == 0
 		case Complex:
-			ax := big.Int(x.(BigInt))
 			xf, _ := big.NewRat(0, 1).SetFrac(&ax, big.NewInt(1)).Float64()
 			return Complex(complex(xf, 0)) == y.(Complex)
 		case BigComplex:
-			ax := big.Int(x.(BigInt))
 			xf, _ := big.NewRat(0, 1).SetFrac(&ax, big.NewInt(1)).Float64()
-			ayr := big.Float(BigFloat(y.(BigComplex).Re))
-			ayi := big.Float(BigFloat(y.(BigComplex).Im))
-			return big.NewFloat(xf).Cmp(&ayr) == 0 && big.NewFloat(0.0).Cmp(&ayi) == 0
+			yr := big.Float(BigFloat(y.(BigComplex).Re))
+			yi := big.Float(BigFloat(y.(BigComplex).Im))
+			return big.NewFloat(xf).Cmp(&yr) == 0 && big.NewFloat(0.0).Cmp(&yi) == 0
+		case Infinity:
+			return false
 		default:
 			panic("IsEqual: BigInt and non-numeric invalid")
 		}
 
 	case BigRat:
+		ax := big.Rat(x.(BigRat))
 		switch y.(type) {
 		case BigRat:
-			ax := big.Rat(x.(BigRat))
 			ay := big.Rat(y.(BigRat))
 			return ax.Cmp(&ay) == 0
 		case Float:
-			ax := big.Rat(x.(BigRat))
 			xf, _ := ax.Float64()
 			return Float(xf) == y.(Float)
 		case BigFloat:
-			ax := big.Rat(x.(BigRat))
 			xf, _ := ax.Float64()
 			ay := big.Float(y.(BigFloat))
 			return big.NewFloat(xf).Cmp(&ay) == 0
 		case Complex:
-			ax := big.Rat(x.(BigRat))
 			xf, _ := ax.Float64()
 			return Complex(complex(xf, 0)) == y.(Complex)
 		case BigComplex:
-			ax := big.Rat(x.(BigRat))
 			xf, _ := ax.Float64()
-			ayr := big.Float(BigFloat(y.(BigComplex).Re))
-			ayi := big.Float(BigFloat(y.(BigComplex).Im))
-			return big.NewFloat(xf).Cmp(&ayr) == 0 && big.NewFloat(0.0).Cmp(&ayi) == 0
+			yr := big.Float(BigFloat(y.(BigComplex).Re))
+			yi := big.Float(BigFloat(y.(BigComplex).Im))
+			return big.NewFloat(xf).Cmp(&yr) == 0 && big.NewFloat(0.0).Cmp(&yi) == 0
+		case Infinity:
+			return false
 		default:
 			panic("IsEqual: BigRat and non-numeric invalid")
 		}
 
 	case Float:
+		ax := x.(Float)
 		switch y.(type) {
 		case Float:
-			return x.(Float) == y.(Float)
+			return ax == y.(Float)
 		case BigFloat:
 			ay := big.Float(y.(BigFloat))
-			return big.NewFloat(float64(x.(Float))).Cmp(&ay) == 0
+			return big.NewFloat(float64(ax)).Cmp(&ay) == 0
 		case Complex:
-			return Complex(complex(x.(Float), 0)) == y.(Complex)
+			return Complex(complex(ax, 0)) == y.(Complex)
 		case BigComplex:
-			ayr := big.Float(BigFloat(y.(BigComplex).Re))
-			ayi := big.Float(BigFloat(y.(BigComplex).Im))
-			return big.NewFloat(float64(x.(Float))).Cmp(&ayr) == 0 && big.NewFloat(0.0).Cmp(&ayi) == 0
+			yr := big.Float(BigFloat(y.(BigComplex).Re))
+			yi := big.Float(BigFloat(y.(BigComplex).Im))
+			return big.NewFloat(float64(ax)).Cmp(&yr) == 0 && big.NewFloat(0.0).Cmp(&yi) == 0
+		case Infinity:
+			return false
 		default:
 			panic("IsEqual: Float and non-numeric invalid")
 		}
@@ -596,20 +526,36 @@ func IsEqual(x, y interface{}) bool {
 			return ax.Cmp(&ay) == 0
 		case Complex:
 			ax := big.Float(x.(BigFloat))
-			ay := big.Float(NewBigFloat(real(y.(Complex))))
+			ay := *big.NewFloat(real(y.(Complex)))
 			return ax.Cmp(&ay) == 0 && imag(y.(Complex)) == 0
 		case BigComplex:
-			return y.(BigComplex).IsEqual(x)
+			ax := big.Float(x.(BigFloat))
+			ay := *big.NewFloat(0)
+			yr := y.(BigComplex).Re
+			yi := y.(BigComplex).Im
+			return (&yr).Cmp(&ax) == 0 && (&yi).Cmp(&ay) == 0
+		case Infinity:
+			return false
 		default:
 			panic("IsEqual: BigFloat and non-numeric invalid")
 		}
 
 	case Complex:
+		ax := x.(Complex)
 		switch y.(type) {
 		case Complex:
-			return x.(Complex) == y.(Complex)
+			if cmplx.IsNaN(complex128(ax)) && cmplx.IsNaN(complex128(y.(Complex))) {
+				return true
+			}
+			return ax == y.(Complex)
 		case BigComplex:
-			return y.(BigComplex).IsEqual(x)
+			xr := *big.NewFloat(real(complex128(ax)))
+			xi := *big.NewFloat(imag(complex128(ax)))
+			yr := y.(BigComplex).Re
+			yi := y.(BigComplex).Im
+			return (&yr).Cmp(&xr) == 0 && (&yi).Cmp(&xi) == 0
+		case Infinity:
+			return false
 		default:
 			panic("IsEqual: Complex and non-numeric invalid")
 		}
@@ -617,9 +563,23 @@ func IsEqual(x, y interface{}) bool {
 	case BigComplex:
 		switch y.(type) {
 		case BigComplex:
-			return x.(BigComplex).IsEqual(y)
+			xr := x.(BigComplex).Re
+			xi := x.(BigComplex).Im
+			yr := y.(BigComplex).Re
+			yi := y.(BigComplex).Im
+			return (&yr).Cmp(&xr) == 0 && (&yi).Cmp(&xi) == 0
+		case Infinity:
+			return false
 		default:
 			panic("IsEqual: BigComplex and non-numeric invalid")
+		}
+
+	case Infinity:
+		switch y.(type) {
+		case Infinity:
+			return true
+		default:
+			panic("IsEqual: Infinity and non-numeric invalid")
 		}
 
 	case time.Time:
@@ -630,12 +590,22 @@ func IsEqual(x, y interface{}) bool {
 			panic("IsEqual: Date and non-Date invalid")
 		}
 
+	//TODO: add u8.Codepoint cases
+
 	case u8.Text:
 		switch y.(type) {
 		case u8.Text:
 			return string(u8.SurrogatePoints(x.(u8.Text))) == string(u8.SurrogatePoints(y.(u8.Text)))
 		default:
-			panic("IsEqual: u8.Text and non-u8.Text invalid")
+			panic("IsEqual: u8.Text can only operate with u8.Text")
+		}
+
+	case Map:
+		switch y.(type) {
+		case Map:
+			return reflect.DeepEqual(x.(Map).lkp, y.(Map).lkp)
+		default:
+			panic("IsEqual: Map can only operate with Map")
 		}
 
 	default:
@@ -646,54 +616,50 @@ func IsEqual(x, y interface{}) bool {
 /*
 IsLessThan returns true if both arguments are non-complex numeric or Dates,
 and x is less than y.
-It panics if either arg is nil, bool, Complex, BigComplex, or non-numeric.
+It panics if either arg is nil, bool, Complex, BigComplex, Infinity, or non-numeric.
 */
 func IsLessThan(x, y interface{}) bool {
 	x, y = widen(x), widen(y)
-	if typeWeights[reflect.TypeOf(x)] > typeWeights[reflect.TypeOf(y)] {
+	if numericTypes(x, y) {
 		return !IsLessThan(y, x) && !IsEqual(x, y)
 	}
 
-	//MAYBE TODO: add cases comparing Complex/BigComplex with each other using absolute values ???
-	//MAYBE TODO: use Absolute Value if at least one arg is Complex or BigComplex ???
-	//MAYBE TODO: nil lower than everything ???
+	//MAYBE TODO: nil and boolean and Infinity ???
 
 	switch x.(type) {
 	case Int:
+		ax := x.(Int)
 		switch y.(type) {
 		case Int:
-			return x.(Int) < y.(Int)
+			return ax < y.(Int)
 		case BigInt:
 			ay := big.Int(y.(BigInt))
-			return big.NewInt(int64(x.(Int))).Cmp(&ay) == -1
+			return big.NewInt(int64(ax)).Cmp(&ay) == -1
 		case BigRat:
 			ay := big.Rat(y.(BigRat))
-			return big.NewRat(int64(x.(Int)), 1).Cmp(&ay) == -1
+			return big.NewRat(int64(ax), 1).Cmp(&ay) == -1
 		case Float:
-			return Float(x.(Int)) < y.(Float)
+			return Float(ax) < y.(Float)
 		case BigFloat:
 			ay := big.Float(y.(BigFloat))
-			return big.NewFloat(float64(x.(Int))).Cmp(&ay) == -1
+			return big.NewFloat(float64(ax)).Cmp(&ay) == -1
 		default:
 			panic("IsLessThan: only Int, BigInt, Rat, Float, and BigFloat args valid")
 		}
 
 	case BigInt:
+		ax := big.Int(x.(BigInt))
 		switch y.(type) {
 		case BigInt:
-			ax := big.Int(x.(BigInt))
 			ay := big.Int(y.(BigInt))
 			return ax.Cmp(&ay) == -1
 		case BigRat:
-			ax := big.Int(x.(BigInt))
 			ay := big.Rat(y.(BigRat))
 			return big.NewRat(0, 1).SetFrac(&ax, big.NewInt(1)).Cmp(&ay) == -1
 		case Float:
-			ax := big.Int(x.(BigInt))
 			xf, _ := big.NewRat(0, 1).SetFrac(&ax, big.NewInt(1)).Float64()
 			return Float(xf) < y.(Float)
 		case BigFloat:
-			ax := big.Int(x.(BigInt))
 			xf, _ := big.NewRat(0, 1).SetFrac(&ax, big.NewInt(1)).Float64()
 			ay := big.Float(y.(BigFloat))
 			return big.NewFloat(xf).Cmp(&ay) == -1
@@ -702,17 +668,15 @@ func IsLessThan(x, y interface{}) bool {
 		}
 
 	case BigRat:
+		ax := big.Rat(x.(BigRat))
 		switch y.(type) {
 		case BigRat:
-			ax := big.Rat(x.(BigRat))
 			ay := big.Rat(y.(BigRat))
 			return ax.Cmp(&ay) == -1
 		case Float:
-			ax := big.Rat(x.(BigRat))
 			xf, _ := ax.Float64()
 			return Float(xf) < y.(Float)
 		case BigFloat:
-			ax := big.Rat(x.(BigRat))
 			xf, _ := ax.Float64()
 			ay := big.Float(y.(BigFloat))
 			return big.NewFloat(xf).Cmp(&ay) == -1
@@ -721,12 +685,13 @@ func IsLessThan(x, y interface{}) bool {
 		}
 
 	case Float:
+		ax := x.(Float)
 		switch y.(type) {
 		case Float:
-			return x.(Float) < y.(Float)
+			return ax < y.(Float)
 		case BigFloat:
 			ay := big.Float(y.(BigFloat))
-			return big.NewFloat(float64(x.(Float))).Cmp(&ay) == -1
+			return big.NewFloat(float64(ax)).Cmp(&ay) == -1
 		default:
 			panic("IsLessThan: only Int, BigInt, Rat, Float, and BigFloat args valid")
 		}
@@ -749,6 +714,8 @@ func IsLessThan(x, y interface{}) bool {
 			panic("IsLessThan: Date and non-Date invalid")
 		}
 
+	//TODO: add u8.Codepoint and u8.Text cases
+
 	default:
 		panic("IsLessThan: only Int, BigInt, Rat, Float, BigFloat, and Date args valid")
 	}
@@ -758,8 +725,6 @@ func IsLessThan(x, y interface{}) bool {
 IsNotEqual returns true if both arguments are non-complex numeric or Dates,
 and x is not equal to y.
 It panics if either arg is nil, bool, Complex, BigComplex, or non-numeric.
-
-//TODO: TEST IT
 */
 func IsNotEqual(x, y interface{}) bool {
 	return !IsEqual(x, y)
@@ -769,8 +734,6 @@ func IsNotEqual(x, y interface{}) bool {
 IsLessOrEqual returns true if both arguments are non-complex numeric or Dates,
 and x is less than or equal to y.
 It panics if either arg is nil, bool, Complex, BigComplex, or non-numeric.
-
-//TODO: TEST IT
 */
 func IsLessOrEqual(x, y interface{}) bool {
 	return IsLessThan(x, y) || IsEqual(x, y)
@@ -780,8 +743,6 @@ func IsLessOrEqual(x, y interface{}) bool {
 IsGreaterThan returns true if both arguments are non-complex numeric or Dates,
 and x is greater than y.
 It panics if either arg is nil, bool, Complex, BigComplex, or non-numeric.
-
-//TODO: TEST IT
 */
 func IsGreaterThan(x, y interface{}) bool {
 	return !IsLessOrEqual(x, y)
@@ -791,8 +752,6 @@ func IsGreaterThan(x, y interface{}) bool {
 IsGreaterOrEqual returns true if both arguments are non-complex numeric or Dates,
 and x is greater than or equal to y.
 It panics if either arg is nil, bool, Complex, BigComplex, or non-numeric.
-
-//TODO: TEST IT
 */
 func IsGreaterOrEqual(x, y interface{}) bool {
 	return !IsLessThan(x, y)
@@ -807,218 +766,229 @@ For Slice x, return a new slice with element y appended.
 */
 func Plus(x, y interface{}) interface{} {
 	x, y = widen(x), widen(y)
-	if typeWeights[reflect.TypeOf(x)] > typeWeights[reflect.TypeOf(y)] {
+	if numericTypes(x, y) {
 		x, y = y, x
 	}
 
 	switch x.(type) {
 	case nil:
 		switch y.(type) {
-		case nil, bool, Int, BigInt, BigRat, Float, BigFloat, Complex, BigComplex:
-			return y
+		case nil, bool, Int, BigInt, BigRat, Float, BigFloat, Complex, BigComplex, Infinity:
+			return nil
 		default:
 			panic("Plus: nil and non-numeric invalid")
 		}
 
-	case bool:
+	case bool: //false is 0, true is 1
+		ax := x.(bool)
 		switch y.(type) {
 		case bool:
-			return x.(bool) || y.(bool)
+			return ax || y.(bool)
 		case Int:
-			if x.(bool) {
+			if ax {
 				return 1 + y.(Int)
 			} else {
 				return y.(Int)
 			}
 		case BigInt:
-			if x.(bool) {
+			if ax {
 				ay := big.Int(y.(BigInt))
 				return BigInt(*big.NewInt(0).Add(big.NewInt(1), &ay))
 			} else {
 				return y.(BigInt)
 			}
 		case BigRat:
-			if x.(bool) {
+			if ax {
 				ay := big.Rat(y.(BigRat))
 				return BigRat(*big.NewRat(0, 1).Add(big.NewRat(1, 1), &ay))
 			} else {
 				return y.(BigRat)
 			}
 		case Float:
-			if x.(bool) {
+			if ax {
 				return 1.0 + y.(Float)
 			} else {
 				return y.(Float)
 			}
 		case BigFloat:
-			if x.(bool) {
+			if ax {
 				ay := big.Float(y.(BigFloat))
 				return BigFloat(*big.NewFloat(0.0).Add(big.NewFloat(1.0), &ay))
 			} else {
 				return y.(BigFloat)
 			}
 		case Complex:
-			if x.(bool) {
+			if ax {
 				return 1 + y.(Complex)
 			} else {
 				return y.(Complex)
 			}
 		case BigComplex:
-			if x.(bool) {
-				ayr := big.Float(BigFloat(y.(BigComplex).Re))
-				return BigComplex{*big.NewFloat(0.0).Add(big.NewFloat(1.0), &ayr),
-					y.(BigComplex).Im}
+			if ax {
+				yr := big.Float(BigFloat(y.(BigComplex).Re))
+				yrplus1 := *big.NewFloat(0.0).Add(big.NewFloat(1.0), &yr)
+				return BigComplex{yrplus1, y.(BigComplex).Im}
 			} else {
 				return y.(BigComplex)
 			}
+		case Infinity:
+			return y
 		default:
 			panic("Plus: bool and non-numeric invalid")
 		}
 
 	case Int:
+		ax := x.(Int)
 		switch y.(type) {
 		case Int:
-			c := x.(Int) + y.(Int)
-			if (x.(Int) > 0 && y.(Int) > 0 && c > x.(Int) && c > y.(Int)) ||
-				(x.(Int) < 0 && y.(Int) < 0 && c < x.(Int) && c < y.(Int)) ||
-				(x.(Int) > 0 && y.(Int) < 0) ||
-				(x.(Int) < 0 && y.(Int) > 0) {
+			ay := y.(Int)
+			c := ax + ay
+			//check for overflow...
+			if (ax > 0 && ay > 0 && c > ax && c > ay) ||
+				(ax < 0 && ay < 0 && c < ax && c < ay) ||
+				(ax > 0 && ay < 0) ||
+				(ax < 0 && ay > 0) {
 				return c
 			} else {
-				return BigInt(*big.NewInt(0).Add(big.NewInt(int64(x.(Int))), big.NewInt(int64(y.(Int)))))
+				return BigInt(*big.NewInt(0).Add(big.NewInt(int64(ax)), big.NewInt(int64(ay))))
 			}
 		case BigInt:
 			ay := big.Int(y.(BigInt))
-			return BigInt(*big.NewInt(0).Add(big.NewInt(int64(x.(Int))), &ay))
+			return BigInt(*big.NewInt(0).Add(big.NewInt(int64(ax)), &ay))
 		case BigRat:
 			ay := big.Rat(y.(BigRat))
-			return narrow(BigRat(*big.NewRat(0, 1).Add(big.NewRat(int64(x.(Int)), 1), &ay)))
+			return narrow(BigRat(*big.NewRat(0, 1).Add(big.NewRat(int64(ax), 1), &ay)))
 		case Float:
-			return narrow(Float(x.(Int)) + y.(Float))
+			return narrow(Float(ax) + y.(Float))
 		case BigFloat:
 			ay := big.Float(y.(BigFloat))
-			return narrow(BigFloat(*big.NewFloat(0.0).Add(big.NewFloat(float64(x.(Int))), &ay)))
+			return narrow(BigFloat(*big.NewFloat(0.0).Add(big.NewFloat(float64(ax)), &ay)))
 		case Complex:
-			return narrow(Complex(complex(float64(x.(Int)), 0)) + y.(Complex))
+			return narrow(Complex(complex(float64(ax), 0)) + y.(Complex))
 		case BigComplex:
-			ayr := big.Float(BigFloat(y.(BigComplex).Re))
-			return narrow(BigComplex{*big.NewFloat(0.0).Add(big.NewFloat(float64(x.(Int))), &ayr),
-				y.(BigComplex).Im})
+			yr := big.Float(BigFloat(y.(BigComplex).Re))
+			sr := *big.NewFloat(0.0).Add(big.NewFloat(float64(ax)), &yr)
+			return narrow(BigComplex{sr, y.(BigComplex).Im})
+		case Infinity:
+			return y
+		case time.Time:
+			return y.(time.Time).Add(time.Duration(int64(time.Hour) * 24 * int64(ax)))
 		default:
 			panic("Plus: Int and non-numeric invalid")
 		}
 
 	case BigInt:
+		ax := big.Int(x.(BigInt))
 		switch y.(type) {
 		case BigInt:
-			ax := big.Int(x.(BigInt))
 			ay := big.Int(y.(BigInt))
 			return BigInt(*big.NewInt(0).Add(&ax, &ay))
 		case BigRat:
-			ax := big.Int(x.(BigInt))
 			ay := big.Rat(y.(BigRat))
 			return narrow(BigRat(*big.NewRat(0, 1).Add(big.NewRat(0, 1).SetFrac(&ax, big.NewInt(1)), &ay)))
 		case Float:
-			ax := big.Int(x.(BigInt))
 			xf, _ := big.NewRat(0, 1).SetFrac(&ax, big.NewInt(1)).Float64()
 			return narrow(Float(xf) + y.(Float))
 		case BigFloat:
-			ax := big.Int(x.(BigInt))
 			xf, _ := big.NewRat(0, 1).SetFrac(&ax, big.NewInt(1)).Float64()
-			axf := big.Float(NewBigFloat(xf))
+			axf := *big.NewFloat(xf)
 			ay := big.Float(y.(BigFloat))
 			return narrow(BigFloat(*big.NewFloat(0).Add(&axf, &ay)))
 		case Complex:
-			ax := big.Int(x.(BigInt))
 			xf, _ := big.NewRat(0, 1).SetFrac(&ax, big.NewInt(1)).Float64()
 			return narrow(Complex(complex(xf, 0)) + y.(Complex))
 		case BigComplex:
-			ax := big.Int(x.(BigInt))
 			xf, _ := big.NewRat(0, 1).SetFrac(&ax, big.NewInt(1)).Float64()
-			axf := big.Float(NewBigFloat(xf))
-			ayr := big.Float(BigFloat(y.(BigComplex).Re))
-			return narrow(BigComplex{*big.NewFloat(0).Add(&axf, &ayr), y.(BigComplex).Im})
+			xr := *big.NewFloat(xf)
+			yr := big.Float(BigFloat(y.(BigComplex).Re))
+			return narrow(BigComplex{*big.NewFloat(0).Add(&xr, &yr), y.(BigComplex).Im})
+		case Infinity:
+			return y
 		default:
 			panic("Plus: BigInt and non-numeric invalid")
 		}
 
 	case BigRat:
+		ax := big.Rat(x.(BigRat))
 		switch y.(type) {
 		case BigRat:
-			ax := big.Rat(x.(BigRat))
 			ay := big.Rat(y.(BigRat))
 			return narrow(BigRat(*big.NewRat(0, 1).Add(&ax, &ay)))
 		case Float:
-			ax := big.Rat(x.(BigRat))
 			xf, _ := ax.Float64()
 			return narrow(Float(xf) + y.(Float))
 		case BigFloat:
-			ax := big.Rat(x.(BigRat))
 			xf, _ := ax.Float64()
-			axf := big.Float(NewBigFloat(xf))
+			xr := *big.NewFloat(xf)
 			ay := big.Float(y.(BigFloat))
-			return narrow(BigFloat(*big.NewFloat(0).Add(&axf, &ay)))
+			return narrow(BigFloat(*big.NewFloat(0).Add(&xr, &ay)))
 		case Complex:
-			ax := big.Rat(x.(BigRat))
 			xf, _ := ax.Float64()
 			return narrow(Complex(complex(xf, 0)) + y.(Complex))
 		case BigComplex:
-			ax := big.Rat(x.(BigRat))
 			xf, _ := ax.Float64()
-			axf := big.Float(NewBigFloat(xf))
-			ayr := big.Float(BigFloat(y.(BigComplex).Re))
-			return narrow(BigComplex{*big.NewFloat(0).Add(&axf, &ayr), y.(BigComplex).Im})
+			xr := *big.NewFloat(xf)
+			yr := big.Float(BigFloat(y.(BigComplex).Re))
+			return narrow(BigComplex{*big.NewFloat(0).Add(&xr, &yr), y.(BigComplex).Im})
+		case Infinity:
+			return y
 		default:
 			panic("Plus: BigRat and non-numeric invalid")
 		}
 
 	case Float:
+		ax := x.(Float)
 		switch y.(type) {
 		case Float:
-			return narrow(x.(Float) + y.(Float))
+			return narrow(ax + y.(Float))
 		case BigFloat:
-			ax := big.Float(NewBigFloat(float64(x.(Float))))
+			xr := *big.NewFloat(float64(ax))
 			ay := big.Float(y.(BigFloat))
-			return narrow(BigFloat(*big.NewFloat(0).Add(&ax, &ay)))
+			return narrow(BigFloat(*big.NewFloat(0).Add(&xr, &ay)))
 		case Complex:
-			return narrow(Complex(complex(x.(Float), 0)) + y.(Complex))
+			return narrow(Complex(complex(ax, 0)) + y.(Complex))
 		case BigComplex:
-			ax := big.Float(NewBigFloat(float64(x.(Float))))
-			ayr := big.Float(BigFloat(y.(BigComplex).Re))
-			return narrow(BigComplex{*big.NewFloat(0).Add(&ax, &ayr), y.(BigComplex).Im})
+			xr := *big.NewFloat(float64(ax))
+			yr := big.Float(BigFloat(y.(BigComplex).Re))
+			return narrow(BigComplex{*big.NewFloat(0).Add(&xr, &yr), y.(BigComplex).Im})
+		case Infinity:
+			return y
 		default:
 			panic("Plus: Float and non-numeric invalid")
 		}
 
 	case BigFloat:
+		ax := big.Float(x.(BigFloat))
 		switch y.(type) {
 		case BigFloat:
-			ax := big.Float(x.(BigFloat))
 			ay := big.Float(y.(BigFloat))
 			return narrow(BigFloat(*big.NewFloat(0).Add(&ax, &ay)))
 		case Complex:
-			ax := big.Float(x.(BigFloat))
-			ayr := big.Float(NewBigFloat(real(complex128(y.(Complex)))))
+			ayr := *big.NewFloat(real(complex128(y.(Complex))))
 			return narrow(BigComplex{*big.NewFloat(0).Add(&ax, &ayr),
-				big.Float(NewBigFloat(imag(complex128(y.(Complex)))))})
+				*big.NewFloat(imag(complex128(y.(Complex))))})
 		case BigComplex:
-			ax := big.Float(x.(BigFloat))
 			ayr := big.Float(BigFloat(y.(BigComplex).Re))
 			return narrow(BigComplex{*big.NewFloat(0).Add(&ax, &ayr), y.(BigComplex).Im})
+		case Infinity:
+			return y
 		default:
 			panic("Plus: BigFloat and non-numeric invalid")
 		}
 
 	case Complex:
+		ax := x.(Complex)
 		switch y.(type) {
 		case Complex:
-			return narrow(x.(Complex) + y.(Complex))
+			return narrow(ax + y.(Complex))
 		case BigComplex:
-			ayr := big.Float(BigFloat(y.(BigComplex).Re))
-			ayi := big.Float(BigFloat(y.(BigComplex).Im))
-			axr := big.Float(NewBigFloat(real(complex128(x.(Complex)))))
-			axi := big.Float(NewBigFloat(imag(complex128(x.(Complex)))))
-			return narrow(BigComplex{*big.NewFloat(0).Add(&axr, &ayr), *big.NewFloat(0).Add(&axi, &ayi)})
+			xr := *big.NewFloat(real(complex128(ax)))
+			xi := *big.NewFloat(imag(complex128(ax)))
+			yr := big.Float(BigFloat(y.(BigComplex).Re))
+			yi := big.Float(BigFloat(y.(BigComplex).Im))
+			return narrow(BigComplex{*big.NewFloat(0).Add(&xr, &yr), *big.NewFloat(0).Add(&xi, &yi)})
+		case Infinity:
+			return y
 		default:
 			panic("Plus: Complex and non-numeric invalid")
 		}
@@ -1026,13 +996,23 @@ func Plus(x, y interface{}) interface{} {
 	case BigComplex:
 		switch y.(type) {
 		case BigComplex:
-			axr := big.Float(BigFloat(x.(BigComplex).Re))
-			axi := big.Float(BigFloat(x.(BigComplex).Im))
-			ayr := big.Float(BigFloat(y.(BigComplex).Re))
-			ayi := big.Float(BigFloat(y.(BigComplex).Im))
-			return narrow(BigComplex{*big.NewFloat(0).Add(&axr, &ayr), *big.NewFloat(0).Add(&axi, &ayi)})
+			xr := big.Float(BigFloat(x.(BigComplex).Re))
+			xi := big.Float(BigFloat(x.(BigComplex).Im))
+			yr := big.Float(BigFloat(y.(BigComplex).Re))
+			yi := big.Float(BigFloat(y.(BigComplex).Im))
+			return narrow(BigComplex{*big.NewFloat(0).Add(&xr, &yr), *big.NewFloat(0).Add(&xi, &yi)})
+		case Infinity:
+			return y
 		default:
 			panic("Plus: BigComplex and non-numeric invalid")
+		}
+
+	case Infinity:
+		switch y.(type) {
+		case Infinity:
+			return nil //Inf + Inf = NaN
+		default:
+			panic("Plus: Infinity and non-numeric invalid")
 		}
 
 	case time.Time:
@@ -1040,17 +1020,8 @@ func Plus(x, y interface{}) interface{} {
 		case Int:
 			return x.(time.Time).Add(time.Duration(int64(time.Hour) * 24 * int64(y.(Int))))
 		default:
-			panic("Plus: Date and non-integer invalid")
+			panic("Plus: Date and non-Int invalid")
 		}
-
-	//TODO: delete this special case for 2 strings when no longer needed for testing
-	/*case string:
-	  switch y.(type){
-	  case string:
-	    return x.(string) + y.(string)
-	  default:
-	    panic("Plus: string and non-string invalid")
-	  }*/
 
 	case u8.Codepoint:
 		switch y.(type) {
@@ -1072,11 +1043,29 @@ func Plus(x, y interface{}) interface{} {
 			panic("Plus: u8.Text or u8.Codepoint can only operate with u8.Text or u8.Codepoint")
 		}
 
-	//TODO:
-	//case Slice:
-	//return Slice(append([]interface{}(x.(Slice)), y))
+	case Slice:
+		switch y.(type) {
+		case Slice:
+			return Slice(append([]interface{}(x.(Slice)), []interface{}(y.(Slice))...))
+		default:
+			panic("Plus: []any can only operate with []any")
+		}
 
-	//TODO: for case Map, return a new map with all entries from old map added
+	case Map:
+		switch y.(type) {
+		case Map:
+			//TODO: for case Map, return a new map with all entries from old map added
+			/*m := (*pp).(Map)
+			for _, u := range it {
+				m[u.(MapEntry).Key] = u.(MapEntry).Val
+				//####
+			}
+			return pp
+			*/
+			return nil
+		default:
+			panic("Plus: ops.Map can only operate with ops.Map")
+		}
 
 	default:
 		panic("Plus: two non-numerics invalid")
@@ -1094,7 +1083,7 @@ func Negate(x interface{}) interface{} {
 	case nil:
 		return nil
 	case bool:
-		return !x.(bool) //MAYBE TODO: remove this; throw panic instead ???
+		return !x.(bool)
 	case Int:
 		if x == Int(-0x8000000000000000) {
 			return BigInt(*big.NewInt(0).Neg(big.NewInt(int64(x.(Int)))))
@@ -1108,24 +1097,20 @@ func Negate(x interface{}) interface{} {
 		ax := big.Rat(x.(BigRat))
 		return BigRat(*big.NewRat(0, 1).Neg(&ax))
 	case Float:
+		//TODO: do we check for NaN here ???
 		return Float(-x.(Float))
 	case BigFloat:
 		ax := big.Float(x.(BigFloat))
 		return BigFloat(*big.NewFloat(0).Neg(&ax))
 	case Complex:
-		if x.(Complex) == Inf {
-			return Inf
-		} else {
-			return Complex(-x.(Complex))
-		}
+		//TODO: do we check for NaN here ???
+		return Complex(-x.(Complex))
 	case BigComplex:
-		axr := big.Float(BigFloat(x.(BigComplex).Re))
-		axi := big.Float(BigFloat(x.(BigComplex).Im))
-		return BigComplex{*big.NewFloat(0).Neg(&axr), *big.NewFloat(0).Neg(&axi)}
-
-	//TODO: delete this when no longer needed for testing
-	/*case u8.Text:
-	  return u8.Surr(x.(u8.Text)) //turn Text into a string*/
+		xr := big.Float(BigFloat(x.(BigComplex).Re))
+		xi := big.Float(BigFloat(x.(BigComplex).Im))
+		return BigComplex{*big.NewFloat(0).Neg(&xr), *big.NewFloat(0).Neg(&xi)}
+	case Infinity:
+		return x
 
 	case u8.Codepoint:
 		return CharClass("[^" + u8.Sur(x.(u8.Codepoint)) + "]")
@@ -1138,7 +1123,7 @@ func Negate(x interface{}) interface{} {
 			return CharClass("[^" + mid + "]")
 		}
 
-	//TODO: logic for case Regex
+	//TODO: logic for cases Text and Regex
 
 	default:
 		panic("Negate: non-numeric invalid")
@@ -1147,11 +1132,55 @@ func Negate(x interface{}) interface{} {
 
 /*
 Minus negates the 2nd arg and adds the two together.
-
-//TODO: TEST BIGFLOAT
 */
 func Minus(x, y interface{}) interface{} {
-	return narrow(Plus(x, Negate(y)))
+	x, y = widen(x), widen(y)
+
+	switch x.(type) {
+	//TODO: case Map
+	case Slice:
+		switch y.(type) {
+		case Slice:
+			ax := x.(Slice)
+			ay := y.(Slice)
+			ns := NewSlice(0)
+		oldouter:
+			for ia, a := range ax {
+				for ib, b := range ay {
+					if ib > ia {
+						if IsEqual(a, b) {
+							continue oldouter
+						}
+						_ = LeftShiftAssign(&ns, a)
+					}
+				}
+			}
+			return ns.(Slice)
+		default:
+			panic("Minus: []any requires []any arg")
+		}
+	default:
+		return narrow(Plus(x, Negate(y)))
+	}
+}
+
+/*
+Complement returns the bitwise complement of a number.
+*/
+func Complement(x interface{}) interface{} {
+	x = widen(x)
+	switch x.(type) {
+	case nil:
+		return nil
+	case bool:
+		return !x.(bool)
+	case Int:
+		return ^x.(Int)
+	case u8.Text:
+		return ToRegex(x.(u8.Text))
+	default:
+		panic("Complement: invalid type")
+	}
 }
 
 /*
@@ -1161,20 +1190,18 @@ For one argument of Codepoint or Text type, and the other of numeric type z,
 returns Text repeated z times.
 For one argument of CharClass or Regex type, and the other of numeric type z,
 returns Regex matching repetition of z times.
-
-//TODO: TEST BIGFLOAT
 */
 func Mult(x, y interface{}) interface{} {
 	x, y = widen(x), widen(y)
-	if typeWeights[reflect.TypeOf(x)] > typeWeights[reflect.TypeOf(y)] {
+	if numericTypes(x, y) {
 		x, y = y, x
 	}
 
 	switch x.(type) {
-	case u8.Codepoint, u8.Text, CharClass, Regex: //TODO: make sure this works correctly with typeWeights
+	case u8.Codepoint, u8.Text, CharClass, Regex:
 		switch y.(type) {
-		case PosIntRange:
-			return RegexRepeat(x, y.(PosIntRange), true)
+		case multiusePair:
+			return RegexRepeat(x, y.(multiusePair), true)
 		case Int:
 			return RegexRepeat(x, y.(Int), true)
 		default:
@@ -1182,10 +1209,16 @@ func Mult(x, y interface{}) interface{} {
 		}
 		//TODO: For type Codepoint or Text, return repeated Text
 
-	case PosIntRange: //TODO: make sure this works correctly with typeWeights
+	case multiusePair: //TODO: make sure this works correctly with typeWeights
 		switch y.(type) {
 		case u8.Codepoint, u8.Text, CharClass, Regex:
 			return RegexRepeat(y, x, false)
+		case parsec.Parser:
+			return ParserRepeat(y, x)
+		case func(...interface{}) interface{}:
+			ay := y.(func(...interface{}) interface{})
+			yfwd := parsec.Fwd(ay().(func(...interface{}) interface{})).(parsec.Parser)
+			return ParserRepeat(yfwd, x)
 		default:
 			panic("Mult: positive integer range multiplied with invalid value")
 		}
@@ -1193,251 +1226,292 @@ func Mult(x, y interface{}) interface{} {
 
 	case nil:
 		switch y.(type) {
-		case nil:
+		case nil, bool, Int, BigInt, BigRat, Float, BigFloat, Complex, BigComplex, Infinity:
 			return nil
-		case bool:
-			return false
-		case Int:
-			return Int(0)
-		case BigInt:
-			return BigInt(*big.NewInt(0))
-		case BigRat:
-			return BigRat(*big.NewRat(0, 1))
-		case Float:
-			return Float(0)
-		case BigFloat:
-			return BigFloat(*big.NewFloat(0.0))
-		case Complex:
-			if cmplx.IsNaN(complex128(y.(Complex))) { //TODO: is this logic correct?
-				return NaN
-			} else {
-				return Complex(0)
-			}
-		case BigComplex:
-			return BigComplex{*big.NewFloat(0.0), *big.NewFloat(0.0)}
 		default:
 			panic("Mult: nil and non-numeric invalid")
 		}
 
 	case bool:
+		ax := x.(bool)
 		switch y.(type) {
 		case bool:
-			return x.(bool) && y.(bool)
+			return ax && y.(bool)
 		case Int:
-			if x.(bool) {
+			if ax {
 				return y.(Int)
 			} else {
 				return Int(0)
 			}
 		case BigInt:
-			if x.(bool) {
+			if ax {
 				return y.(BigInt)
 			} else {
 				return BigInt(*big.NewInt(0))
 			}
 		case BigRat:
-			if x.(bool) {
+			if ax {
 				return y.(BigRat)
 			} else {
-				return BigRat(*big.NewRat(0, 1)) //MAYBE TODO: should be BigInt ???
+				return BigInt(*big.NewInt(0))
 			}
 		case Float:
-			if x.(bool) {
+			if ax {
 				return y.(Float)
 			} else {
 				return Float(0)
 			}
 		case BigFloat:
-			if x.(bool) {
+			if ax {
 				return y.(BigFloat)
 			} else {
 				return BigFloat(*big.NewFloat(0.0))
 			}
 		case Complex:
-			if x.(bool) {
+			if ax {
 				return y.(Complex)
 			} else {
 				return Complex(0)
 			}
 		case BigComplex:
-			if x.(bool) {
+			if ax {
 				return y.(BigComplex)
 			} else {
 				return BigComplex{*big.NewFloat(0.0), *big.NewFloat(0.0)}
+			}
+		case Infinity:
+			if ax {
+				return y
+			} else {
+				return nil
 			}
 		default:
 			panic("Mult: bool and non-numeric invalid")
 		}
 
 	case Int:
+		ax := x.(Int)
 		switch y.(type) {
 		case u8.Codepoint, u8.Text, CharClass, Regex: //TODO: make sure this works correctly with typeWeights
-			return RegexRepeat(y, PosIntRange{x.(Int), x.(Int)}, false)
+			return RegexRepeat(y, multiusePair{ax, ax}, false)
+		//TODO: For type Codepoint or Text, return repeated Text
 
 		case Int:
-			c := x.(Int) * y.(Int)
-			absc := Abs(c).(Int)
-			if absc >= Abs(x).(Int) && absc >= Abs(y).(Int) {
+			ay := y.(Int)
+			abs := func(x Int) Int {
+				if x < 0 {
+					return -x
+				} else {
+					return x
+				}
+			}
+			c := ax * ay
+			absc := abs(c)
+			if absc >= abs(ax) && absc >= abs(ay) { //check for overflow
 				return c
 			} else {
-				return BigInt(*big.NewInt(0).Mul(big.NewInt(int64(x.(Int))), big.NewInt(int64(y.(Int)))))
+				return BigInt(*big.NewInt(0).Mul(big.NewInt(int64(ax)), big.NewInt(int64(ay))))
 			}
 		case BigInt:
 			ay := big.Int(y.(BigInt))
-			return BigInt(*big.NewInt(0).Mul(big.NewInt(int64(x.(Int))), &ay))
+			return BigInt(*big.NewInt(0).Mul(big.NewInt(int64(ax)), &ay))
 		case BigRat:
 			ay := big.Rat(y.(BigRat))
-			return narrow(BigRat(*big.NewRat(0, 1).Mul(big.NewRat(int64(x.(Int)), 1), &ay)))
+			return narrow(BigRat(*big.NewRat(0, 1).Mul(big.NewRat(int64(ax), 1), &ay)))
 		case Float:
-			return narrow(Float(x.(Int)) * y.(Float))
+			return narrow(Float(ax) * y.(Float))
 		case BigFloat:
 			ay := big.Float(y.(BigFloat))
-			return narrow(BigFloat(*big.NewFloat(0).Mul(big.NewFloat(float64(x.(Int))), &ay)))
+			return narrow(BigFloat(*big.NewFloat(0).Mul(big.NewFloat(float64(ax)), &ay)))
 		case Complex:
-			return narrow(Complex(complex(float64(x.(Int)), 0)) * y.(Complex))
+			return narrow(Complex(complex(float64(ax), 0)) * y.(Complex))
 		case BigComplex:
-			ayr := big.Float(BigFloat(y.(BigComplex).Re))
-			ayi := big.Float(BigFloat(y.(BigComplex).Im))
-			return narrow(BigComplex{*big.NewFloat(0).Mul(big.NewFloat(float64(x.(Int))), &ayr),
-				*big.NewFloat(0).Mul(big.NewFloat(float64(x.(Int))), &ayi)})
+			yr := big.Float(BigFloat(y.(BigComplex).Re))
+			pr := *big.NewFloat(0).Mul(big.NewFloat(float64(ax)), &yr)
+			yi := big.Float(BigFloat(y.(BigComplex).Im))
+			pi := *big.NewFloat(0).Mul(big.NewFloat(float64(ax)), &yi)
+			return narrow(BigComplex{pr, pi})
+		case Infinity:
+			if ax == 0 {
+				return nil
+			} else {
+				return y
+			}
 		default:
 			panic("Mult: Int and non-numeric invalid")
 		}
 
 	case BigInt:
+		ax := big.Int(x.(BigInt))
 		switch y.(type) {
 		case BigInt:
-			ax := big.Int(x.(BigInt))
 			ay := big.Int(y.(BigInt))
 			return BigInt(*big.NewInt(0).Mul(&ax, &ay))
 		case BigRat:
-			ax := big.Int(x.(BigInt))
 			ay := big.Rat(y.(BigRat))
 			return narrow(BigRat(*big.NewRat(0, 1).Mul(big.NewRat(0, 1).SetFrac(&ax, big.NewInt(1)), &ay)))
 		case Float:
-			ax := big.Int(x.(BigInt))
 			xf, _ := big.NewRat(0, 1).SetFrac(&ax, big.NewInt(1)).Float64()
 			return narrow(Float(xf) * y.(Float))
 		case BigFloat:
-			ax := big.Int(x.(BigInt))
 			xf, _ := big.NewRat(0, 1).SetFrac(&ax, big.NewInt(1)).Float64()
-			axf := big.Float(NewBigFloat(xf))
+			xr := *big.NewFloat(xf)
 			ay := big.Float(y.(BigFloat))
-			return narrow(BigFloat(*big.NewFloat(0).Mul(&axf, &ay)))
+			return narrow(BigFloat(*big.NewFloat(0).Mul(&xr, &ay)))
 		case Complex:
-			ax := big.Int(x.(BigInt))
 			xf, _ := big.NewRat(0, 1).SetFrac(&ax, big.NewInt(1)).Float64()
 			return narrow(Complex(complex(xf, 0)) * y.(Complex))
 		case BigComplex:
-			ax := big.Int(x.(BigInt))
 			xf, _ := big.NewRat(0, 1).SetFrac(&ax, big.NewInt(1)).Float64()
-			axf := big.Float(NewBigFloat(xf))
-			ayr := big.Float(BigFloat(y.(BigComplex).Re))
-			ayi := big.Float(BigFloat(y.(BigComplex).Im))
-			return narrow(BigComplex{*big.NewFloat(0).Mul(&axf, &ayr), *big.NewFloat(0).Mul(&axf, &ayi)})
+			xr := *big.NewFloat(xf)
+			yr := big.Float(BigFloat(y.(BigComplex).Re))
+			yi := big.Float(BigFloat(y.(BigComplex).Im))
+			return narrow(BigComplex{*big.NewFloat(0).Mul(&xr, &yr), *big.NewFloat(0).Mul(&xr, &yi)})
+		case Infinity:
+			if big.NewInt(0).Cmp(&ax) == 0 {
+				return nil
+			} else {
+				return y
+			}
 		default:
 			panic("Mult: Int and non-numeric invalid")
 		}
 
 	case BigRat:
+		ax := big.Rat(x.(BigRat))
 		switch y.(type) {
 		case BigRat:
-			ax := big.Rat(x.(BigRat))
 			ay := big.Rat(y.(BigRat))
 			return narrow(BigRat(*big.NewRat(0, 1).Mul(&ax, &ay)))
 		case Float:
-			ax := big.Rat(x.(BigRat))
 			xf, _ := ax.Float64()
 			return narrow(Float(xf) * y.(Float))
 		case BigFloat:
-			ax := big.Rat(x.(BigRat))
 			xf, _ := ax.Float64()
-			axf := big.Float(NewBigFloat(xf))
+			xr := *big.NewFloat(xf)
 			ay := big.Float(y.(BigFloat))
-			return narrow(BigFloat(*big.NewFloat(1.0).Mul(&axf, &ay)))
+			return narrow(BigFloat(*big.NewFloat(1.0).Mul(&xr, &ay)))
 		case Complex:
-			ax := big.Rat(x.(BigRat))
 			xf, _ := ax.Float64()
 			return narrow(Complex(complex(xf, 0)) * y.(Complex))
 		case BigComplex:
-			ax := big.Rat(x.(BigRat))
 			xf, _ := ax.Float64()
-			axf := big.Float(NewBigFloat(xf))
-			ayr := big.Float(BigFloat(y.(BigComplex).Re))
-			ayi := big.Float(BigFloat(y.(BigComplex).Im))
-			return narrow(BigComplex{*big.NewFloat(1.0).Mul(&axf, &ayr), *big.NewFloat(1.0).Mul(&axf, &ayi)})
+			xr := *big.NewFloat(xf)
+			yr := big.Float(BigFloat(y.(BigComplex).Re))
+			yi := big.Float(BigFloat(y.(BigComplex).Im))
+			return narrow(BigComplex{*big.NewFloat(1.0).Mul(&xr, &yr), *big.NewFloat(1.0).Mul(&xr, &yi)})
+		case Infinity:
+			if big.NewRat(0, 1).Cmp(&ax) == 0 {
+				return nil
+			} else {
+				return y
+			}
 		default:
 			panic("Mult: Rat and non-numeric invalid")
 		}
 
 	case Float:
+		ax := x.(Float)
 		switch y.(type) {
 		case Float:
-			return narrow(x.(Float) * y.(Float))
+			return narrow(ax * y.(Float))
 		case BigFloat:
-			ax := big.Float(NewBigFloat(float64(x.(Float))))
-			ay := big.Float(y.(BigFloat))
-			return narrow(BigFloat(*big.NewFloat(1.0).Mul(&ax, &ay)))
+			xf := *big.NewFloat(float64(ax))
+			yf := big.Float(y.(BigFloat))
+			return narrow(BigFloat(*big.NewFloat(1.0).Mul(&xf, &yf)))
 		case Complex:
-			return narrow(Complex(complex(x.(Float), 0)) * y.(Complex))
+			return narrow(Complex(complex(ax, 0)) * y.(Complex))
 		case BigComplex:
-			ax := big.Float(NewBigFloat(float64(x.(Float))))
-			ayr := big.Float(BigFloat(y.(BigComplex).Re))
-			ayi := big.Float(BigFloat(y.(BigComplex).Im))
-			return narrow(BigComplex{*big.NewFloat(1.0).Mul(&ax, &ayr), *big.NewFloat(1.0).Mul(&ax, &ayi)})
+			xf := *big.NewFloat(float64(ax))
+			yr := big.Float(BigFloat(y.(BigComplex).Re))
+			yi := big.Float(BigFloat(y.(BigComplex).Im))
+			return narrow(BigComplex{*big.NewFloat(1.0).Mul(&xf, &yr), *big.NewFloat(1.0).Mul(&xf, &yi)})
+		case Infinity:
+			if x.(Float) == 0.0 {
+				return nil
+			} else {
+				return y
+			}
 		default:
 			panic("Mult: Float and non-numeric invalid")
 		}
 
 	case BigFloat:
+		ax := big.Float(x.(BigFloat))
 		switch y.(type) {
 		case BigFloat:
-			ax := big.Float(x.(BigFloat))
 			ay := big.Float(y.(BigFloat))
 			return narrow(BigFloat(*big.NewFloat(1.0).Mul(&ax, &ay)))
 		case Complex:
-			ax := big.Float(x.(BigFloat))
-			ayr := big.Float(NewBigFloat(real(complex128(y.(Complex)))))
-			ayi := big.Float(NewBigFloat(imag(complex128(y.(Complex)))))
-			return narrow(BigComplex{*big.NewFloat(1.0).Mul(&ax, &ayr), *big.NewFloat(1.0).Mul(&ax, &ayi)})
+			yr := *big.NewFloat(real(complex128(y.(Complex))))
+			yi := *big.NewFloat(imag(complex128(y.(Complex))))
+			return narrow(BigComplex{*big.NewFloat(1.0).Mul(&ax, &yr), *big.NewFloat(1.0).Mul(&ax, &yi)})
 		case BigComplex:
-			ax := big.Float(x.(BigFloat))
-			ayr := big.Float(BigFloat(y.(BigComplex).Re))
-			ayi := big.Float(BigFloat(y.(BigComplex).Im))
-			return narrow(BigComplex{*big.NewFloat(1.0).Mul(&ax, &ayr),
-				*big.NewFloat(1.0).Mul(&ax, &ayi)})
+			yr := big.Float(BigFloat(y.(BigComplex).Re))
+			yi := big.Float(BigFloat(y.(BigComplex).Im))
+			return narrow(BigComplex{*big.NewFloat(1.0).Mul(&ax, &yr), *big.NewFloat(1.0).Mul(&ax, &yi)})
+		case Infinity:
+			if big.NewFloat(0.0).Cmp(&ax) == 0 {
+				return nil
+			} else {
+				return y
+			}
 		default:
 			panic("Mult: BigFloat and non-numeric invalid")
 		}
 
 	case Complex:
+		ax := x.(Complex)
 		switch y.(type) {
 		case Complex:
-			return narrow(x.(Complex) * y.(Complex))
+			return narrow(ax * y.(Complex))
 		case BigComplex:
-			axr := big.Float(NewBigFloat(real(complex128(x.(Complex)))))
-			axi := big.Float(NewBigFloat(imag(complex128(x.(Complex)))))
-			ayr := big.Float(BigFloat(y.(BigComplex).Re))
-			ayi := big.Float(BigFloat(y.(BigComplex).Im))
-			realPart := *big.NewFloat(1.0).Sub(big.NewFloat(1.0).Mul(&axr, &ayr), big.NewFloat(1.0).Mul(&axi, &ayi))
-			imagPart := *big.NewFloat(1.0).Add(big.NewFloat(1.0).Mul(&axi, &ayr), big.NewFloat(1.0).Mul(&axr, &ayi))
+			xr := *big.NewFloat(real(complex128(ax)))
+			xi := *big.NewFloat(imag(complex128(ax)))
+			yr := big.Float(BigFloat(y.(BigComplex).Re))
+			yi := big.Float(BigFloat(y.(BigComplex).Im))
+			realPart := *big.NewFloat(1.0).Sub(big.NewFloat(1.0).Mul(&xr, &yr), big.NewFloat(1.0).Mul(&xi, &yi))
+			imagPart := *big.NewFloat(1.0).Add(big.NewFloat(1.0).Mul(&xi, &yr), big.NewFloat(1.0).Mul(&xr, &yi))
 			return narrow(BigComplex{realPart, imagPart})
+		case Infinity:
+			if ax == 0.0+0.0i {
+				return nil
+			} else {
+				return y
+			}
 		default:
 			panic("Mult: Complex and non-numeric invalid")
 		}
 
 	case BigComplex:
+		ax := x.(BigComplex)
 		switch y.(type) {
 		case BigComplex:
-			axr := big.Float(BigFloat(x.(BigComplex).Re))
-			axi := big.Float(BigFloat(x.(BigComplex).Im))
-			ayr := big.Float(BigFloat(y.(BigComplex).Re))
-			ayi := big.Float(BigFloat(y.(BigComplex).Im))
-			realPart := *big.NewFloat(1.0).Sub(big.NewFloat(1.0).Mul(&axr, &ayr), big.NewFloat(1.0).Mul(&axi, &ayi))
-			imagPart := *big.NewFloat(1.0).Add(big.NewFloat(1.0).Mul(&axi, &ayr), big.NewFloat(1.0).Mul(&axr, &ayi))
+			xr := big.Float(BigFloat(ax.Re))
+			xi := big.Float(BigFloat(ax.Im))
+			yr := big.Float(BigFloat(y.(BigComplex).Re))
+			yi := big.Float(BigFloat(y.(BigComplex).Im))
+			realPart := *big.NewFloat(1.0).Sub(big.NewFloat(1.0).Mul(&xr, &yr), big.NewFloat(1.0).Mul(&xi, &yi))
+			imagPart := *big.NewFloat(1.0).Add(big.NewFloat(1.0).Mul(&xi, &yr), big.NewFloat(1.0).Mul(&xr, &yi))
 			return narrow(BigComplex{realPart, imagPart})
+		case Infinity:
+			xr := big.Float(BigFloat(ax.Re))
+			xi := big.Float(BigFloat(ax.Im))
+			if big.NewFloat(0.0).Cmp(&xr) == 0 && big.NewFloat(0.0).Cmp(&xi) == 0 {
+				return nil
+			} else {
+				return y
+			}
 		default:
 			panic("Mult: BigComplex and non-numeric invalid")
+		}
+
+	case Infinity:
+		switch y.(type) {
+		case Infinity:
+			return y
+		default:
+			panic("Plus: Infinity and non-numeric invalid")
 		}
 
 	default:
@@ -1453,112 +1527,156 @@ func Invert(x interface{}) interface{} {
 	x = widen(x)
 	switch x.(type) {
 	case nil:
-		return NaN
+		return nil
 	case bool:
-		if x.(bool) {
-			return true
-		} else {
-			return NaN
-		}
+		return !x.(bool) //TODO: is this correct logic ???
 	case Int:
-		if x.(Int) == 0 { //MAYBE TODO: check for Inf so we can generate 0; also in BigInt, BigRat, Float, and Complex ???
+		if x.(Int) == 0 {
 			return Inf
 		}
-		return BigRat(*big.NewRat(1, int64(x.(Int))))
+		return narrow(BigRat(*big.NewRat(1, int64(x.(Int)))))
 	case BigInt:
 		if reflect.DeepEqual(x.(BigInt), BigInt(*big.NewInt(0))) {
 			return Inf
 		}
 		ax := big.Int(x.(BigInt))
-		return BigRat(*big.NewRat(0, 1).SetFrac(big.NewInt(1), &ax)) //FIX: make copy of denom first ???
+		return narrow(BigRat(*big.NewRat(0, 1).SetFrac(big.NewInt(1), &ax))) //FIX: make copy of denom first ???
 	case BigRat:
 		if reflect.DeepEqual(x.(BigRat), BigRat(*big.NewRat(0, 1))) {
 			return Inf
 		}
 		ax := big.Rat(x.(BigRat))
-		return BigRat(*big.NewRat(0, 1).Inv(&ax))
+		return narrow(BigRat(*big.NewRat(0, 1).Inv(&ax)))
 	case Float:
 		if x.(Float) == 0 {
 			return Inf
 		}
-		return Float(1 / float64(x.(Float)))
+		return narrow(Float(1 / float64(x.(Float))))
 	case BigFloat:
 		ax := big.Float(x.(BigFloat))
 		if big.NewFloat(0.0).Cmp(&ax) == 0 {
 			return Inf
 		}
-		return BigFloat(*big.NewFloat(1.0).Quo(big.NewFloat(1.0), &ax))
+		return narrow(BigFloat(*big.NewFloat(1.0).Quo(big.NewFloat(1.0), &ax)))
 	case Complex:
 		if x.(Complex) == 0 {
 			return Inf
 		}
-		return Complex(1 / complex128(x.(Complex)))
+		return narrow(Complex(1 / complex128(x.(Complex))))
 	case BigComplex:
-		axr := big.Float(BigFloat(x.(BigComplex).Re))
-		axi := big.Float(BigFloat(x.(BigComplex).Im))
-		if big.NewFloat(0.0).Cmp(&axr) == 0 && big.NewFloat(0.0).Cmp(&axi) == 0 {
+		xr := big.Float(BigFloat(x.(BigComplex).Re))
+		xi := big.Float(BigFloat(x.(BigComplex).Im))
+		if big.NewFloat(0.0).Cmp(&xr) == 0 && big.NewFloat(0.0).Cmp(&xi) == 0 {
 			return Inf
 		}
-		return NewBigComplex(BigFloat(*big.NewFloat(1.0).Quo(big.NewFloat(1.0), &axr)),
-			BigFloat(*big.NewFloat(1.0).Quo(big.NewFloat(1.0), &axi)))
+		mod := big.NewFloat(0.0).Add(big.NewFloat(0.0).Mul(&xr, &xr), big.NewFloat(0.0).Mul(&xi, &xi))
+		cr := *big.NewFloat(1.0).Quo(&xr, mod)
+		ci := *big.NewFloat(1.0).Quo(big.NewFloat(1.0).Neg(&xi), mod)
+		return narrow(BigComplex{cr, ci})
+	case Infinity:
+		return 0
 	default:
 		panic("Invert: non-numeric invalid")
 	}
 }
 
 /*
-Divide inverts the seconnd argument and multiplies the two together.
+Divide inverts the second argument and multiplies the two together.
 Division by nil or false gives infinity.
 Divide result is of the same type as whichever argument is higher in the numeric hierarchy.
 A division by a Int or BigInt promotes to a BigRat.
-
-//TODO: TEST BIGFLOAT
 */
 func Divide(x, y interface{}) interface{} {
-	//TODO: check for 0/0 so we can generate NaN; ditto Inf/Inf
-
 	return narrow(Mult(x, Invert(y)))
 }
 
 /*
-Abs returns the absolute value of the numeric argument.
+Mod takes two Int, BigInt, or Infinite args,
+and returns the modulus.
+Anything mod 0 is infinity;
+anything mod infinity is unchanged.
+
+//TODO: both 0%0 and inf%inf should return nil
+//TODO: put in logic for true and false
 */
-func Abs(x interface{}) interface{} {
-	x = widen(x)
+func Mod(x, y interface{}) interface{} {
+	x, y = widen(x), widen(y)
 	switch x.(type) {
-	case nil:
-		return nil
-	case bool:
-		return x.(bool)
+	case u8.Codepoint:
+		ax := x.(u8.Codepoint)
+		switch y.(type) {
+		case u8.Text:
+			ay := u8.Surr(y.(u8.Text))
+			return fmt.Sprintf("%"+ay, ax)
+		default:
+			panic("Mod: invalid input type" + fmt.Sprintf("; %T; %T", x, y))
+		}
 	case Int:
-		if x.(Int) < 0 {
-			return -x.(Int)
-		} else {
-			return x.(Int)
+		ax := x.(Int)
+		switch y.(type) {
+		case u8.Text:
+			ay := u8.Surr(y.(u8.Text))
+			return fmt.Sprintf("%"+ay, ax)
+		case Int:
+			ay := y.(Int)
+			if ay == 0 {
+				return Inf
+			}
+			return Int(int64(ax) % int64(y.(Int)))
+		case BigInt:
+			ay := big.Int(y.(BigInt))
+			if big.NewInt(0.0).Cmp(&ay) == 0 {
+				return Inf
+			}
+			return BigInt(*big.NewInt(0).Mod(big.NewInt(int64(ax)), &ay))
+		case Infinity:
+			return x
+		default:
+			panic("Mod: invalid input type" + fmt.Sprintf("; %T; %T", x, y))
 		}
 	case BigInt:
 		ax := big.Int(x.(BigInt))
-		return big.NewInt(0).Abs(&ax)
-	case BigRat:
-		ax := big.Rat(x.(BigRat))
-		return big.NewRat(0, 1).Abs(&ax)
-	case Float:
-		return Float(math.Abs(float64(x.(Float))))
-	case BigFloat:
-		ax := big.Float(x.(BigFloat))
-		return BigFloat(*big.NewFloat(0.0).Abs(&ax))
-	case Complex:
-		return Float(cmplx.Abs(complex128(x.(Complex))))
-	case BigComplex:
-		axr := big.Float(BigFloat(x.(BigComplex).Re))
-		axi := big.Float(BigFloat(x.(BigComplex).Im))
-		az, _ := big.NewFloat(0.0).Add(big.NewFloat(0.0).Mul(&axr, &axr), big.NewFloat(0.0).Mul(&axi, &axi)).Float64()
-		return Float(math.Sqrt(az))
+		switch y.(type) {
+		case u8.Text:
+			ay := u8.Surr(y.(u8.Text))
+			return fmt.Sprintf("%"+ay, ax)
+		case Int:
+			ay := y.(Int)
+			if ay == 0 {
+				return Inf
+			}
+			return BigInt(*big.NewInt(0).Mod(&ax, big.NewInt(int64(ay))))
+		case BigInt:
+			ay := big.Int(y.(BigInt))
+			if big.NewInt(0.0).Cmp(&ay) == 0 {
+				return Inf
+			}
+			return BigInt(*big.NewInt(0).Mod(&ax, &ay))
+		case Infinity:
+			return x
+		default:
+			panic("Mod: invalid input type" + fmt.Sprintf("; %T; %T", x, y))
+		}
+	case Infinity:
+		switch y.(type) {
+		case u8.Text:
+			ay := u8.Surr(y.(u8.Text))
+			return fmt.Sprintf("%"+ay, x)
+		default:
+			return x
+		}
 	default:
-		//MAYBE TODO: any logic for arbitrary object ???
-		panic("Abs: Invalid numeric type")
+		switch y.(type) {
+		case u8.Text:
+			ay := u8.Surr(y.(u8.Text))
+			return fmt.Sprintf("%"+ay, x)
+		default:
+			panic("Mod: invalid input type" + fmt.Sprintf("; %T; %T", x, y))
+		}
 	}
 }
+
+//==============================================================================
 
 /*
 Power returns a result of the same type as the argument higher in the numeric hierarchy.
@@ -1569,7 +1687,9 @@ a BigRat to the power of an Int, BigInt, or BigRat is a Float.
 
 //WARNING: This function is alpha version only.
 
-//TODO: TEST IT; ADD CODE AND TEST FOR BigFloat AND BigComplex; change output to []interface{} to cater for multiple results
+//TODO: add code for BigFloat and BigComplex ???
+//TODO: change output to []interface{} to cater for multiple results
+//TODO: add tests
 */
 func Power(x, y interface{}) interface{} {
 	x, y = widen(x), widen(y)
@@ -1597,7 +1717,7 @@ func Power(x, y interface{}) interface{} {
 		case Complex:
 			return cmplx.Pow(complex(float64(x.(Int)), 0), complex128(y.(Complex)))
 		default:
-			panic("Power: only Int, Int, Rat, Float, and Complex args valid")
+			panic("Power: only Int, BigInt, BigRat, Float, and Complex args valid")
 		}
 
 	case BigInt:
@@ -1606,7 +1726,7 @@ func Power(x, y interface{}) interface{} {
 			if y.(bool) {
 				return x.(BigInt)
 			} else {
-				panic("Power: only Int, Int, Rat, Float, and Complex args valid")
+				panic("Power: only Int, BigInt, BigRat, Float, and Complex args valid")
 			}
 		case Int:
 			ay := big.Int(y.(BigInt))
@@ -1630,7 +1750,7 @@ func Power(x, y interface{}) interface{} {
 			xf, _ := big.NewRat(0, 1).SetFrac(&ax, big.NewInt(1)).Float64()
 			return cmplx.Pow(complex(xf, 0), complex128(y.(Complex)))
 		default:
-			panic("Power: only Int, Int, Rat, Float, and Complex args valid")
+			panic("Power: only Int, BigInt, BigRat, Float, and Complex args valid")
 		}
 
 	case BigRat:
@@ -1639,7 +1759,7 @@ func Power(x, y interface{}) interface{} {
 			if y.(bool) {
 				return x.(BigRat)
 			} else {
-				panic("Power: only Int, Int, Rat, Float, and Complex args valid")
+				panic("Power: only Int, BigInt, BigRat, Float, and Complex args valid")
 			}
 		case Int:
 			ax := big.Rat(x.(BigRat))
@@ -1667,7 +1787,7 @@ func Power(x, y interface{}) interface{} {
 			xf, _ := ax.Float64()
 			return cmplx.Pow(complex(xf, 0), complex128(y.(Complex)))
 		default:
-			panic("Power: only Int, Int, Rat, Float, and Complex args valid")
+			panic("Power: only Int, BigInt, BigRat, Float, and Complex args valid")
 		}
 
 	case Float:
@@ -1676,7 +1796,7 @@ func Power(x, y interface{}) interface{} {
 			if y.(bool) {
 				return x.(Float)
 			} else {
-				panic("Power: only Int, Int, Rat, Float, and Complex args valid")
+				panic("Power: only Int, BigInt, BigRat, Float, and Complex args valid")
 			}
 		case Int:
 			return math.Pow(float64(x.(Float)), float64(y.(Int)))
@@ -1693,7 +1813,7 @@ func Power(x, y interface{}) interface{} {
 		case Complex:
 			return cmplx.Pow(complex(x.(Float), 0), complex128(y.(Complex)))
 		default:
-			panic("Power: only Int, Int, Rat, Float, and Complex args valid")
+			panic("Power: only Int, BigInt, BigRat, Float, and Complex args valid")
 		}
 
 	case Complex:
@@ -1702,7 +1822,7 @@ func Power(x, y interface{}) interface{} {
 			if y.(bool) {
 				return x.(Complex)
 			} else {
-				panic("Power: only Int, Int, Rat, Float, and Complex args valid")
+				panic("Power: only Int, BigInt, BigRat, Float, and Complex args valid")
 			}
 		case Int:
 			return cmplx.Pow(complex128(x.(Complex)), complex(float64(y.(Int)), 0))
@@ -1719,10 +1839,99 @@ func Power(x, y interface{}) interface{} {
 		case Complex:
 			return cmplx.Pow(complex128(x.(Complex)), complex128(y.(Complex)))
 		default:
-			panic("Power: only Int, Int, Rat, Float, and Complex args valid")
+			panic("Power: only Int, BigInt, BigRat, Float, and Complex args valid")
 		}
 
 	default:
-		panic("Power: only Int, Int, Rat, Float, and Complex args valid")
+		panic("Power: only Int, BigInt, BigRat, Float, and Complex args valid")
 	}
 }
+
+//==============================================================================
+
+type multiusePair struct {
+	first, second interface{}
+}
+
+type MapEntryOrPosIntRange interface {
+	Key() interface{}
+	Val() interface{}
+	From() Int
+	To() Int
+	IsToInf() bool
+	fmt.Stringer //would duplicate if we composed interface{MapEntry; PosIntRange}
+}
+
+func NewMapEntryOrPosIntRange(first, second interface{}) MapEntryOrPosIntRange {
+	return multiusePair{widen(first), widen(second)}
+}
+
+/*
+MapEntry represents a key-value pair for a Map.
+*/
+type MapEntry interface {
+	Key() interface{}
+	Val() interface{}
+	fmt.Stringer
+}
+
+func NewMapEntry(key, val interface{}) MapEntry {
+	return multiusePair{widen(key), widen(val)}
+}
+
+/*
+PosIntRange represents a range in the positive integers.
+The first field can be any Int or BigInt.
+The second field can be any Int or BigInt, or Inf.
+*/
+type PosIntRange interface {
+	From() Int
+	To() Int
+	IsToInf() bool
+	fmt.Stringer
+}
+
+func NewPosIntRange(from, to interface{}) PosIntRange {
+	return multiusePair{widen(from), widen(to)}
+}
+
+func (r multiusePair) String() string {
+	return fmt.Sprintf("%v: %v", r.first, r.second)
+}
+
+//Key returns the first field as a map key.
+func (r multiusePair) Key() interface{} {
+	return r.first
+}
+
+//Key returns the second field as a map value.
+func (r multiusePair) Val() interface{} {
+	return r.second
+}
+
+/*
+From returns the first field as an Int.
+It returns 0 if it's negative.
+It returns the maximum Int if it's a BigInt greater than that.
+*/
+func (r multiusePair) From() Int {
+	return ToInt(r.first)
+}
+
+/*
+To returns the second field as an Int.
+It returns 0 if it's negative.
+It returns the maximum Int if it's infinity or a BigInt greater than that.
+*/
+func (r multiusePair) To() Int {
+	return ToInt(r.second)
+}
+
+/*
+IsToInf returns true if the second field is infinity, otherwise false.
+*/
+func (r multiusePair) IsToInf() bool {
+	return r.second == Inf
+}
+
+//==============================================================================

@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/grolang/gro/nodes"
 )
 
 func TestScanner(t *testing.T) {
@@ -25,17 +27,19 @@ func TestScanner(t *testing.T) {
 	var s scanner
 	s.init(src, nil, nil)
 	for {
-		s.next()
-		if s.tok == _EOF {
+		s.Next()
+		if s.tok == nodes.EofT {
 			break
 		}
-		switch s.tok {
-		case _Name:
-			fmt.Println(s.line, s.tok, "=>", s.lit)
-		case _Operator:
-			fmt.Println(s.line, s.tok, "=>", s.op, s.prec)
-		default:
-			fmt.Println(s.line, s.tok)
+		if *fullprint {
+			switch s.tok {
+			case nodes.NameT:
+				fmt.Println(s.line, s.tok, "=>", s.lit)
+			case nodes.OperatorT:
+				fmt.Println(s.line, s.tok, "=>", s.op, s.prec)
+			default:
+				fmt.Println(s.line, s.tok)
+			}
 		}
 	}
 }
@@ -53,7 +57,7 @@ func TestTokens(t *testing.T) {
 	// scan source
 	var got scanner
 	got.init(&bytesReader{buf}, nil, nil)
-	got.next()
+	got.Next()
 	for i, want := range sampleTokens {
 		nlsemi := false
 
@@ -67,19 +71,19 @@ func TestTokens(t *testing.T) {
 		}
 
 		switch want.tok {
-		case _Semi:
+		case nodes.SemiT:
 			if got.lit != "semicolon" {
 				t.Errorf("got %s; want semicolon", got.lit)
 			}
 
-		case _Name, _Literal:
+		case nodes.NameT, nodes.LiteralT:
 			if got.lit != want.src {
 				t.Errorf("got lit = %q; want %q", got.lit, want.src)
 				continue
 			}
 			nlsemi = true
 
-		case _Operator, _AssignOp, _IncOp:
+		case nodes.OperatorT, nodes.AssignOpT, nodes.IncOpT:
 			if got.op != want.op {
 				t.Errorf("got op = %s; want %s", got.op, want.op)
 				continue
@@ -88,15 +92,15 @@ func TestTokens(t *testing.T) {
 				t.Errorf("got prec = %d; want %d", got.prec, want.prec)
 				continue
 			}
-			nlsemi = want.tok == _IncOp
+			nlsemi = want.tok == nodes.IncOpT
 
-		case _Rparen, _Rbrack, _Rbrace, _Break, _Continue, _Fallthrough, _Return:
+		case nodes.RparenT, nodes.RbrackT, nodes.RbraceT, nodes.BreakT, nodes.ContinueT, nodes.FallthroughT, nodes.ReturnT:
 			nlsemi = true
 		}
 
 		if nlsemi {
-			got.next()
-			if got.tok != _Semi {
+			got.Next()
+			if got.tok != nodes.SemiT {
 				t.Errorf("got tok = %s; want ;", got.tok)
 				continue
 			}
@@ -105,161 +109,161 @@ func TestTokens(t *testing.T) {
 			}
 		}
 
-		got.next()
+		got.Next()
 	}
 
-	if got.tok != _EOF {
+	if got.tok != nodes.EofT {
 		t.Errorf("got %q; want _EOF", got.tok)
 	}
 }
 
 var sampleTokens = [...]struct {
-	tok  token
+	tok  nodes.Token
 	src  string
-	op   Operator
-	prec int
+	op   nodes.Operator
+	prec nodes.Prec
 }{
 	// name samples
-	{_Name, "x", 0, 0},
-	{_Name, "X123", 0, 0},
-	{_Name, "foo", 0, 0},
-	{_Name, "Foo123", 0, 0},
-	{_Name, "foo_bar", 0, 0},
-	{_Name, "_", 0, 0},
-	{_Name, "_foobar", 0, 0},
-	{_Name, "a۰۱۸", 0, 0},
-	{_Name, "foo६४", 0, 0},
-	{_Name, "bar９８７６", 0, 0},
-	{_Name, "ŝ", 0, 0},
-	{_Name, "ŝfoo", 0, 0},
+	{nodes.NameT, "x", 0, 0},
+	{nodes.NameT, "X123", 0, 0},
+	{nodes.NameT, "foo", 0, 0},
+	{nodes.NameT, "Foo123", 0, 0},
+	{nodes.NameT, "foo_bar", 0, 0},
+	{nodes.NameT, "_", 0, 0},
+	{nodes.NameT, "_foobar", 0, 0},
+	{nodes.NameT, "a۰۱۸", 0, 0},
+	{nodes.NameT, "foo६४", 0, 0},
+	{nodes.NameT, "bar９８７６", 0, 0},
+	{nodes.NameT, "ŝ", 0, 0},
+	{nodes.NameT, "ŝfoo", 0, 0},
 
 	// literal samples
-	{_Literal, "0", 0, 0},
-	{_Literal, "1", 0, 0},
-	{_Literal, "12345", 0, 0},
-	{_Literal, "123456789012345678890123456789012345678890", 0, 0},
-	{_Literal, "01234567", 0, 0},
-	{_Literal, "0x0", 0, 0},
-	{_Literal, "0xcafebabe", 0, 0},
-	{_Literal, "0.", 0, 0},
-	{_Literal, "0.e0", 0, 0},
-	{_Literal, "0.e-1", 0, 0},
-	{_Literal, "0.e+123", 0, 0},
-	{_Literal, ".0", 0, 0},
-	{_Literal, ".0E00", 0, 0},
-	{_Literal, ".0E-0123", 0, 0},
-	{_Literal, ".0E+12345678901234567890", 0, 0},
-	{_Literal, ".45e1", 0, 0},
-	{_Literal, "3.14159265", 0, 0},
-	{_Literal, "1e0", 0, 0},
-	{_Literal, "1e+100", 0, 0},
-	{_Literal, "1e-100", 0, 0},
-	{_Literal, "2.71828e-1000", 0, 0},
-	{_Literal, "0i", 0, 0},
-	{_Literal, "1i", 0, 0},
-	{_Literal, "012345678901234567889i", 0, 0},
-	{_Literal, "123456789012345678890i", 0, 0},
-	{_Literal, "0.i", 0, 0},
-	{_Literal, ".0i", 0, 0},
-	{_Literal, "3.14159265i", 0, 0},
-	{_Literal, "1e0i", 0, 0},
-	{_Literal, "1e+100i", 0, 0},
-	{_Literal, "1e-100i", 0, 0},
-	{_Literal, "2.71828e-1000i", 0, 0},
-	{_Literal, "'a'", 0, 0},
-	{_Literal, "'\\000'", 0, 0},
-	{_Literal, "'\\xFF'", 0, 0},
-	{_Literal, "'\\uff16'", 0, 0},
-	{_Literal, "'\\U0000ff16'", 0, 0},
-	{_Literal, "`foobar`", 0, 0},
-	{_Literal, "`foo\tbar`", 0, 0},
-	{_Literal, "`\r`", 0, 0},
+	{nodes.LiteralT, "0", 0, 0},
+	{nodes.LiteralT, "1", 0, 0},
+	{nodes.LiteralT, "12345", 0, 0},
+	{nodes.LiteralT, "123456789012345678890123456789012345678890", 0, 0},
+	{nodes.LiteralT, "01234567", 0, 0},
+	{nodes.LiteralT, "0x0", 0, 0},
+	{nodes.LiteralT, "0xcafebabe", 0, 0},
+	{nodes.LiteralT, "0.", 0, 0},
+	{nodes.LiteralT, "0.e0", 0, 0},
+	{nodes.LiteralT, "0.e-1", 0, 0},
+	{nodes.LiteralT, "0.e+123", 0, 0},
+	{nodes.LiteralT, ".0", 0, 0},
+	{nodes.LiteralT, ".0E00", 0, 0},
+	{nodes.LiteralT, ".0E-0123", 0, 0},
+	{nodes.LiteralT, ".0E+12345678901234567890", 0, 0},
+	{nodes.LiteralT, ".45e1", 0, 0},
+	{nodes.LiteralT, "3.14159265", 0, 0},
+	{nodes.LiteralT, "1e0", 0, 0},
+	{nodes.LiteralT, "1e+100", 0, 0},
+	{nodes.LiteralT, "1e-100", 0, 0},
+	{nodes.LiteralT, "2.71828e-1000", 0, 0},
+	{nodes.LiteralT, "0i", 0, 0},
+	{nodes.LiteralT, "1i", 0, 0},
+	{nodes.LiteralT, "012345678901234567889i", 0, 0},
+	{nodes.LiteralT, "123456789012345678890i", 0, 0},
+	{nodes.LiteralT, "0.i", 0, 0},
+	{nodes.LiteralT, ".0i", 0, 0},
+	{nodes.LiteralT, "3.14159265i", 0, 0},
+	{nodes.LiteralT, "1e0i", 0, 0},
+	{nodes.LiteralT, "1e+100i", 0, 0},
+	{nodes.LiteralT, "1e-100i", 0, 0},
+	{nodes.LiteralT, "2.71828e-1000i", 0, 0},
+	{nodes.LiteralT, "'a'", 0, 0},
+	{nodes.LiteralT, "'\\000'", 0, 0},
+	{nodes.LiteralT, "'\\xFF'", 0, 0},
+	{nodes.LiteralT, "'\\uff16'", 0, 0},
+	{nodes.LiteralT, "'\\U0000ff16'", 0, 0},
+	{nodes.LiteralT, "`foobar`", 0, 0},
+	{nodes.LiteralT, "`foo\tbar`", 0, 0},
+	{nodes.LiteralT, "`\r`", 0, 0},
 
 	// operators
-	{_Operator, "||", OrOr, precOrOr},
+	{nodes.OperatorT, "||", nodes.OrOr, nodes.PrecOrOr},
 
-	{_Operator, "&&", AndAnd, precAndAnd},
+	{nodes.OperatorT, "&&", nodes.AndAnd, nodes.PrecAndAnd},
 
-	{_Operator, "==", Eql, precCmp},
-	{_Operator, "!=", Neq, precCmp},
-	{_Operator, "<", Lss, precCmp},
-	{_Operator, "<=", Leq, precCmp},
-	{_Operator, ">", Gtr, precCmp},
-	{_Operator, ">=", Geq, precCmp},
+	{nodes.OperatorT, "==", nodes.Eql, nodes.PrecCmp},
+	{nodes.OperatorT, "!=", nodes.Neq, nodes.PrecCmp},
+	{nodes.OperatorT, "<", nodes.Lss, nodes.PrecCmp},
+	{nodes.OperatorT, "<=", nodes.Leq, nodes.PrecCmp},
+	{nodes.OperatorT, ">", nodes.Gtr, nodes.PrecCmp},
+	{nodes.OperatorT, ">=", nodes.Geq, nodes.PrecCmp},
 
-	{_Operator, "+", Add, precAdd},
-	{_Operator, "-", Sub, precAdd},
-	{_Operator, "|", Or, precAdd},
-	{_Operator, "^", Xor, precAdd},
+	{nodes.OperatorT, "+", nodes.Add, nodes.PrecAdd},
+	{nodes.OperatorT, "-", nodes.Sub, nodes.PrecAdd},
+	{nodes.OperatorT, "|", nodes.Or, nodes.PrecAdd},
+	{nodes.OperatorT, "^", nodes.Xor, nodes.PrecAdd},
 
-	{_Star, "*", Mul, precMul},
-	{_Operator, "/", Div, precMul},
-	{_Operator, "%", Rem, precMul},
-	{_Operator, "&", And, precMul},
-	{_Operator, "&^", AndNot, precMul},
-	{_Operator, "<<", Shl, precMul},
-	{_Operator, ">>", Shr, precMul},
+	{nodes.StarT, "*", nodes.Mul, nodes.PrecMul},
+	{nodes.OperatorT, "/", nodes.Div, nodes.PrecMul},
+	{nodes.OperatorT, "%", nodes.Rem, nodes.PrecMul},
+	{nodes.OperatorT, "&", nodes.And, nodes.PrecMul},
+	{nodes.OperatorT, "&^", nodes.AndNot, nodes.PrecMul},
+	{nodes.OperatorT, "<<", nodes.Shl, nodes.PrecMul},
+	{nodes.OperatorT, ">>", nodes.Shr, nodes.PrecMul},
 
 	// assignment operations
-	{_AssignOp, "+=", Add, precAdd},
-	{_AssignOp, "-=", Sub, precAdd},
-	{_AssignOp, "|=", Or, precAdd},
-	{_AssignOp, "^=", Xor, precAdd},
+	{nodes.AssignOpT, "+=", nodes.Add, nodes.PrecAdd},
+	{nodes.AssignOpT, "-=", nodes.Sub, nodes.PrecAdd},
+	{nodes.AssignOpT, "|=", nodes.Or, nodes.PrecAdd},
+	{nodes.AssignOpT, "^=", nodes.Xor, nodes.PrecAdd},
 
-	{_AssignOp, "*=", Mul, precMul},
-	{_AssignOp, "/=", Div, precMul},
-	{_AssignOp, "%=", Rem, precMul},
-	{_AssignOp, "&=", And, precMul},
-	{_AssignOp, "&^=", AndNot, precMul},
-	{_AssignOp, "<<=", Shl, precMul},
-	{_AssignOp, ">>=", Shr, precMul},
+	{nodes.AssignOpT, "*=", nodes.Mul, nodes.PrecMul},
+	{nodes.AssignOpT, "/=", nodes.Div, nodes.PrecMul},
+	{nodes.AssignOpT, "%=", nodes.Rem, nodes.PrecMul},
+	{nodes.AssignOpT, "&=", nodes.And, nodes.PrecMul},
+	{nodes.AssignOpT, "&^=", nodes.AndNot, nodes.PrecMul},
+	{nodes.AssignOpT, "<<=", nodes.Shl, nodes.PrecMul},
+	{nodes.AssignOpT, ">>=", nodes.Shr, nodes.PrecMul},
 
 	// other operations
-	{_IncOp, "++", Add, precAdd},
-	{_IncOp, "--", Sub, precAdd},
-	{_Assign, "=", 0, 0},
-	{_Define, ":=", 0, 0},
-	{_Arrow, "<-", 0, 0},
+	{nodes.IncOpT, "++", nodes.Add, nodes.PrecAdd},
+	{nodes.IncOpT, "--", nodes.Sub, nodes.PrecAdd},
+	{nodes.AssignT, "=", 0, 0},
+	{nodes.DefineT, ":=", 0, 0},
+	{nodes.ArrowT, "<-", 0, 0},
 
 	// delimiters
-	{_Lparen, "(", 0, 0},
-	{_Lbrack, "[", 0, 0},
-	{_Lbrace, "{", 0, 0},
-	{_Rparen, ")", 0, 0},
-	{_Rbrack, "]", 0, 0},
-	{_Rbrace, "}", 0, 0},
-	{_Comma, ",", 0, 0},
-	{_Semi, ";", 0, 0},
-	{_Colon, ":", 0, 0},
-	{_Dot, ".", 0, 0},
-	{_DotDotDot, "...", 0, 0},
+	{nodes.LparenT, "(", 0, 0},
+	{nodes.LbrackT, "[", 0, 0},
+	{nodes.LbraceT, "{", 0, 0},
+	{nodes.RparenT, ")", 0, 0},
+	{nodes.RbrackT, "]", 0, 0},
+	{nodes.RbraceT, "}", 0, 0},
+	{nodes.CommaT, ",", 0, 0},
+	{nodes.SemiT, ";", 0, 0},
+	{nodes.ColonT, ":", 0, 0},
+	{nodes.DotT, ".", 0, 0},
+	{nodes.DotDotDotT, "...", 0, 0},
 
 	// keywords
-	{_Break, "break", 0, 0},
-	{_Case, "case", 0, 0},
-	{_Chan, "chan", 0, 0},
-	{_Const, "const", 0, 0},
-	{_Continue, "continue", 0, 0},
-	{_Default, "default", 0, 0},
-	{_Defer, "defer", 0, 0},
-	{_Else, "else", 0, 0},
-	{_Fallthrough, "fallthrough", 0, 0},
-	{_For, "for", 0, 0},
-	{_Func, "func", 0, 0},
-	{_Go, "go", 0, 0},
-	{_Goto, "goto", 0, 0},
-	{_If, "if", 0, 0},
-	{_Import, "import", 0, 0},
-	{_Interface, "interface", 0, 0},
-	{_Map, "map", 0, 0},
-	{_Package, "package", 0, 0},
-	{_Range, "range", 0, 0},
-	{_Return, "return", 0, 0},
-	{_Select, "select", 0, 0},
-	{_Struct, "struct", 0, 0},
-	{_Switch, "switch", 0, 0},
-	{_Type, "type", 0, 0},
-	{_Var, "var", 0, 0},
+	{nodes.BreakT, "break", 0, 0},
+	{nodes.CaseT, "case", 0, 0},
+	{nodes.ChanT, "chan", 0, 0},
+	{nodes.ConstT, "const", 0, 0},
+	{nodes.ContinueT, "continue", 0, 0},
+	{nodes.DefaultT, "default", 0, 0},
+	{nodes.DeferT, "defer", 0, 0},
+	{nodes.ElseT, "else", 0, 0},
+	{nodes.FallthroughT, "fallthrough", 0, 0},
+	{nodes.ForT, "for", 0, 0},
+	{nodes.FuncT, "func", 0, 0},
+	{nodes.GoT, "go", 0, 0},
+	{nodes.GotoT, "goto", 0, 0},
+	{nodes.IfT, "if", 0, 0},
+	{nodes.ImportT, "import", 0, 0},
+	{nodes.InterfaceT, "interface", 0, 0},
+	{nodes.MapT, "map", 0, 0},
+	{nodes.PackageT, "package", 0, 0},
+	{nodes.RangeT, "range", 0, 0},
+	{nodes.ReturnT, "return", 0, 0},
+	{nodes.SelectT, "select", 0, 0},
+	{nodes.StructT, "struct", 0, 0},
+	{nodes.SwitchT, "switch", 0, 0},
+	{nodes.TypeT, "type", 0, 0},
+	{nodes.VarT, "var", 0, 0},
 }
 
 func TestScanErrors(t *testing.T) {
@@ -304,7 +308,7 @@ func TestScanErrors(t *testing.T) {
 		{`'\378`, "non-octal character in escape sequence: 8", 0, 4},
 		{`'\400'`, "octal escape value > 255: 256", 0, 5},
 		{`'xx`, "invalid character literal (missing closing ')", 0, 0},
-		{`'xx'`, "invalid character literal (more than one character)", 0, 0},
+		//{`'xx'`, "invalid character literal (more than one character)", 0, 0},
 
 		{"\"\n", "newline in string", 0, 1},
 		{`"`, "string not terminated", 0, 0},
@@ -365,8 +369,8 @@ func TestScanErrors(t *testing.T) {
 		}, nil)
 
 		for {
-			s.next()
-			if s.tok == _EOF {
+			s.Next()
+			if s.tok == nodes.EofT {
 				break
 			}
 		}
@@ -382,9 +386,9 @@ func TestIssue21938(t *testing.T) {
 
 	var got scanner
 	got.init(strings.NewReader(s), nil, nil)
-	got.next()
+	got.Next()
 
-	if got.tok != _Literal || got.lit != ".5" {
-		t.Errorf("got %s %q; want %s %q", got.tok, got.lit, _Literal, ".5")
+	if got.tok != nodes.LiteralT || got.lit != ".5" {
+		t.Errorf("got %s %q; want %s %q", got.tok, got.lit, nodes.LiteralT, ".5")
 	}
 }

@@ -6,6 +6,7 @@ package parsec_test
 
 import (
 	"fmt"
+
 	kern "github.com/grolang/gro/parsec"
 	"github.com/grolang/gro/utf88"
 )
@@ -16,51 +17,23 @@ import (
 
 func ExampleParseText() {
 	var r interface{}
-	var ok bool
+	var err error
 	prt := func() {
-		if ok {
+		if err == nil {
 			fmt.Printf("Result: %c\n", r)
 		} else {
-			fmt.Printf("Error: %v\n", r)
+			fmt.Printf("Error: %v\n", err)
 		}
 	}
 
 	p := kern.Symbol(utf88.Codepoint('a'))
 
 	t := utf88.Text("abc")
-	r, ok = kern.ParseText(p, t)
+	r, err = kern.ParseItem(p, t)
 	prt()
 
 	u := utf88.Text("defg")
-	r, ok = kern.ParseText(p, u)
-	prt()
-
-	// Output:
-	// Result: a
-	// Error: Unexpected d input.
-}
-
-//------------------------------------------------------------------------------
-
-func ExampleParseString() {
-	var r interface{}
-	var ok bool
-	prt := func() {
-		if ok {
-			fmt.Printf("Result: %c\n", r)
-		} else {
-			fmt.Printf("Error: %v\n", r)
-		}
-	}
-
-	p := kern.Symbol(utf88.Codepoint('a'))
-
-	t := "abc"
-	r, ok = kern.ParseString(p, t)
-	prt()
-
-	u := "defg"
-	r, ok = kern.ParseString(p, u)
+	r, err = kern.ParseItem(p, u)
 	prt()
 
 	// Output:
@@ -76,11 +49,11 @@ func ExampleReturn() {
 	p := kern.Return(1234567890)
 
 	t := utf88.Text("anything")
-	r, ok := kern.ParseText(p, t)
-	if ok {
+	r, err := kern.ParseItem(p, t)
+	if err == nil {
 		fmt.Printf("Result: %v\n", r)
 	} else {
-		fmt.Printf("Error: %v\n", r)
+		fmt.Printf("Error: %v\n", err)
 	}
 
 	// Output:
@@ -91,11 +64,11 @@ func ExampleFail() {
 	p := kern.Fail(utf88.Text("Some Failure"))
 
 	t := utf88.Text("anything")
-	r, ok := kern.ParseText(p, t)
-	if ok {
+	r, err := kern.ParseItem(p, t)
+	if err == nil {
 		fmt.Printf("Result: %v\n", r)
 	} else {
-		fmt.Printf("Error: %v\n", r)
+		fmt.Printf("Error: %v\n", err)
 	}
 
 	// Output:
@@ -108,11 +81,11 @@ func ExampleSatisfy() {
 	})
 
 	t := utf88.Text("abcde")
-	r, ok := kern.ParseText(p, t)
-	if ok {
+	r, err := kern.ParseItem(p, t)
+	if err == nil {
 		fmt.Printf("Result: %c\n", r)
 	} else {
-		fmt.Printf("Error: %v\n", r)
+		fmt.Printf("Error: %v\n", err)
 	}
 
 	// Output:
@@ -127,11 +100,11 @@ func ExampleSymbol() {
 	p := kern.Symbol(utf88.Codepoint('a'))
 
 	t := utf88.Text("abc")
-	r, ok := kern.ParseText(p, t)
-	if ok {
+	r, err := kern.ParseItem(p, t)
+	if err == nil {
 		fmt.Printf("Result: %c\n", r)
 	} else {
-		fmt.Printf("Error: %v\n", r)
+		fmt.Printf("Error: %v\n", err)
 	}
 
 	// Output:
@@ -144,11 +117,11 @@ func ExampleToken() {
 	p := kern.Token(utf88.Text("ab"))
 
 	t := utf88.Text("abc")
-	r, ok := kern.ParseText(p, t)
-	if ok {
+	r, err := kern.ParseItem(p, t)
+	if err == nil {
 		fmt.Printf("Result: %s\n", utf88.Surr(r.(utf88.Text)))
 	} else {
-		fmt.Printf("Error: %v\n", r)
+		fmt.Printf("Error: %v\n", err)
 	}
 
 	// Output:
@@ -161,11 +134,11 @@ func ExampleRegexp() {
 	p := kern.Regexp(`z|a|b`)
 
 	t := utf88.Text("abc")
-	r, ok := kern.ParseText(p, t)
-	if ok {
+	r, err := kern.ParseItem(p, t)
+	if err == nil {
 		fmt.Printf("Result: %s\n", utf88.Surr(r.(utf88.Text)))
 	} else {
-		fmt.Printf("Error: %v\n", r)
+		fmt.Printf("Error: %v\n", err)
 	}
 
 	// Output:
@@ -180,11 +153,11 @@ func ExampleOneOf() {
 	p := kern.OneOf(utf88.Text("xyzab"))
 
 	t := utf88.Text("abcde")
-	r, ok := kern.ParseText(p, t)
-	if ok {
+	r, err := kern.ParseItem(p, t)
+	if err == nil {
 		fmt.Printf("Result: %s\n", utf88.Sur(r.(utf88.Codepoint)))
 	} else {
-		fmt.Printf("Error: %v\n", r)
+		fmt.Printf("Error: %v\n", err)
 	}
 
 	// Output:
@@ -197,11 +170,11 @@ func ExampleNoneOf() {
 	p := kern.NoneOf(utf88.Text("xyz\n\t"))
 
 	t := utf88.Text("abcde")
-	r, ok := kern.ParseText(p, t)
-	if ok {
+	r, err := kern.ParseItem(p, t)
+	if err == nil {
 		fmt.Printf("Result: %s\n", utf88.Sur(r.(utf88.Codepoint)))
 	} else {
-		fmt.Printf("Error: %v\n", r)
+		fmt.Printf("Error: %v\n", err)
 	}
 
 	// Output:
@@ -213,24 +186,23 @@ func ExampleNoneOf() {
 //------------------------------------------------------------------------------
 
 func ExampleFwd() {
-	var expr func() kern.Parser
+	var expr func(...interface{}) interface{}
 
-	paren := func() kern.Parser {
+	paren := func(...interface{}) interface{} {
 		return kern.SeqRight(kern.Token(utf88.Text(string('('))),
 			kern.SeqLeft(kern.Fwd(expr), // Fwd will evaluate passed expression lazily
 				kern.Token(utf88.Text(string(')')))))
 	}
-	expr = func() kern.Parser { // will parse string enclosed in parenthesis pairs to any depth
-		return kern.Alt(kern.Token(utf88.Text(string('a'))),
-			paren())
+	expr = func(...interface{}) interface{} { // will parse string enclosed in parenthesis pairs to any depth
+		return kern.Alt(kern.Token(utf88.Text(string('a'))), paren().(kern.Parser))
 	}
 
 	t := utf88.Text("(((a)))")
-	r, ok := kern.ParseText(expr(), t)
-	if ok {
+	r, err := kern.ParseItem(expr().(kern.Parser), t)
+	if err == nil {
 		fmt.Printf("Result: %s\n", utf88.Surr(r.(utf88.Text)))
 	} else {
-		fmt.Printf("Error: %v\n", r)
+		fmt.Printf("Error: %v\n", err)
 	}
 
 	// Output:
@@ -238,26 +210,24 @@ func ExampleFwd() {
 }
 
 //------------------------------------------------------------------------------
-
 func ExampleFwdWithParams() {
-	var expr func(...interface{}) kern.Parser
+	var expr func(...interface{}) interface{}
 
-	paren := func(as ...interface{}) kern.Parser {
+	paren := func(as ...interface{}) interface{} {
 		return kern.SeqRight(kern.Token(utf88.Text(string('('))),
-			kern.SeqLeft(kern.FwdWithParams(expr, as...), // FwdWithParams will evaluate passed expression lazily
+			kern.SeqLeft(kern.Fwd(append([]interface{}{expr}, as...)...), // Fwd will evaluate passed expression lazily
 				kern.Token(utf88.Text(string(')')))))
 	}
-	expr = func(as ...interface{}) kern.Parser { // will parse string enclosed in parenthesis pairs to any depth
-		return kern.Alt(kern.Token(utf88.Text(string('a'))),
-			paren(as...))
+	expr = func(as ...interface{}) interface{} { // will parse string enclosed in parenthesis pairs to any depth
+		return kern.Alt(kern.Token(utf88.Text(string('a'))), paren(as...).(kern.Parser))
 	}
 
 	t := utf88.Text("(((a)))")
-	r, ok := kern.ParseText(expr(101, 102), t) // call expr with extra (unused in this e.g.) args
-	if ok {
+	r, err := kern.ParseItem(expr(101, 102).(kern.Parser), t) // call expr with extra (unused in this e.g.) args
+	if err == nil {
 		fmt.Printf("Result: %s\n", utf88.Surr(r.(utf88.Text)))
 	} else {
-		fmt.Printf("Error: %v\n", r)
+		fmt.Printf("Error: %v\n", err)
 	}
 
 	// Output:
@@ -273,19 +243,19 @@ func ExampleTry() {
 	t := utf88.Text("a7bcde")
 
 	var r interface{}
-	var ok bool
+	var err error
 	prt := func() {
-		if ok {
+		if err == nil {
 			fmt.Printf("Result: %s\n", utf88.Surr(r.(utf88.Text)))
 		} else {
-			fmt.Printf("Error: %v\n", r)
+			fmt.Printf("Error: %v\n", err)
 		}
 	}
 
-	r, ok = kern.ParseText(kern.Alt(p, q), t)
+	r, err = kern.ParseItem(kern.Alt(p, q).(kern.Parser), t)
 	prt()
 
-	r, ok = kern.ParseText(kern.Alt(kern.Try(p), q), t)
+	r, err = kern.ParseItem(kern.Alt(kern.Try(p), q).(kern.Parser), t)
 	prt()
 
 	// Output:
@@ -302,11 +272,11 @@ func ExampleAsk() {
 	p := kern.Ask(kern.Collect(digit, letter), utf88.Text("digit,letter"))
 
 	t := utf88.Text(";efg")
-	r, ok := kern.ParseText(p, t)
-	if ok {
+	r, err := kern.ParseItem(p, t)
+	if err == nil {
 		fmt.Printf("Result: %s\n", utf88.Sur(r.(utf88.Codepoint)))
 	} else {
-		fmt.Printf("Error: %v\n", r)
+		fmt.Printf("Error: %v\n", err)
 	}
 
 	// Output:
@@ -317,12 +287,12 @@ func ExampleAsk() {
 
 func ExampleAlt() {
 	var r interface{}
-	var ok bool
+	var err error
 	prt := func() {
-		if ok {
+		if err == nil {
 			fmt.Printf("Result: %s\n", utf88.Surr(r.(utf88.Text)))
 		} else {
-			fmt.Printf("Error: %v\n", r)
+			fmt.Printf("Error: %v\n", err)
 		}
 	}
 
@@ -330,19 +300,19 @@ func ExampleAlt() {
 	upper := kern.Regexp(`\p{Lu}`)
 	digit := kern.Regexp(`\p{Nd}`)
 
-	p := kern.Alt(lower, digit)
-	q := kern.Alt(lower, digit, upper)
+	p := kern.Alt(lower, digit).(kern.Parser)
+	q := kern.Alt(lower, digit, upper).(kern.Parser)
 
 	t := utf88.Text("7ef")
 	u := utf88.Text(";ef")
 
-	r, ok = kern.ParseText(p, t)
+	r, err = kern.ParseItem(p, t)
 	prt()
 
-	r, ok = kern.ParseText(p, u)
+	r, err = kern.ParseItem(p, u)
 	prt()
 
-	r, ok = kern.ParseText(q, t)
+	r, err = kern.ParseItem(q, t)
 	prt()
 
 	// Output:
@@ -355,12 +325,12 @@ func ExampleAlt() {
 
 func ExampleBind() {
 	var r interface{}
-	var ok bool
+	var err error
 	prt := func() {
-		if ok {
+		if err == nil {
 			fmt.Printf("Result: %s\n", r)
 		} else {
-			fmt.Printf("Error: %v\n", r)
+			fmt.Printf("Error: %v\n", err)
 		}
 	}
 
@@ -378,7 +348,7 @@ func ExampleBind() {
 	})
 
 	t := utf88.Text("e789fg")
-	r, ok = kern.ParseText(p, t)
+	r, err = kern.ParseItem(p, t)
 	prt()
 
 	// Output:
@@ -391,14 +361,14 @@ func ExampleSeqLeft() {
 	digit := kern.Regexp(`\p{Nd}`)
 	letter := kern.Regexp(`\pL`)
 
-	p := kern.SeqLeft(digit, letter)
+	p := kern.SeqLeft(digit, letter).(kern.Parser)
 
 	t := utf88.Text("7efg")
-	r, ok := kern.ParseText(p, t)
-	if ok {
+	r, err := kern.ParseItem(p, t)
+	if err == nil {
 		fmt.Printf("Result: %s\n", utf88.Surr(r.(utf88.Text)))
 	} else {
-		fmt.Printf("Error: %v\n", r)
+		fmt.Printf("Error: %v\n", err)
 	}
 
 	// Output:
@@ -411,14 +381,14 @@ func ExampleSeqRight() {
 	digit := kern.Regexp(`\p{Nd}`)
 	letter := kern.Regexp(`\pL`)
 
-	p := kern.SeqRight(digit, letter)
+	p := kern.SeqRight(digit, letter).(kern.Parser)
 
 	t := utf88.Text("7efg")
-	r, ok := kern.ParseText(p, t)
-	if ok {
+	r, err := kern.ParseItem(p, t)
+	if err == nil {
 		fmt.Printf("Result: %s\n", utf88.Surr(r.(utf88.Text)))
 	} else {
-		fmt.Printf("Error: %v\n", r)
+		fmt.Printf("Error: %v\n", err)
 	}
 
 	// Output:
@@ -436,11 +406,11 @@ func ExampleApply() {
 	}, letter)
 
 	t := utf88.Text("abc")
-	r, ok := kern.ParseText(p, t)
-	if ok {
+	r, err := kern.ParseItem(p, t)
+	if err == nil {
 		fmt.Printf("Result: %s\n", r)
 	} else {
-		fmt.Printf("Error: %v\n", r)
+		fmt.Printf("Error: %v\n", err)
 	}
 
 	// Output:
@@ -456,11 +426,11 @@ func ExampleCollect() {
 	p := kern.Collect(letter, digit, letter)
 
 	t := utf88.Text("a5bc")
-	r, ok := kern.ParseText(p, t)
-	if ok {
+	r, err := kern.ParseItem(p, t)
+	if err == nil {
 		fmt.Printf("Result: %c\n", r)
 	} else {
-		fmt.Printf("Error: %v\n", r)
+		fmt.Printf("Error: %v\n", err)
 	}
 
 	// Output:
@@ -471,12 +441,12 @@ func ExampleCollect() {
 
 func ExampleMany() {
 	var r interface{}
-	var ok bool
+	var err error
 	prt := func() {
-		if ok {
+		if err == nil {
 			fmt.Printf("Result: %c\n", r)
 		} else {
-			fmt.Printf("Error: %v\n", r)
+			fmt.Printf("Error: %v\n", err)
 		}
 	}
 
@@ -486,9 +456,9 @@ func ExampleMany() {
 	t := utf88.Text("abc78d")
 	u := utf88.Text("789def")
 
-	r, ok = kern.ParseText(p, t)
+	r, err = kern.ParseItem(p, t)
 	prt()
-	r, ok = kern.ParseText(p, u)
+	r, err = kern.ParseItem(p, u)
 	prt()
 
 	// Output:
@@ -500,14 +470,14 @@ func ExampleMany() {
 
 func ExampleOptional() {
 	var r interface{}
-	var ok bool
+	var err error
 	prt := func() {
-		if ok && r == nil {
+		if err == nil && r == nil {
 			fmt.Println("Nil result")
-		} else if ok {
+		} else if err == nil {
 			fmt.Printf("Result: %s\n", utf88.Surr(r.(utf88.Text)))
 		} else {
-			fmt.Printf("Error: %v\n", r)
+			fmt.Printf("Error: %v\n", err)
 		}
 	}
 
@@ -517,9 +487,9 @@ func ExampleOptional() {
 	t := utf88.Text("abc")
 	u := utf88.Text("789")
 
-	r, ok = kern.ParseText(p, t)
+	r, err = kern.ParseItem(p, t)
 	prt()
-	r, ok = kern.ParseText(p, u)
+	r, err = kern.ParseItem(p, u)
 	prt()
 
 	// Output:
@@ -531,12 +501,12 @@ func ExampleOptional() {
 
 func ExampleOption() {
 	var r interface{}
-	var ok bool
+	var err error
 	prt := func() {
-		if ok {
+		if err == nil {
 			fmt.Printf("Result: %s\n", utf88.Surr(r.(utf88.Text)))
 		} else {
-			fmt.Printf("Error: %v\n", r)
+			fmt.Printf("Error: %v\n", err)
 		}
 	}
 
@@ -546,9 +516,9 @@ func ExampleOption() {
 	t := utf88.Text("abc")
 	u := utf88.Text("789")
 
-	r, ok = kern.ParseText(p, t)
+	r, err = kern.ParseItem(p, t)
 	prt()
-	r, ok = kern.ParseText(p, u)
+	r, err = kern.ParseItem(p, u)
 	prt()
 
 	// Output:
@@ -560,12 +530,12 @@ func ExampleOption() {
 
 func ExampleSepBy() {
 	var r interface{}
-	var ok bool
+	var err error
 	prt := func() {
-		if ok {
+		if err == nil {
 			fmt.Printf("Result: %c\n", r)
 		} else {
-			fmt.Printf("Error: %v\n", r)
+			fmt.Printf("Error: %v\n", err)
 		}
 	}
 
@@ -576,9 +546,9 @@ func ExampleSepBy() {
 	t := utf88.Text("a;b:c789")
 	u := utf88.Text(";789")
 
-	r, ok = kern.ParseText(p, t)
+	r, err = kern.ParseItem(p, t)
 	prt()
-	r, ok = kern.ParseText(p, u)
+	r, err = kern.ParseItem(p, u)
 	prt()
 
 	// Output:

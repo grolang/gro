@@ -19,24 +19,24 @@ var PkgDeps = map[string][]string{
 
 	// L0 is the lowest level, core, nearly unavoidable packages.
 	"unsafe":                  {},
+	"errors":                  {},
 	"runtime/internal/sys":    {},
 	"runtime/internal/atomic": {"unsafe", "runtime/internal/sys"},
 	"runtime":                 {"unsafe", "runtime/internal/atomic", "runtime/internal/sys"},
 	"internal/race":           {"runtime", "unsafe"},
-	"sync/atomic":             {"unsafe"},
-	"sync":                    {"internal/race", "runtime", "sync/atomic", "unsafe"},
-	"errors":                  {},
-	"io":                      {"errors", "sync"},
 	"internal/cpu":            {"runtime"},
+	"sync/atomic":             {"unsafe"},
+	"sync":                    {"runtime", "unsafe", "internal/race", "sync/atomic"},
+	"io":                      {"errors", "sync"},
 
 	"L0": {
 		"unsafe",
+		"errors",
 		"runtime/internal/atomic",
 		"runtime",
 		"internal/cpu",
 		"sync/atomic",
 		"sync",
-		"errors",
 		"io",
 	},
 
@@ -105,11 +105,11 @@ var PkgDeps = map[string][]string{
 	"image/color/palette": {"image/color" /*L2*/},
 	"image":               {"image/color" /*L2*/, "errors", "strconv", "bufio", "io"}, // interfaces
 
+	"reflect": { /*L2*/ "runtime", "sync", "math", "strconv", "unicode", "unicode/utf8", "unsafe"},
+
 	"encoding/base32": { /*L2*/ "io", "strings", "bytes", "strconv"},
 	"encoding/base64": { /*L2*/ "io", "strconv"},
 	"encoding/binary": {"reflect" /*L2*/, "io", "errors", "math"},
-
-	"reflect": { /*L2*/ "runtime", "sync", "math", "strconv", "unicode", "unicode/utf8", "unsafe"},
 
 	"L3": {
 		"L2",
@@ -137,8 +137,9 @@ var PkgDeps = map[string][]string{
 
 	//--------------------------------------------------------------------------------
 	// Operating system access.
-	"internal/syscall/windows/sysdll":   {}, //#### Added
-	"syscall":                           {"internal/race", "internal/syscall/windows/sysdll", "unicode/utf16" /*L0*/, "sync", "runtime", "unsafe", "errors", "io", "sync/atomic"},
+	"internal/syscall/windows/sysdll": {}, //#### Added
+	"syscall": {"internal/race", "internal/syscall/windows/sysdll", "unicode/utf16",
+		/*L0*/ "sync", "runtime", "unsafe", "errors", "io", "sync/atomic"},
 	"internal/syscall/unix":             {"syscall" /*L0*/, "unsafe", "sync/atomic"},
 	"internal/syscall/windows":          {"internal/syscall/windows/sysdll", "syscall" /*L0*/, "unsafe"},
 	"internal/syscall/windows/registry": {"syscall", "internal/syscall/windows/sysdll", "unicode/utf16" /*L0*/, "io", "errors", "unsafe"},
@@ -150,6 +151,7 @@ var PkgDeps = map[string][]string{
 		"sync",
 		//NOT:"sync/atomic",
 		//NOT:"unsafe",
+
 		// Other time dependencies:
 		"syscall",
 		"internal/syscall/windows/registry",
@@ -163,6 +165,8 @@ var PkgDeps = map[string][]string{
 	"fmt": {"os", "reflect" /*L1*/, "io", "errors", "math", "strconv", "sync", "unicode/utf8"},
 	// Formatted I/O: few dependencies (L1) but we must add reflect.
 	"context": {"errors", "fmt", "reflect", "sync", "time"},
+	"math/big": {"fmt" /*L2*/, "encoding/binary", "bytes", "strings",
+		"errors", "sync", "io", "math", "math/bits", "math/rand", "strconv"},
 
 	"os/signal":     {"os", "syscall" /*L2*/, "sync"},
 	"path/filepath": {"os", "syscall", "sort" /*L2*/, "errors", "runtime", "strings", "unicode/utf8"}, //#### Added: "sort"
@@ -245,10 +249,12 @@ var PkgDeps = map[string][]string{
 	// One of a kind.
 	"container/list": {}, //#### Added.
 	"container/ring": {}, //#### Added.
+	"container/heap": {"sort"},
+
+	"internal/singleflight": {"sync"},
 
 	"archive/tar":              {"L4", "OS", "syscall"},
 	"archive/zip":              {"L4", "OS", "compress/flate"},
-	"container/heap":           {"sort"},
 	"compress/bzip2":           {"L4"},
 	"compress/flate":           {"L4"},
 	"compress/gzip":            {"L4", "compress/flate"},
@@ -279,9 +285,7 @@ var PkgDeps = map[string][]string{
 	"image/jpeg":               {"L4", "image/internal/imageutil"},
 	"image/png":                {"L4", "compress/zlib"},
 	"index/suffixarray":        {"L4", "regexp"},
-	"internal/singleflight":    {"sync"},
 	"internal/trace":           {"L4", "OS"},
-	"math/big":                 {"L4"},
 	"mime":                     {"L4", "OS", "syscall", "internal/syscall/windows/registry"},
 	"mime/quotedprintable":     {"L4"},
 	"net/internal/socktest":    {"L4", "OS", "syscall"},
@@ -300,15 +304,15 @@ var PkgDeps = map[string][]string{
 		"L4", "OS", "net/url", "text/template/parse",
 	},
 
+	// Fake entry to satisfy the pseudo-import "C"
+	// that shows up in programs that use cgo.
+	"C": {},
+
 	// Cgo.
 	// If you add a dependency on CGO, you must add the package to
 	// cgoPackages in cmd/dist/test.go.
 	"runtime/cgo": {"L0", "C"},
 	"CGO":         {"C", "runtime/cgo"},
-
-	// Fake entry to satisfy the pseudo-import "C"
-	// that shows up in programs that use cgo.
-	"C": {},
 
 	// Race detector/MSan uses cgo.
 	"runtime/race": {"C"},
@@ -387,7 +391,7 @@ var PkgDeps = map[string][]string{
 		"crypto/rand",
 		"crypto/rsa",
 		"encoding/asn1",
-		"math/big",
+		"math/big", //TODO: put this somewhere better
 	},
 
 	// SSL/TLS.

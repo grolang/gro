@@ -12,15 +12,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/grolang/gro/macros"
+	"github.com/grolang/gro/nodes"
 	"github.com/grolang/gro/syntax/src"
 )
 
 const (
-	sysLib    = "\"github.com/grolang/gro/sys\""
-	dynLib    = "\"github.com/grolang/gro/ops\""
-	utf88Lib  = "\"github.com/grolang/gro/utf88\""
-	assertLib = "\"github.com/grolang/gro/assert\""
+	dynLib = "\"github.com/grolang/gro/ops\""
 )
 
 const debug = false
@@ -30,10 +27,11 @@ const lineMax = 1<<24 - 1 // TODO(gri) this limit is defined for src.Pos - fix
 
 //--------------------------------------------------------------------------------
 type parser struct {
+	scanner
+
 	base *src.PosBase
 	errh ErrorHandler
 	mode Mode
-	scanner
 
 	first  error  // first error encountered
 	errcnt int    // number of errors encountered
@@ -44,34 +42,27 @@ type parser struct {
 	indent []byte // tracing support
 
 	//project, package, and section-level...
-	getFile func(string) (string, error) // function for callback to read in another file
-	permits map[string]bool
+	currProj *nodes.Project
+	currPkg  *nodes.Package
+	currSect *nodes.File
 
-	currProj   *Project
-	argImports []*ImportDecl
-	paramdPkgs map[string]*Package
-	infImports []*ImportDecl // infered imports based on occurrences of, say, "fmt".Println
-	infImpMap  map[string]string
+	getFile        func(string) (string, error) // function for callback to read in another file
+	docComments    string                       // buffer
+	lineDirectives bool
 
-	currPkg      *Package
-	pkgName      string // name of current package
-	lineDirects  bool
 	dynamicBlock string
+	permits      map[string]bool
+	paramdPkgs   map[string]*nodes.Package
 
-	sectHasMain  bool // does the current section have a main() function?
-	sectHasStmts bool // does the current section have standalone stmts?
-	sectIsMain   bool // was the current section headed with the "main" keyword
-	sectIsTc     bool // was the current section headed with the "testcode" keyword
-
-	docComments []string // buffer
-
-	useRegistry   map[string]func(int, []string) []interface{}
-	macroRegistry map[string]func(*parser, ...interface{}) Stmt
+	useRegistry  map[string]func([]string, []string)
+	stmtRegistry map[string]func(nodes.GeneralParser, ...interface{}) nodes.Stmt
+	typeRegistry map[string]func(nodes.GeneralParser, ...interface{}) nodes.Expr
 }
 
 //--------------------------------------------------------------------------------
 func (p *parser) init(
-	filename string, base *src.PosBase, r io.Reader, errh ErrorHandler, pragh PragmaHandler, mode Mode, getFile func(string) (string, error),
+	base *src.PosBase, r io.Reader, errh ErrorHandler, pragh PragmaHandler, mode Mode,
+	getFile func(string) (string, error),
 ) {
 	p.base = base
 	p.errh = errh
@@ -84,7 +75,7 @@ func (p *parser) init(
 		// position, it is save to use the most recent position
 		// base to compute the corresponding Pos value.
 		func(line, col uint, msg string) {
-			p.errorAt(p.posAt(line, col), msg)
+			p.ErrorAt(p.PosAt(line, col), msg)
 		},
 		func(line, col uint, text string) {
 			if strings.HasPrefix(text, "line ") {
@@ -92,7 +83,7 @@ func (p *parser) init(
 				return
 			}
 			if pragh != nil {
-				p.pragma |= pragh(p.posAt(line, col), text)
+				p.pragma |= pragh(p.PosAt(line, col), text)
 			}
 		},
 	)
@@ -106,214 +97,88 @@ func (p *parser) init(
 	p.indent = nil
 
 	p.getFile = getFile
-	p.argImports = []*ImportDecl{}
-	p.paramdPkgs = map[string]*Package{}
+	p.paramdPkgs = map[string]*nodes.Package{}
+}
 
-	p.currProj = &Project{}
-	absName, err := filepath.Abs(filepath.Dir(filename))
-	if err != nil {
-		p.error("error computing absolute name for " + filename)
-	}
-	p.currProj.Locn = filepath.ToSlash(absName)
-	firstGoPath := filepath.SplitList(os.Getenv("GOPATH"))[0]
-	srcPath := filepath.ToSlash(filepath.Join(firstGoPath, "src"))
-	p.currProj.Root = strings.TrimPrefix(strings.TrimPrefix(p.currProj.Locn, srcPath), "/")
-
-	b := filepath.Base(filename)
-	ext := filepath.Ext(b)
-	p.currProj.Name = b[:len(b)-len(ext)]
-	if len(ext) > 0 && ext[0] == '.' {
-		p.currProj.FileExt = ext[1:]
-	}
-	p.permits = map[string]bool{}
-	switch p.currProj.FileExt {
-	case "groo":
-		p.dynamicMode = true
-		p.dynamicBlock = "groo"
-		fallthrough
-	case "gro", "":
-		for _, kw := range groProfile {
-			p.permits[kw] = true
+//--------------------------------------------------------------------------------
+func (p *parser) ProjFromNewParser(filename string, src []byte) (_ *nodes.Project, first error) {
+	defer func() {
+		if pnc := recover(); pnc != nil {
+			if err, ok := pnc.(Error); ok {
+				first = err
+				return
+			}
+			panic(pnc)
 		}
-		fallthrough
-	case "go":
-		for _, kw := range goProfile {
-			p.permits[kw] = true
-		}
-	}
+	}()
 
-	p.macroRegistry = map[string]func(*parser, ...interface{}) Stmt{
-		"prepare": func(p *parser, _ ...interface{}) Stmt {
-			if !p.permits["prepare"] {
-				p.syntaxError("\"prepare\" command disabled but is present")
-				return nil
-			}
-			return GroSystemCmd(p, "Prepare")
-		},
-		"execute": func(p *parser, _ ...interface{}) Stmt {
-			if !p.permits["execute"] {
-				p.syntaxError("\"execute\" command disabled but is present")
-				return nil
-			}
-			return GroSystemCmd(p, "Execute")
-		},
-		"run": func(p *parser, _ ...interface{}) Stmt {
-			if !p.permits["run"] {
-				p.syntaxError("\"run\" command disabled but is present")
-				return nil
-			}
-			return GroSystemCmd(p, "Run")
-		},
-		"test": func(p *parser, _ ...interface{}) Stmt {
-			if !p.permits["test"] {
-				p.syntaxError("\"test\" command disabled but is present")
-				return nil
-			}
-			return GroSystemCmd(p, "Test")
-		},
-		"assert": func(p *parser, _ ...interface{}) Stmt {
-			if !p.permits["assert"] {
-				p.syntaxError("\"assert\" macro disabled but is present")
-				return nil
-			}
-			return Assert(p)
-		},
-		"let": func(p *parser, rest ...interface{}) Stmt {
-			if !p.permits["let"] {
-				p.syntaxError("\"let\" macro disabled but is present")
-				return nil
-			}
-			if len(rest) != 1 {
-				panic("argument error with \"let\" macro")
-			}
-			if stmt, ok := rest[0].(func() Stmt); ok {
-				return Let(p, stmt)
-			}
-			panic("argument error with \"let\" macro")
-		},
-	}
-	p.useRegistry = map[string]func(int, []string) []interface{}{
-		"blacklist": func(numRets int, args []string) []interface{} {
-			macros.InitBlacklist(p, args)
-			return nil
-		},
-		"grosys": func(numRets int, args []string) []interface{} {
-			macros.GroSys(p, args)
-			return nil
-		},
-	}
+	var q parser
+	q.init(p.base, &bytesReader{src}, p.errh, nil, p.mode, p.getFile)
+	q.Next()
+	proj := q.Proj(filename)
+	return proj, q.first
 }
 
 //--------------------------------------------------------------------------------
-// GroSystemCmd: to xfer to macros, we need to make public:
-// * _Semi, _Rparen, <etc>
-// * StringLit
-// * p.oliteral, p.syntaxError, p.advance, p.procImportAlias
-// * Name, ExprStmt, CallExpr, <etc>
-//
-func GroSystemCmd(p *parser, s string) Stmt {
-	fn := p.oliteral()
-	if fn == nil || fn.Kind != StringLit {
-		p.syntaxError("missing filename for " + s)
-		p.advance(_Semi, _Rparen)
-		return nil
-	} else {
-		a := p.procImportAlias(&BasicLit{Value: sysLib, Kind: StringLit}, "")
-		es := &ExprStmt{
-			X: &CallExpr{
-				Fun: &SelectorExpr{
-					X:   &Name{Value: a},
-					Sel: &Name{Value: s},
-				},
-				ArgList: []Expr{fn},
-			},
-		}
-		return es
-	}
+func (p *parser) SetPermit(s string)     { p.permits[s] = true }
+func (p *parser) UnsetPermit(s string)   { p.permits[s] = false }
+func (p *parser) IsPermit(s string) bool { return p.permits[s] }
+
+func (p *parser) DynamicBlock() string     { return p.dynamicBlock }
+func (p *parser) SetDynamicBlock(s string) { p.dynamicBlock = s }
+
+func (p *parser) DynamicMode() bool     { return p.dynamicMode }
+func (p *parser) SetDynamicMode(b bool) { p.dynamicMode = b }
+
+func (p *parser) DynCharSet() string     { return p.dynCharSet }
+func (p *parser) SetDynCharSet(s string) { p.dynCharSet = s }
+
+func (p *parser) LineDirectives() bool     { return p.lineDirectives }
+func (p *parser) SetLineDirectives(b bool) { p.lineDirectives = b }
+
+func (p *parser) SetStmtRegistry(s string, f func(nodes.GeneralParser, ...interface{}) nodes.Stmt) {
+	p.stmtRegistry[s] = f
+}
+func (p *parser) UnsetStmtRegistry(s string) {
+	delete(p.stmtRegistry, s)
+}
+
+func (p *parser) Tok() nodes.Token { return p.tok }
+
+func (p *parser) Lit() string {
+	//TODO: only valid if tok is NameT, LiteralT, or SemiT ("semicolon", "newline", or "EOF")
+	return p.lit
+}
+
+func (p *parser) Kind() nodes.LitKind {
+	//TODO: only valid if tok is LiteralT
+	return p.kind
+}
+
+func (p *parser) Op() nodes.Operator {
+	//TODO: only valid if tok is OperatorT, AssignOpT, or IncOpT
+	return p.op
+}
+
+func (p *parser) Prec() nodes.Prec {
+	//TODO: only valid if tok is OperatorT, AssignOpT, or IncOpT
+	return p.prec
 }
 
 //--------------------------------------------------------------------------------
-// Assert: to xfer to macros, we need to make public:
-// * _Semi, _Rparen, <etc>
-// * BasicLit, StringLit
-// * p.expr, p.procImportAlias
-// * Name, ExprStmt, CallExpr, <etc>
-//
-func Assert(p *parser) Stmt {
-	e := p.expr()
-	p.procImportAlias(&BasicLit{Value: assertLib, Kind: StringLit}, "assert")
-	es := &ExprStmt{
-		X: &CallExpr{
-			Fun: &SelectorExpr{
-				X:   &Name{Value: "assert"},
-				Sel: &Name{Value: "AssertTrue"},
-			},
-			ArgList: []Expr{e},
-		},
-	}
-	return es
-}
-
-//--------------------------------------------------------------------------------
-func Let(p *parser, stmt func() Stmt) Stmt {
-	pos := p.pos()
-	lhs := p.exprList()
-	if p.tok == _Assign {
-		// expr_list '=' expr_list
-		p.next()
-		l := []Stmt{
-			p.newAssignStmt(pos, Def, lhs, p.exprList()),
-		}
-		p.got(_Semi)
-		l = append(l, p.tlStmtList(stmt)...)
-		return &BlockStmt{
-			List: l,
-		}
-	}
-	p.syntaxError("invalid syntax in \"let\" statement")
-	return nil
-}
-
-//--------------------------------------------------------------------------------
-var goProfile = [...]string{
-	"package", "import", "const", "var", "type" /*TODO:*/, "func", "map", "chan", "struct", "interface",
-	/*TEST:*/ "if", "else", "switch", "case", "default", "fallthrough", "select",
-	"for" /*TEST:*/, "range", "goto", "return" /*TODO:*/, "defer", "go", "break", "continue",
-}
-
-var groProfile = [...]string{
-	"inferPkg", "multiPkg", "genericCall", "genericDef", "inplaceImps", "inferMain", "pkgSectBlocks",
-	"project", "use", "include", "internal", "section", "main", "testcode", "proc" /*TODO:*/, "do",
-	/*TODO:*/ "assert", "let", "prepare", "execute", "run", "test",
-}
-
-//--------------------------------------------------------------------------------
-func (p *parser) SetPermit(s string) {
-	p.permits[s] = true
-}
-
-func (p *parser) UnsetPermit(s string) {
-	p.permits[s] = false
-}
-
-func (p *parser) IsPermit(s string) bool {
-	return p.permits[s]
-}
-
-//--------------------------------------------------------------------------------
-func (p *parser) procImportAlias(lit *BasicLit, a string) string {
+func (p *parser) ProcImportAlias(lit *nodes.BasicLit, a string) string {
 	if a == "" {
 		_, a = filepath.Split(strings.Trim(lit.Value, "\""))
 	}
-	if p.infImpMap[a] != "" && p.infImpMap[a] != lit.Value {
-		p.syntaxError(fmt.Sprintf("import alias \"%s\" has already been used but with different import path", a))
+	if p.currSect.InfImpMap[a] != "" && p.currSect.InfImpMap[a] != lit.Value {
+		p.SyntaxError(fmt.Sprintf("import alias \"%s\" has already been used but with different import path", a))
 		return a
-	} else if p.infImpMap[a] == "" {
-		p.infImports = append(p.infImports, &ImportDecl{
-			Path:         &BasicLit{Value: lit.Value, Kind: StringLit},
-			LocalPkgName: &Name{Value: a},
+	} else if p.currSect.InfImpMap[a] == "" {
+		p.currSect.InfImports = append(p.currSect.InfImports, &nodes.ImportDecl{
+			Path:         &nodes.BasicLit{Value: lit.Value, Kind: nodes.StringLit},
+			LocalPkgName: &nodes.Name{Value: a},
 		})
-		p.infImpMap[a] = lit.Value
+		p.currSect.InfImpMap[a] = lit.Value
 	}
 	return a
 }
@@ -328,56 +193,59 @@ func (p *parser) updateBase(line, col uint, text string) {
 	nstr := text[i+1:]
 	n, err := strconv.Atoi(nstr)
 	if err != nil || n <= 0 || n > lineMax {
-		p.errorAt(p.posAt(line, col+uint(i+1)), "invalid line number: "+nstr)
+		p.ErrorAt(p.PosAt(line, col+uint(i+1)), "invalid line number: "+nstr)
 		return
 	}
 	p.base = src.NewLinePragmaBase(src.MakePos(p.base.Pos().Base(), line, col), text[:i], uint(n))
 }
 
 //--------------------------------------------------------------------------------
-// Package files
+// Transform methods
 //--------------------------------------------------------------------------------
+// ProjToFiles transforms a project node into a set of named files.
 //
-// Parse methods are annotated with matching Go productions as appropriate.
-// The annotations are intended as guidelines only since a single Go grammar
-// rule may be covered by multiple parse methods and vice versa.
+// Note: These use parser methods/fields: NewBlankFunc, NewName, SyntaxError/At,
+// dynCharSet, dynamicBlock, permits, paramdPkgs
 //
-// Excluding methods returning slices, parse methods named xOrNil may return
-// nil; all others are expected to return a valid non-nil node.
+func (p *parser) ProjToFiles(proj *nodes.Project) map[string]*nodes.File {
+	w := new(nodes.Walker)
+	proj.Walk(w)
 
-//--------------------------------------------------------------------------------
-// Project
-func (p *parser) files() map[string]*File {
-	if trace {
-		defer p.trace("filesOrNil")("")
-	}
-
-	pkgs := p.pkgs()
-	if !p.currProj.ExplicitKw && len(pkgs) == 0 {
-		p.syntaxErrorAt(src.MakePos(p.base, 1, 1), "gro-file empty")
-		return nil
-	} else if len(pkgs) == 0 {
-		p.syntaxError("project keyword but no packages")
-		return nil
-	}
-	fs := map[string]*File{}
-	for _, pkg := range pkgs { // for each file in each pkg, add to map of files returned (fs)
-		if len(pkgs) > 1 && !p.permits["multiPkg"] {
-			p.syntaxErrorAt(pkgs[1].Pos(), "multi-packages disabled but more than one package present")
+	fs := map[string]*nodes.File{}
+	for _, pkg := range proj.Pkgs { // for each file in each pkg, add to map of files returned (fs)
+		if len(proj.Pkgs) > 1 && !p.permits["multiPkg"] {
+			p.SyntaxErrorAt(proj.Pkgs[1].Pos(), permitErrorMsgs["multiPkg"])
 			return nil
 		}
-		if p.currProj.Str != "" {
-			pkg.Dir = filepath.ToSlash(filepath.Join(p.currProj.Str, pkg.Dir))
+		if p.currProj.DirStr != "" {
+			pkg.Dir = filepath.ToSlash(filepath.Join(p.currProj.DirStr, pkg.Dir))
 		}
-		// if project keyword or more than one package, all explicit packages have package-name both as filename and in directory name
-		if p.currProj.ExplicitKw || len(pkgs) > 1 {
+		// if project keyword or more than one package, all explicit packages
+		// have package-name both as filename and in directory name
+		if p.currProj.HasKw || len(proj.Pkgs) > 1 {
 			pkg.Dir = filepath.ToSlash(filepath.Join(pkg.Dir, pkg.Name))
 		}
 		for _, f := range pkg.Files {
 			f.OwnerPkg = pkg
 			for _, decl := range f.DeclList {
-				if imp, ok := decl.(*ImportDecl); ok {
+				if imp, ok := decl.(*nodes.ImportDecl); ok {
 					imp.OwnerFile = f
+					if imp.Path.Value == dynLib && p.dynCharSet == "utf88" {
+						g := p.NewBlankFunc("init")
+						gStmt := &nodes.AssignStmt{
+							Op: 0, //=
+							Lhs: &nodes.SelectorExpr{
+								X:   &nodes.Name{Value: p.dynamicBlock},
+								Sel: &nodes.Name{Value: "UseUtf88"},
+							},
+							Rhs: &nodes.BasicLit{
+								Value: "true",
+							},
+						}
+						g.Body.List = append(g.Body.List, gStmt)
+						f.DeclList = append(f.DeclList, g) //TODO: fix concurrent modification?
+						p.dynCharSet = ""
+					}
 				}
 			}
 		}
@@ -388,13 +256,13 @@ func (p *parser) files() map[string]*File {
 		for _, f := range pkg.Files {
 			if f.SectName != "" {
 				f.FileName = f.SectName
-			} else if !p.currProj.ExplicitKw && len(pkgs) == 1 && pkg.Kw {
+			} else if !p.currProj.HasKw && len(proj.Pkgs) == 1 && pkg.Name != "" {
 				f.FileName = p.currProj.Name //use gro-filename as filename
 			}
 			fs[filepath.ToSlash(filepath.Join(p.currProj.Root, pkg.Dir, f.FileName))+".go"] = f
 		}
 	}
-	for _, ai := range p.argImports {
+	for _, ai := range p.currProj.ArgImports {
 		for k, v := range p.initGenerics(ai, "", map[string]bool{}) {
 			fs[k] = v
 		}
@@ -403,11 +271,11 @@ func (p *parser) files() map[string]*File {
 }
 
 //--------------------------------------------------------------------------------
-// initGenerics: for each import that had an argument/s, put its parameters into the package as types, then add that to fs.
-func (p *parser) initGenerics(ai *ImportDecl, prefix string, done map[string]bool) map[string]*File {
-	fs := map[string]*File{}
-	if !p.permits["genericCall"] {
-		p.syntaxError("calling generic-type packages disabled but import arguments present")
+// initGenerics: for each import that had an argument/s, put its parameters
+// into the package as types, then add that to fs.
+func (p *parser) initGenerics(ai *nodes.ImportDecl, prefix string, done map[string]bool) map[string]*nodes.File {
+	fs := map[string]*nodes.File{}
+	if !p.checkPermit("genericCall") {
 		return nil
 	}
 	aiPkgLocn := strings.Trim(ai.Path.Value, "\"")
@@ -423,17 +291,17 @@ func (p *parser) initGenerics(ai *ImportDecl, prefix string, done map[string]boo
 		}
 		p.syntaxError(fmt.Sprintf("parameterized package \"%s\" not present in file. Files available are:\n%s", aiPkgLocn, pps))
 		*/
-		p.syntaxError("parameterized package not present in file, or there's a cycle in the parameterized imports")
+		p.SyntaxError("parameterized package not present in file, or there's a cycle in the parameterized imports")
 		return nil
 	}
 	newpath := filepath.ToSlash(filepath.Join(prefix, "generics", ai.OwnerFile.OwnerPkg.Dir, ai.OwnerFile.FileName, ai.LocalPkgName.Value))
 	for _, pf := range pp.Files {
 		//recursively call initGenerics on each argImport in the parameterized pkg, where arg is one of pkg's params
 		for _, decl := range pf.DeclList {
-			if decl, ok := decl.(*ImportDecl); ok && len(decl.Args) > 0 {
+			if decl, ok := decl.(*nodes.ImportDecl); ok && len(decl.Args) > 0 {
 				passThrus := map[int]int{} //map arg to param
 				for m, arg := range decl.Args {
-					if arg, ok := arg.(*Name); ok {
+					if arg, ok := arg.(*nodes.Name); ok {
 						for n, param := range pp.Params {
 							if arg.Value == param.Value {
 								passThrus[m] = n
@@ -442,7 +310,7 @@ func (p *parser) initGenerics(ai *ImportDecl, prefix string, done map[string]boo
 					}
 				}
 				if len(passThrus) > 0 {
-					args := []Expr{}
+					args := []nodes.Expr{}
 					for m, arg := range decl.Args {
 						if n, ok := passThrus[m]; ok {
 							args = append(args, ai.Args[n])
@@ -450,11 +318,11 @@ func (p *parser) initGenerics(ai *ImportDecl, prefix string, done map[string]boo
 							args = append(args, arg)
 						}
 					}
-					infers := []*ImportDecl{}
+					infers := []*nodes.ImportDecl{}
 					for _, infer := range decl.Infers {
 						infers = append(infers, infer)
 					}
-					declClone := &ImportDecl{
+					declClone := &nodes.ImportDecl{
 						LocalPkgName: decl.LocalPkgName,
 						Path:         decl.Path,
 						Group:        decl.Group,
@@ -473,17 +341,17 @@ func (p *parser) initGenerics(ai *ImportDecl, prefix string, done map[string]boo
 		fs[filepath.ToSlash(filepath.Join(p.currProj.Root, newpath, pf.FileName))+".go"] = pf
 	}
 	ai.Path.Value = "\"" + filepath.ToSlash(filepath.Join(p.currProj.Root, newpath)) + "\""
-	f := &File{
-		PkgName:  p.newName(pp.Name),
-		DeclList: []Decl{},
+	f := &nodes.File{
+		PkgName:  p.NewName(pp.Name),
+		DeclList: []nodes.Decl{},
 	}
-	g := new(Group)
+	g := new(nodes.DeclGroup)
 	for _, inf := range ai.Infers {
 		inf.Group = g
 		f.DeclList = append(f.DeclList, inf)
 	}
 	for n, a := range ai.Args {
-		f.DeclList = append(f.DeclList, &TypeDecl{
+		f.DeclList = append(f.DeclList, &nodes.TypeDecl{
 			Name:  pp.Params[n],
 			Alias: true,
 			Type:  a,
@@ -494,430 +362,423 @@ func (p *parser) initGenerics(ai *ImportDecl, prefix string, done map[string]boo
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) forkAndParse(filename string, src []byte) (_ []*Package, first error) {
-	defer func() {
-		if pnc := recover(); pnc != nil {
-			if err, ok := pnc.(Error); ok {
-				first = err
-				return
-			}
-			panic(pnc)
-		}
-	}()
-
-	var q parser
-	q.init(filename, p.base, &bytesReader{src}, p.errh, nil, p.mode, p.getFile)
-	q.next()
-	pkgs := q.pkgs()
-	p.argImports = append(p.argImports, q.argImports...)
-	return pkgs, q.first
-}
+// Package files
+//--------------------------------------------------------------------------------
+//
+// Parse methods are annotated with matching Go productions as appropriate.
+// The annotations are intended as guidelines only since a single Go grammar
+// rule may be covered by multiple parse methods and vice versa.
+//
+// Excluding methods returning slices, parse methods named xOrNil may return
+// nil; all others are expected to return a valid non-nil node.
 
 //--------------------------------------------------------------------------------
-func (p *parser) pkgs() (pkgs []*Package) {
+func (p *parser) Proj(filename string) (proj *nodes.Project) {
 	if trace {
-		defer p.trace("pkgs")("")
+		defer p.trace("proj")("")
 	}
 
-	p.currProj.ExplicitKw = false
-	p.currProj.Str = ""
-	if p.isName("project") {
-		if !p.permits["project"] {
-			p.syntaxError("\"project\" keyword disabled but keyword is present")
+	proj = new(nodes.Project)
+
+	absName, err := filepath.Abs(filepath.Dir(filename))
+	if err != nil {
+		p.Error("error computing absolute name for " + filename)
+	}
+	proj.Locn = filepath.ToSlash(absName)
+	firstGoPath := filepath.SplitList(os.Getenv("GOPATH"))[0]
+	srcPath := filepath.ToSlash(filepath.Join(firstGoPath, "src"))
+	proj.Root = strings.TrimPrefix(strings.TrimPrefix(proj.Locn, srcPath), "/")
+	b := filepath.Base(filename)
+	ext := filepath.Ext(b)
+	proj.Name = b[:len(b)-len(ext)]
+	if len(ext) > 0 { // && ext[0] == '.'
+		proj.FileExt = ext[1:]
+	}
+
+	p.currProj = proj
+	p.setupProfile()
+	p.setupRegistries()
+
+	if p.IsName("project") {
+		if !p.checkPermit("projectKw") {
+			p.Advance(nodes.SemiT)
 			return nil
 		}
 		if len(p.comments) != 0 {
-			p.currProj.Doc = p.comments
+			proj.Doc = p.comments
 		}
-		p.next()
-		if b := p.oliteral(); b != nil { // is directory-string present?
-			p.currProj.Str = strings.Trim(b.Value, "\"")
+
+		p.Next()
+		if b := p.OLiteral(); b != nil { // is directory-string present?
+			proj.DirStr = strings.Trim(b.Value, "\"")
 		}
-		p.currProj.Name = p.name().Value
-		p.want(_Semi)
-		p.currProj.ExplicitKw = true
+		proj.Name = p.Name().Value //change project name if explicit
+		p.Want(nodes.SemiT)
+		proj.HasKw = true
 	}
-	for p.isName("use") || p.isName("include") {
-		var fn func() []*Package
+	pkgs := []*nodes.Package{}
+	for p.IsName("use") || p.IsName("include") {
+		var fn func() *nodes.Project
 		switch p.lit {
 		case "use":
-			fn = p.useDecl
+			fn = p.UseDecl
 		case "include":
-			fn = p.inclDecl
+			fn = p.InclDecl
 		}
-		if !p.permits[p.lit] {
-			p.syntaxError(fmt.Sprintf("\"%s\" keywords are disabled but keyword is present", p.lit))
+		if !p.checkPermit(p.lit + "Kw") {
+			p.Advance(nodes.SemiT)
 			return nil
 		}
-		p.want(_Name)
+		p.Want(nodes.NameT)
 
-		if p.tok == _Lparen {
-			p.list(_Lparen, _Semi, _Rparen, func() bool {
-				pkgs = append(pkgs, fn()...)
+		if p.tok == nodes.LparenT {
+			p.List(nodes.LparenT, nodes.SemiT, nodes.RparenT, func() bool {
+				pkgs = append(pkgs, fn().Pkgs...)
 				return false
 			})
 		} else {
-			pkgs = append(pkgs, fn()...)
+			pkgs = append(pkgs, fn().Pkgs...)
 		}
-		p.want(_Semi)
+		p.Want(nodes.SemiT)
 	}
-	for p.tok != _EOF {
-		pkgs = append(pkgs, p.pkgOrNil())
+	for p.tok != nodes.EofT {
+		pkgs = append(pkgs, p.PkgOrNil())
 	}
-	return
-}
+	proj.Pkgs = pkgs
 
-//--------------------------------------------------------------------------------
-func (p *parser) useDecl() (pkgs []*Package) {
-	if trace {
-		defer p.trace("useDecl")("")
-	}
-
-	rets := []string{}
-	for p.tok == _Name {
-		rets = append(rets, p.name().Value)
-	}
-	useStr := p.oliteral()
-	if useStr == nil || useStr.Kind != StringLit {
-		p.syntaxError("missing use string")
-		p.advance(_Semi, _Rparen)
+	if !proj.HasKw && len(pkgs) == 0 {
+		p.SyntaxErrorAt(src.MakePos(p.base, 1, 1), "gro-file empty")
+		return nil
+	} else if len(pkgs) == 0 {
+		p.SyntaxError("project keyword but no packages")
 		return nil
 	}
-	use := strings.Trim(useStr.Value, "\"")
-	args := []string{}
-	if p.tok == _Lparen {
-		p.list(_Lparen, _Comma, _Rparen, func() bool {
-			args = append(args, p.oliteral().Value)
-			return false
-		})
-	}
-
-	switch use {
-	/*default:
-	p.syntaxError(fmt.Sprintf("use \"%s\" not implemented", use))
-	p.advance(_Semi, _Rbrace)
+	//fmt.Printf("name:%s, ext:%s, locn:%s, root:%s, str:%s\n", proj.Name, proj.FileExt, proj.Locn, proj.Root, proj.DirStr)
 	return
-	*/
-	case "blacklist":
-		//TODO: ensure len(rets) == 0
-		//p.useRegistry["blacklist"](args)
-		p.useRegistry["blacklist"](len(rets), args)
-		return
-	case "linedirectives":
-		//TODO: ensure len(rets) == 0 && len(args) == 0
-		p.lineDirects = true
-		return
-	case "dynamic":
-		if len(args) != 0 {
-			p.syntaxError("use \"dynamic\" shouldn't take any arguments but does")
-			p.advance(_Semi, _Rbrace)
-			return
-		}
-		p.dynamicMode = true
-		if len(rets) == 1 {
-			ret := strings.Trim(rets[0], "\"")
-			if ret == "_" {
-				p.dynamicBlock = "groo"
-			} else {
-				p.macroRegistry[ret] = func(p *parser, _ ...interface{}) Stmt {
-					dynBlock := p.dynamicBlock
-					p.dynamicBlock = ret
-					bs := p.blockStmt("", p.tlStmt)
-					p.dynamicBlock = dynBlock
-					return bs
-				}
-			}
-		} else if len(rets) > 0 {
-			p.syntaxError("use \"dynamic\" has too many return values")
-			p.advance(_Semi, _Rbrace)
-			return
-		}
-		return
-	default:
-		return
-	}
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) inclDecl() []*Package {
+func (p *parser) InclDecl() *nodes.Project {
 	if trace {
 		defer p.trace("inclDecl")("")
 	}
 
-	lit := p.oliteral()
+	lit := p.OLiteral()
 	if lit == nil {
-		p.syntaxError("missing name for gro-file after \"include\" keyword")
-		p.advance(_Semi, _Rparen)
+		p.SyntaxError("missing name for gro-file after \"include\" keyword")
+		p.Advance(nodes.SemiT, nodes.RparenT)
 		return nil
 	}
 	fileLocn := filepath.ToSlash(filepath.Join(p.currProj.Locn, strings.Trim(lit.Value, "\"")))
 	src, err := p.getFile(fileLocn)
 	if err != nil {
-		p.error(fmt.Sprintf("error \"%s\" retrieving included file %s", err, fileLocn))
+		p.Error(fmt.Sprintf("error \"%s\" retrieving included file %s", err, fileLocn))
 		return nil
 	}
-	pkgs, err := p.forkAndParse(fileLocn, []byte(src))
+	proj, err := p.ProjFromNewParser(fileLocn, []byte(src))
 	if err != nil {
-		p.error(fmt.Sprintf("error \"%s\" parsing included file %s", err, fileLocn))
+		p.Error(fmt.Sprintf("error \"%s\" parsing included file %s", err, fileLocn))
 		return nil
 	}
-	return pkgs
+	p.currProj.ArgImports = append(p.currProj.ArgImports, proj.ArgImports...)
+	return proj
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) newBlankFunc(s string) *FuncDecl {
-	fn := &FuncDecl{
-		Name: p.newName(s),
-		Type: &FuncType{
-			ParamList:  []*Field{},
-			ResultList: nil,
-		},
-		Body: &BlockStmt{
-			List:   []Stmt{},
-			Rbrace: p.pos(),
-		},
+func (p *parser) UseDecl() (proj *nodes.Project) {
+	if trace {
+		defer p.trace("useDecl")("")
 	}
-	fn.pos = p.pos()
-	fn.Type.pos = p.pos()
-	fn.Body.pos = p.pos()
-	return fn
+
+	rets := []string{}
+	for p.tok == nodes.NameT {
+		rets = append(rets, strings.Trim(p.Name().Value, "\""))
+	}
+	useStr := p.OLiteral()
+	if useStr == nil || useStr.Kind != nodes.StringLit {
+		p.SyntaxError("missing use string")
+		p.Advance(nodes.SemiT, nodes.RparenT)
+		return nil
+	}
+	use := strings.Trim(useStr.Value, "\"")
+	args := []string{}
+	if p.tok == nodes.LparenT {
+		p.List(nodes.LparenT, nodes.CommaT, nodes.RparenT, func() bool {
+			s := strings.Trim(p.OLiteral().Value, "\"") //TODO: generate error if not a string?
+			args = append(args, s)
+			return false
+		})
+	}
+
+	if useCase, ok := p.useRegistry[use]; ok {
+		useCase(rets, args)
+	} else {
+		//p.SyntaxError(fmt.Sprintf("use \"%s\" not implemented", use))
+		//p.Advance(nodes.SemiT, nodes.RbraceT)
+	}
+	return &nodes.Project{Pkgs: []*nodes.Package{}} //dud project
 }
 
 //--------------------------------------------------------------------------------
 // SourceFile = PackageClause ";" { ImportDecl ";" } { TopLevelDecl ";" } .
-func (p *parser) pkgOrNil() *Package {
+func (p *parser) PkgOrNil() *nodes.Package {
 	if trace {
 		defer p.trace("pkgOrNil")("")
 	}
 
-	pkg := &Package{
-		Files:   []*File{},
-		Params:  []*Name{},
+	pkg := &nodes.Package{
 		IdsUsed: map[string]bool{},
 	}
-	p.currPkg = pkg
-	p.pkgName = "" // used by funcDeclOrNil()
+	pkg.Name = ""
 	bracesUsed := false
 
 	for { // each section
-		f := new(File)
-		f.pos = p.pos()
-		pkg.pos = f.pos
-		if p.lineDirects {
-			f.linedirect = f.pos
+		f := new(nodes.File)
+		f.InfImpMap = map[string]string{}
+
+		f.SetPos(p.Pos())
+		pkg.SetPos(f.Pos())
+		if p.lineDirectives {
+			f.TagLineDirect()
 		}
-		f.comments = &Comments{Alone: []Comment{}, Above: []Comment{}, Left: []Comment{}, Right: []Comment{}, Below: []Comment{}}
-		if p.currProj.Doc != nil {
+		f.MakeComments()
+		if p.currProj.Doc != nil && len(p.currProj.Doc) > 0 {
 			//add project-level doc to top of every package file
-			for _, c := range p.currProj.Doc {
-				f.comments.Alone = append(f.comments.Alone, Comment{Text: c})
-			}
+			f.AppendAloneComment(strings.Join(p.currProj.Doc, "\n"))
 		}
-		if p.tok == _Package || p.isName("internal") { // first time thru loop only, maybe
-			if !p.permits["package"] {
-				p.syntaxError("\"package\" (and similar) keywords are disabled but keyword is present")
+
+		if p.tok == nodes.PackageT || p.IsName("internal") { // first time thru loop when there's a package keyword
+			if !p.checkPermit("packageKw") {
+				p.Advance(nodes.SemiT)
 				return nil
 			}
-			for i, c := range p.comments {
-				if i >= len(p.comments)-p.numDocComments {
-					f.comments.Above = append(f.comments.Above, Comment{Text: c})
-				}
+			for _, cg := range p.commentGroups {
+				f.AppendAloneComment(strings.Join(cg, "\n"))
 			}
-			if p.isName("internal") {
-				if !p.permits["internal"] {
-					p.syntaxError("\"internal\" keywords disabled but keyword is present")
+			if len(p.comments) > 0 {
+				f.SetAboveComment(strings.Join(p.comments, "\n"))
+			}
+			if p.IsName("internal") {
+				if !p.checkPermit("internalKw") {
+					p.Advance(nodes.SemiT)
 					return nil
 				}
 				pkg.Dir = "internal"
 			}
-			p.next()
+			p.Next()
+
 			// if directory-string present, add after directory
-			if b := p.oliteral(); b != nil {
+			if b := p.OLiteral(); b != nil {
 				pkg.Dir = filepath.ToSlash(filepath.Join(pkg.Dir, strings.Trim(b.Value, "\"")))
 			}
-			pkg.Kw = true
-			f.PkgName = p.name()
+			f.PkgName = p.Name()
 			pkg.Name = f.PkgName.Value
-			p.pkgName = f.PkgName.Value
 
-			if p.tok == _Lparen {
-				if !p.permits["genericDef"] {
-					p.syntaxError("defining generic packages is disabled but one is present")
+			if p.tok == nodes.LparenT {
+				if !p.checkPermit("genericDef") {
+					p.Advance(nodes.SemiT)
 					return nil
 				}
-				p.list(_Lparen, _Comma, _Rparen, func() bool {
-					pkg.Params = append(pkg.Params, p.name())
+				p.List(nodes.LparenT, nodes.CommaT, nodes.RparenT, func() bool {
+					pkg.Params = append(pkg.Params, p.Name())
 					return false
 				})
 			}
 
-			if p.got(_Lbrace) {
-				if !p.permits["pkgSectBlocks"] {
-					p.syntaxError("using block-style notation for packages and sections is disabled but it is being used")
+			if p.Got(nodes.LbraceT) {
+				if !p.checkPermit("pkgSectBlocks") {
+					p.Advance(nodes.SemiT)
 					return nil
 				}
 				bracesUsed = true
 			} else {
-				p.want(_Semi)
+				p.Want(nodes.SemiT)
 			}
-		} else if p.pkgName != "" { // subsequent times thru loop (section keyword)
-			f.PkgName = p.newName(p.pkgName)
-		} else { // first time thru loop, no package keyword
-			if !p.permits["inferPkg"] {
-				p.syntaxError("infer-packages disabled but no explicit \"package\" keyword present")
+
+		} else if pkg.Name != "" { // subsequent times thru loop when there was a package keyword
+			f.PkgName = p.NewName(pkg.Name)
+
+		} else { // first or subsequent time thru loop but no package keyword
+			if !p.checkPermit("inferPkg") {
+				p.Advance(nodes.SemiT)
 				return nil
 			}
-			// use project-name (or gro-filename) as filename and package-name
-			f.PkgName = p.newName(p.currProj.Name)
+			f.PkgName = p.NewName(p.currProj.Name)
+
 		}
 
-		f = p.sectionOrNil(f)
+		p.currPkg = pkg
+		f = p.SectionOrNil(f)
 		f.FileName = f.PkgName.Value
 
 		// if package without keyword, and main fn defined, use "main" as package-name
-		if !pkg.Kw && p.sectHasMain && p.permits["inferMain"] ||
-			p.sectIsMain && p.sectHasMain && p.permits["inferMain"] {
+		if pkg.Name == "" && p.currSect.HasMain && p.permits["inferMain"] ||
+			p.currSect.HeadKw == "main" && p.currSect.HasMain && p.permits["inferMain"] {
 			f.PkgName.Value = "main"
-			f.comments.Alone = append(f.comments.Alone, Comment{Text: "// +build ignore"})
+			f.AppendAloneComment("// +build ignore")
 		}
-		if p.sectHasStmts && !p.sectHasMain && !pkg.Kw ||
-			p.sectIsMain && !p.sectHasMain {
+		if p.currSect.HasStmts && !p.currSect.HasMain && pkg.Name == "" ||
+			p.currSect.HeadKw == "main" && !p.currSect.HasMain {
 			if p.permits["inferMain"] {
 				f.PkgName.Value = "main"
-				f.comments.Alone = append(f.comments.Alone, Comment{Text: "// +build ignore"})
-				f.DeclList = append(f.DeclList, p.newBlankFunc("main"))
+				f.AppendAloneComment("// +build ignore")
+				f.DeclList = append(f.DeclList, p.NewBlankFunc("main"))
 			}
 		}
 		pkg.Files = append(pkg.Files, f)
-		if p.tok == _EOF || p.tok == _Package || p.isName("internal") || (bracesUsed && p.tok == _Rbrace) {
+		if p.tok == nodes.EofT || p.tok == nodes.PackageT || p.IsName("internal") || (bracesUsed && p.tok == nodes.RbraceT) {
 			break
 		}
 	}
-	if bracesUsed && !(p.got(_Rbrace) && p.got(_Semi)) {
-		p.syntaxError("missing right brace after package block")
-		p.advance(_Semi, _Rbrace)
+
+	if bracesUsed && !(p.Got(nodes.RbraceT) && p.Got(nodes.SemiT)) {
+		p.SyntaxError("missing right brace after package block")
+		p.Advance(nodes.SemiT, nodes.RbraceT)
 		return nil
 	}
+	dynTypeGroup := &nodes.DeclGroup{}
 	if p.dynamicMode && !pkg.IdsUsed["any"] && len(pkg.Files) > 0 {
-		d := &TypeDecl{
-			Name:   &Name{Value: "any"},
-			Alias:  true,
-			Type:   &InterfaceType{MethodList: []*Field{}},
-			Pragma: p.pragma,
+		d := &nodes.TypeDecl{
+			Name:  &nodes.Name{Value: "any"},
+			Alias: true,
+			Type:  &nodes.InterfaceType{MethodList: []*nodes.Field{}},
+			Group: dynTypeGroup,
+			//Pragma: p.pragma,
 		}
 		pkg.Files[0].DeclList = append(pkg.Files[0].DeclList, d)
 		pkg.IdsUsed["any"] = true
+	}
+	if p.dynamicMode && !pkg.IdsUsed["void"] && len(pkg.Files) > 0 {
+		d := &nodes.TypeDecl{
+			Name:  &nodes.Name{Value: "void"},
+			Alias: true,
+			Type:  &nodes.StructType{FieldList: []*nodes.Field{}},
+			Group: dynTypeGroup,
+			//Pragma: p.pragma,
+		}
+		pkg.Files[0].DeclList = append(pkg.Files[0].DeclList, d)
+		pkg.IdsUsed["void"] = true
+	}
+
+	if p.dynamicMode && !pkg.IdsUsed["inf"] && len(pkg.Files) > 0 {
+		vd := new(nodes.VarDecl)
+		vd.NameList = []*nodes.Name{&nodes.Name{Value: "inf"}}
+		needDynImport := p.dynamicBlock == ""
+		if needDynImport {
+			p.dynamicBlock = "groo"
+		}
+		vd.Values = &nodes.SelectorExpr{
+			X:   &nodes.Name{Value: p.dynamicBlock},
+			Sel: &nodes.Name{Value: "Inf"},
+		}
+		pkg.Files[0].DeclList = append(pkg.Files[0].DeclList, vd)
+		if needDynImport {
+			id := &nodes.ImportDecl{
+				Path:         &nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit},
+				LocalPkgName: &nodes.Name{Value: p.dynamicBlock},
+			}
+			pkg.Files[0].DeclList = append([]nodes.Decl{id}, pkg.Files[0].DeclList...)
+		}
 	}
 	return pkg
 }
 
 //--------------------------------------------------------------------------------
 // Section
-func (p *parser) sectionOrNil(f *File) *File {
+func (p *parser) SectionOrNil(f *nodes.File) *nodes.File {
 	if trace {
 		defer p.trace("sectionOrNil")("")
 	}
 
-	p.sectHasMain = false  // used by funcDeclOrNil()
-	p.sectHasStmts = false // used by tlBlock()
-	p.sectIsMain = false
-	p.sectIsTc = false
-	p.infImports = []*ImportDecl{} // used by operand()
-	p.infImpMap = map[string]string{}
 	bracesUsed := false
+	currPos := p.Pos()
+	if p.IsName("section", "main", "testcode") {
+		if !p.checkPermit("sectionKw") || (p.IsName("main") && !p.checkPermit("mainKw")) ||
+			!p.checkPermit("testcodeKw") {
+			p.Advance(nodes.SemiT)
+			return nil
+		}
+		for _, cg := range p.commentGroups {
+			f.DeclList = append(f.DeclList, &nodes.CommentDecl{CommentList: []*nodes.Comment{{Text: strings.Join(cg, "\n")}}})
+		}
+		if len(p.comments) > 0 {
+			f.DeclList = append(f.DeclList, &nodes.CommentDecl{CommentList: []*nodes.Comment{{Text: strings.Join(p.comments, "\n")}}})
+		}
 
-	currPos := p.pos()
-	if p.isName("section", "main", "testcode") {
-		if !p.permits["section"] {
-			p.syntaxError("\"section\" keywords are disabled but keyword is present")
-			return nil
-		}
-		if p.isName("main") && !p.permits["main"] {
-			p.syntaxError("\"main\" keywords are disabled but keyword is present")
-			return nil
-		}
-		if p.isName("testcode") && !p.permits["testcode"] {
-			p.syntaxError("\"testcode\" keywords are disabled but keyword is present")
-			return nil
-		}
-		p.sectIsMain = p.isName("main")
-		for i, c := range p.comments {
-			if i >= len(p.comments)-p.numDocComments {
-				f.DeclList = append(f.DeclList, &CommentDecl{CommentList: []Comment{{Text: c}}})
-			}
-		}
-		p.sectIsTc = p.isName("testcode")
-		p.next()
-		lit := p.oliteral()
+		f.HeadKw = p.lit
+		p.Next()
+		lit := p.OLiteral()
 		if lit == nil {
-			p.syntaxError("missing section name")
-			p.advance(_Semi, _Rparen)
+			p.SyntaxError("missing section name")
+			p.Advance(nodes.SemiT, nodes.RparenT)
 			return nil
 		}
-		if p.got(_Lbrace) {
-			if !p.permits["pkgSectBlocks"] {
-				p.syntaxError("using block-style notation for packages and sections is disabled but it is being used")
+		if p.Got(nodes.LbraceT) {
+			if !p.checkPermit("pkgSectBlocks") {
+				p.Advance(nodes.SemiT)
 				return nil
 			}
 			bracesUsed = true
 		} else {
-			p.want(_Semi)
+			p.Want(nodes.SemiT)
 		}
 		f.SectName = strings.Trim(lit.Value, "\"")
-		if p.sectIsTc {
+		if f.HeadKw == "testcode" {
 			f.SectName += "_test"
 		}
 	}
 
+	p.currSect = f
+
 	// { ImportDecl ";" }
-	for p.got(_Import) {
-		if !p.permits["import"] {
-			p.syntaxError("\"import\" keywords are disabled but keyword is present")
+	for p.Got(nodes.ImportT) {
+		if !p.checkPermit("importKw") {
+			p.Advance(nodes.SemiT, nodes.RbraceT)
 			return nil
 		}
-		f.DeclList = p.appendGroup(f.DeclList, p.importDecl)
-		p.want(_Semi)
+		f.DeclList = p.AppendGroup(f.DeclList, p.ImportDecl)
+		p.Want(nodes.SemiT)
 	}
-	if p.sectIsTc {
-		f.PkgName.Value = p.pkgName
+	if p.currSect.HeadKw == "testcode" {
+		f.PkgName.Value = p.currPkg.Name
 	}
 
 	// { TopLevelDecl ";" }
-	for p.tok != _EOF && p.tok != _Package && p.tok != _Rbrace && !p.isName("internal", "section", "main", "testcode") {
+	for p.tok != nodes.EofT && p.tok != nodes.PackageT && p.tok != nodes.RbraceT && !p.IsName("internal", "section", "main", "testcode") {
 		switch p.tok {
-		case _Const, _Var, _Type, _Func: //declarations
-			f.DeclList = p.decl(f.DeclList)
-		case _If, _For, _Switch, _Select, _Go, _Lbrace, _Semi, _Literal: //tl-stmts
-			f.DeclList = append(f.DeclList, p.tlBlock())
+		case nodes.ConstT, nodes.VarT, nodes.TypeT, nodes.FuncT: //declarations
+			f.DeclList = p.Decl(f.DeclList)
+		case nodes.IfT, nodes.ForT, nodes.SwitchT, nodes.SelectT, nodes.GoT, nodes.LbraceT, nodes.SemiT, nodes.LiteralT: //tl-stmts
+			f.DeclList = append(f.DeclList, p.TlBlock())
 		default:
-			if p.isName("do") { //do-stmt
-				f.DeclList = append(f.DeclList, p.tlBlock())
-			} else if p.isName("proc") { //proc-decl
-				f.DeclList = p.decl(f.DeclList)
-			} else if _, ok := p.macroRegistry[p.lit]; p.tok == _Name && ok { //macros
-				f.DeclList = append(f.DeclList, p.tlBlock())
+			if p.IsName("do") { //do-stmt
+				f.DeclList = append(f.DeclList, p.TlBlock())
+			} else if p.IsName("proc") { //proc-decl
+				f.DeclList = p.Decl(f.DeclList)
+			} else if _, ok := p.stmtRegistry[p.lit]; p.tok == nodes.NameT && ok { //macros
+				f.DeclList = append(f.DeclList, p.TlBlock())
 			} else {
-				p.syntaxError(fmt.Sprintf("unexpected %s at top-level", p.tok))
+				p.SyntaxError(fmt.Sprintf("unexpected %s at top-level", p.tok))
 				return nil
 			}
 		}
 	}
-	if currPos == p.pos() && p.tok != _EOF {
-		p.syntaxError(fmt.Sprintf("unexpected token %s", p.tok))
+	if currPos == p.Pos() && p.tok != nodes.EofT {
+		p.SyntaxError(fmt.Sprintf("unexpected token %s", p.tok))
 		return nil
 	}
 
-	if len(p.infImports) > 0 {
-		g := new(Group)
-		for i := len(p.infImports) - 1; i >= 0; i-- {
-			imp := p.infImports[i]
+	if len(f.InfImports) > 0 {
+		g := new(nodes.DeclGroup)
+		for i := len(f.InfImports) - 1; i >= 0; i-- {
+			imp := f.InfImports[i]
 			imp.Group = g
-			f.DeclList = append([]Decl{imp}, f.DeclList...)
+			f.DeclList = append([]nodes.Decl{imp}, f.DeclList...)
 		}
 	}
-	if bracesUsed && !(p.got(_Rbrace) && p.got(_Semi)) {
-		p.syntaxError("missing right brace after section block")
-		p.advance(_Semi, _Rbrace)
+	if bracesUsed && !(p.Got(nodes.RbraceT) && p.Got(nodes.SemiT)) {
+		p.SyntaxError("missing right brace after section block")
+		p.Advance(nodes.SemiT, nodes.RbraceT)
 		return nil
 	}
 	f.Lines = p.source.line
@@ -925,82 +786,93 @@ func (p *parser) sectionOrNil(f *File) *File {
 }
 
 //--------------------------------------------------------------------------------
+// Declarations
+//--------------------------------------------------------------------------------
 // TopLevelDecl
-func (p *parser) decl(declList []Decl) []Decl {
+func (p *parser) Decl(declList []nodes.Decl) []nodes.Decl {
 	switch {
-	case p.tok == _Const:
-		if !p.permits["const"] {
-			p.syntaxError("\"const\" keywords are disabled but keyword is present")
+	case p.tok == nodes.ConstT:
+		if !p.checkPermit("constKw") {
+			p.Advance(nodes.SemiT)
 			return nil
 		}
-		for i, c := range p.comments {
-			if i >= len(p.comments)-p.numDocComments {
-				p.docComments = append(p.docComments, c)
-			}
+		for _, cg := range p.commentGroups {
+			declList = append(declList, &nodes.CommentDecl{CommentList: []*nodes.Comment{{Text: strings.Join(cg, "\n")}}})
 		}
-		p.next()
-		declList = p.appendGroup(declList, p.constDecl)
+		if len(p.comments) > 0 {
+			p.docComments = strings.Join(p.comments, "\n")
+		}
+		p.Next()
+		declList = p.AppendGroup(declList, p.ConstDecl)
 
-	case p.tok == _Type:
-		if !p.permits["type"] {
-			p.syntaxError("\"type\" keywords are disabled but keyword is present")
+	case p.tok == nodes.TypeT:
+		if !p.checkPermit("typeKw") {
+			p.Advance(nodes.SemiT)
 			return nil
 		}
-		for i, c := range p.comments {
-			if i >= len(p.comments)-p.numDocComments {
-				p.docComments = append(p.docComments, c)
-			}
+		for _, cg := range p.commentGroups {
+			declList = append(declList, &nodes.CommentDecl{CommentList: []*nodes.Comment{{Text: strings.Join(cg, "\n")}}})
 		}
-		p.next()
-		declList = p.appendGroup(declList, p.typeDecl)
+		if len(p.comments) > 0 {
+			p.docComments = strings.Join(p.comments, "\n")
+		}
+		p.Next()
+		declList = p.AppendGroup(declList, p.TypeDecl)
 
-	case p.tok == _Var:
-		if !p.permits["var"] {
-			p.syntaxError("\"var\" keywords are disabled but keyword is present")
+	case p.tok == nodes.VarT:
+		if !p.checkPermit("varKw") {
+			p.Advance(nodes.SemiT)
 			return nil
 		}
-		for i, c := range p.comments {
-			if i >= len(p.comments)-p.numDocComments {
-				p.docComments = append(p.docComments, c)
-			}
+		for _, cg := range p.commentGroups {
+			declList = append(declList, &nodes.CommentDecl{CommentList: []*nodes.Comment{{Text: strings.Join(cg, "\n")}}})
 		}
-		p.next()
-		declList = p.appendGroup(declList, p.varDecl)
+		if len(p.comments) > 0 {
+			p.docComments = strings.Join(p.comments, "\n")
+		}
+		p.Next()
+		declList = p.AppendGroup(declList, p.VarDecl)
 
-	case p.tok == _Func:
-		for i, c := range p.comments {
-			if i >= len(p.comments)-p.numDocComments {
-				p.docComments = append(p.docComments, c)
-			}
+	case p.tok == nodes.FuncT:
+		if !p.checkPermit("funcKw") {
+			p.Advance(nodes.SemiT)
+			return nil
 		}
-		p.next()
-		if d := p.funcDeclOrNil(p.stmtOrNil); d != nil {
+		for _, cg := range p.commentGroups {
+			declList = append(declList, &nodes.CommentDecl{CommentList: []*nodes.Comment{{Text: strings.Join(cg, "\n")}}})
+		}
+		if len(p.comments) > 0 {
+			p.docComments = strings.Join(p.comments, "\n")
+		}
+		p.Next()
+		if d := p.FuncDeclOrNil(p.StmtOrNil); d != nil {
 			declList = append(declList, d)
 		}
 
-	case p.isName("proc"):
-		if !p.permits["proc"] {
-			p.syntaxError("\"proc\" keywords are disabled but keyword is present")
+	case p.IsName("proc"):
+		if !p.checkPermit("procKw") {
+			p.Advance(nodes.SemiT)
 			return nil
 		}
-		for i, c := range p.comments {
-			if i >= len(p.comments)-p.numDocComments {
-				p.docComments = append(p.docComments, c)
-			}
+		for _, cg := range p.commentGroups {
+			declList = append(declList, &nodes.CommentDecl{CommentList: []*nodes.Comment{{Text: strings.Join(cg, "\n")}}})
 		}
-		p.next()
-		if d := p.funcDeclOrNil(p.procStmt); d != nil {
+		if len(p.comments) > 0 {
+			p.docComments = strings.Join(p.comments, "\n")
+		}
+		p.Next()
+		if d := p.FuncDeclOrNil(p.ProcStmt); d != nil {
 			declList = append(declList, d)
 		}
 
 	default:
-		if p.tok == _Lbrace && len(declList) > 0 && isEmptyFuncDecl(declList[len(declList)-1]) {
+		if p.tok == nodes.LbraceT && len(declList) > 0 && isEmptyFuncDecl(declList[len(declList)-1]) {
 			// opening { of function declaration on next line
-			p.syntaxError("unexpected semicolon or newline before {")
+			p.SyntaxError("unexpected semicolon or newline before {")
 		} else {
-			p.syntaxError("non-declaration statement outside function body")
+			p.SyntaxError("non-declaration statement outside function body")
 		}
-		p.advance(_Const, _Type, _Var, _Func)
+		p.Advance(nodes.ConstT, nodes.TypeT, nodes.VarT, nodes.FuncT)
 		return declList
 	}
 
@@ -1008,78 +880,52 @@ func (p *parser) decl(declList []Decl) []Decl {
 	// since comments before may set pragmas for the next function decl.
 	p.pragma = 0
 
-	if p.tok != _EOF && !p.got(_Semi) {
-		p.syntaxError("after top level declaration")
-		p.advance(_Const, _Type, _Var, _Func)
+	if p.tok != nodes.EofT && !p.Got(nodes.SemiT) {
+		p.SyntaxError("after top level declaration")
+		p.Advance(nodes.ConstT, nodes.TypeT, nodes.VarT, nodes.FuncT)
 	}
 
 	return declList
 }
 
 //--------------------------------------------------------------------------------
-// Declarations
-//--------------------------------------------------------------------------------
-// list parses a possibly empty, sep-separated list, optionally
-// followed by sep and enclosed by ( and ) or { and }. open is
-// one of _Lparen, or _Lbrace, sep is one of _Comma or _Semi,
-// and close is expected to be the (closing) opposite of open.
-// For each list element, f is called. After f returns true, no
-// more list elements are accepted. list returns the position
-// of the closing token.
-//
-// list = "(" { f sep } ")" |
-//        "{" { f sep } "}" . // sep is optional before ")" or "}"
-//
-func (p *parser) list(open, sep, close token, f func() bool) src.Pos {
-	p.want(open)
-
-	var done bool
-	for p.tok != _EOF && p.tok != close && !done {
-		done = f()
-
-		// sep is optional before close
-		if !p.got(sep) && p.tok != close {
-			p.syntaxError(fmt.Sprintf("expecting %s or %s", tokstring(sep), tokstring(close)))
-			p.advance(_Rparen, _Rbrack, _Rbrace)
-			if p.tok != close {
-				return p.pos()
-				// position could be better but we had an error so we don't care
-			}
-		}
-	}
-
-	pos := p.pos()
-	p.want(close)
-	return pos
-}
-
-//--------------------------------------------------------------------------------
 // appendGroup(f) = f | "(" { f ";" } ")" . // ";" is optional before ")"
-func (p *parser) appendGroup(list []Decl, f func(*Group) Decl) []Decl {
-	setIdsUsed := func(f Decl) {
+func (p *parser) AppendGroup(list []nodes.Decl, f func(*nodes.DeclGroup) nodes.Decl) []nodes.Decl {
+	setIdsUsed := func(f nodes.Decl) {
 		switch ft := f.(type) {
-		case *ConstDecl:
+		case *nodes.ConstDecl:
 			for _, name := range ft.NameList {
 				if name.Value != "_" {
 					p.currPkg.IdsUsed[name.Value] = true
 				}
 			}
-		case *VarDecl:
+		case *nodes.VarDecl:
 			for _, name := range ft.NameList {
 				if name.Value != "_" {
 					p.currPkg.IdsUsed[name.Value] = true
 				}
 			}
-		case *TypeDecl:
+		case *nodes.TypeDecl:
 			if ft.Name.Value != "_" {
 				p.currPkg.IdsUsed[ft.Name.Value] = true
 			}
 		}
 	}
 
-	if p.tok == _Lparen {
-		g := new(Group)
-		p.list(_Lparen, _Semi, _Rparen, func() bool {
+	if p.tok == nodes.LparenT {
+		g := new(nodes.DeclGroup)
+
+		g.SetPos(p.Pos())
+		if p.lineDirectives {
+			g.TagLineDirect()
+		}
+		if p.docComments != "" {
+			g.MakeComments()
+			g.SetAboveComment(p.docComments)
+			p.docComments = ""
+		}
+
+		p.List(nodes.LparenT, nodes.SemiT, nodes.RparenT, func() bool {
 			fg := f(g)
 			setIdsUsed(fg)
 			list = append(list, fg)
@@ -1106,57 +952,57 @@ func (p *parser) appendGroup(list []Decl, f func(*Group) Decl) []Decl {
 //--------------------------------------------------------------------------------
 // ImportSpec = [ "." | PackageName ] ImportPath .
 // ImportPath = string_lit .
-func (p *parser) importDecl(group *Group) Decl {
+func (p *parser) ImportDecl(group *nodes.DeclGroup) nodes.Decl {
 	if trace {
 		defer p.trace("importDecl")("")
 	}
 
-	d := new(ImportDecl)
-	d.pos = p.pos()
-	if p.lineDirects {
-		d.linedirect = d.pos
+	d := new(nodes.ImportDecl)
+	d.SetPos(p.Pos())
+	if p.lineDirectives {
+		d.TagLineDirect()
 	}
 
 	switch p.tok {
-	case _Name:
-		d.LocalPkgName = p.name()
+	case nodes.NameT:
+		d.LocalPkgName = p.Name()
 		//only explicit local names of imports can be analyzed at the syntactic phase...
 		if d.LocalPkgName.Value != "_" {
 			p.currPkg.IdsUsed[d.LocalPkgName.Value] = true
 		}
-	case _Dot:
-		d.LocalPkgName = p.newName(".")
-		p.next()
+	case nodes.DotT:
+		d.LocalPkgName = p.NewName(".")
+		p.Next()
 	}
-	d.Path = p.oliteral()
+	d.Path = p.OLiteral()
 	if d.Path == nil {
-		p.syntaxError("missing import path")
-		p.advance(_Semi, _Rparen)
+		p.SyntaxError("missing import path")
+		p.Advance(nodes.SemiT, nodes.RparenT)
 		return nil
 	}
-	if p.sectIsTc {
+	if p.currSect.HeadKw == "testcode" {
 		_, pkgTag := filepath.Split(strings.Trim(d.Path.Value, "\""))
-		if d.LocalPkgName != nil && d.LocalPkgName.Value == p.pkgName || pkgTag == p.pkgName {
-			p.pkgName += "_test"
+		if d.LocalPkgName != nil && d.LocalPkgName.Value == p.currPkg.Name || pkgTag == p.currPkg.Name {
+			p.currPkg.Name += "_test"
 		}
 	}
 	d.Group = group
-	if p.tok == _Lparen {
-		d.Args = []Expr{}
+	if p.tok == nodes.LparenT {
+		d.Args = []nodes.Expr{}
 		if d.LocalPkgName == nil {
-			p.syntaxError("imported parameterized packages need a local name")
-			p.advance(_Rparen)
+			p.SyntaxError("imported parameterized packages need a local name")
+			p.Advance(nodes.RparenT)
 			return nil
 		}
-		p.list(_Lparen, _Comma, _Rparen, func() bool {
-			arg := p.typeOrNil()
+		p.List(nodes.LparenT, nodes.CommaT, nodes.RparenT, func() bool {
+			arg := p.TypeOrNil()
 			d.Args = append(d.Args, arg)
 			return false
 		})
 
 		numPassThrus := 0 //TODO: only need a bool
 		for _, arg := range d.Args {
-			if arg, ok := arg.(*Name); ok {
+			if arg, ok := arg.(*nodes.Name); ok {
 				for _, param := range p.currPkg.Params {
 					if arg.Value == param.Value {
 						numPassThrus++
@@ -1165,16 +1011,16 @@ func (p *parser) importDecl(group *Group) Decl {
 			}
 		}
 		if numPassThrus == 0 {
-			p.argImports = append(p.argImports, d)
+			p.currProj.ArgImports = append(p.currProj.ArgImports, d)
 		}
-		if len(p.infImports) > 0 {
-			d.Infers = p.infImports
-			p.infImports = []*ImportDecl{}
+		if len(p.currSect.InfImports) > 0 {
+			d.Infers = p.currSect.InfImports
+			p.currSect.InfImports = []*nodes.ImportDecl{}
 		}
 	}
 	if p.dynamicMode && d.LocalPkgName == nil {
 		_, a := filepath.Split(strings.Trim(d.Path.Value, "\""))
-		d.LocalPkgName = &Name{Value: a}
+		d.LocalPkgName = &nodes.Name{Value: a}
 		p.currPkg.IdsUsed[a] = true
 	}
 	return d
@@ -1182,100 +1028,108 @@ func (p *parser) importDecl(group *Group) Decl {
 
 //--------------------------------------------------------------------------------
 // ConstSpec = IdentifierList [ [ Type ] "=" ExpressionList ] .
-func (p *parser) constDecl(group *Group) Decl {
+func (p *parser) ConstDecl(group *nodes.DeclGroup) nodes.Decl {
 	if trace {
 		defer p.trace("constDecl")("")
 	}
 
-	d := new(ConstDecl)
-	d.pos = p.pos()
-	if p.lineDirects {
-		d.linedirect = d.pos
+	d := new(nodes.ConstDecl)
+	d.SetPos(p.Pos())
+	if p.lineDirectives {
+		d.TagLineDirect()
 	}
-	if p.docComments != nil {
-		d.comments = &Comments{Alone: []Comment{}, Above: []Comment{}, Left: []Comment{}, Right: []Comment{}, Below: []Comment{}}
-		for _, c := range p.docComments {
-			d.comments.Above = append(d.comments.Above, Comment{Text: c})
-		}
-		p.docComments = nil
+	if p.docComments != "" {
+		d.MakeComments()
+		d.SetAboveComment(p.docComments)
+		p.docComments = ""
 	}
-	d.NameList = p.nameList(p.name())
-	if p.tok != _EOF && p.tok != _Semi && p.tok != _Rparen {
-		d.Type = p.typeOrNil()
-		if p.got(_Assign) {
-			d.Values = p.exprList()
+	d.NameList = p.NameList(p.Name())
+	if p.tok != nodes.EofT && p.tok != nodes.SemiT && p.tok != nodes.RparenT {
+		d.Type = p.TypeOrNil()
+		if p.Got(nodes.AssignT) {
+			d.Values = p.ExprList(false)
 		}
 	}
 	d.Group = group
-
+	if len(p.comments) > 0 {
+		if d.Comments() == nil {
+			d.MakeComments()
+		}
+		d.SetRightComment(strings.Join(p.comments, "\n"))
+	}
 	return d
 }
 
 //--------------------------------------------------------------------------------
 // TypeSpec = identifier [ "=" ] Type .
-func (p *parser) typeDecl(group *Group) Decl {
+func (p *parser) TypeDecl(group *nodes.DeclGroup) nodes.Decl {
 	if trace {
 		defer p.trace("typeDecl")("")
 	}
 
-	d := new(TypeDecl)
-	d.pos = p.pos()
-	if p.lineDirects {
-		d.linedirect = d.pos
+	d := new(nodes.TypeDecl)
+	d.SetPos(p.Pos())
+	if p.lineDirectives {
+		d.TagLineDirect()
 	}
-	if p.docComments != nil {
-		d.comments = &Comments{Alone: []Comment{}, Above: []Comment{}, Left: []Comment{}, Right: []Comment{}, Below: []Comment{}}
-		for _, c := range p.docComments {
-			d.comments.Above = append(d.comments.Above, Comment{Text: c})
-		}
-		p.docComments = nil
+	if p.docComments != "" {
+		d.MakeComments()
+		d.SetAboveComment(p.docComments)
+		p.docComments = ""
 	}
 
-	d.Name = p.name()
-	d.Alias = p.got(_Assign)
-	d.Type = p.typeOrNil()
+	d.Name = p.Name()
+	d.Alias = p.Got(nodes.AssignT)
+	d.Type = p.TypeOrNil()
 	if d.Type == nil {
-		d.Type = p.bad()
-		p.syntaxError("in type declaration")
-		p.advance(_Semi, _Rparen)
+		d.Type = p.BadExpr()
+		p.SyntaxError("in type declaration")
+		p.Advance(nodes.SemiT, nodes.RparenT)
 	}
 	d.Group = group
-	d.Pragma = p.pragma
-
+	//d.Pragma = p.pragma
+	if len(p.comments) > 0 {
+		if d.Comments() == nil {
+			d.MakeComments()
+		}
+		d.SetRightComment(strings.Join(p.comments, "\n"))
+	}
 	return d
 }
 
 //--------------------------------------------------------------------------------
 // VarSpec = IdentifierList ( Type [ "=" ExpressionList ] | "=" ExpressionList ) .
-func (p *parser) varDecl(group *Group) Decl {
+func (p *parser) VarDecl(group *nodes.DeclGroup) nodes.Decl {
 	if trace {
 		defer p.trace("varDecl")("")
 	}
 
-	d := new(VarDecl)
-	d.pos = p.pos()
-	if p.lineDirects {
-		d.linedirect = d.pos
+	d := new(nodes.VarDecl)
+	d.SetPos(p.Pos())
+	if p.lineDirectives {
+		d.TagLineDirect()
 	}
-	if p.docComments != nil {
-		d.comments = &Comments{Alone: []Comment{}, Above: []Comment{}, Left: []Comment{}, Right: []Comment{}, Below: []Comment{}}
-		for _, c := range p.docComments {
-			d.comments.Above = append(d.comments.Above, Comment{Text: c})
-		}
-		p.docComments = nil
+	if p.docComments != "" {
+		d.MakeComments()
+		d.SetAboveComment(p.docComments)
+		p.docComments = ""
 	}
-
-	d.NameList = p.nameList(p.name())
-	if p.got(_Assign) {
-		d.Values = p.exprList()
+	d.NameList = p.NameList(p.Name())
+	if p.Got(nodes.AssignT) {
+		d.Values = p.ExprList(true)
 	} else {
-		d.Type = p.type_()
-		if p.got(_Assign) {
-			d.Values = p.exprList()
+		d.Type = p.Type()
+		if p.Got(nodes.AssignT) {
+			d.Values = p.ExprList(true)
 		}
 	}
 	d.Group = group
-
+	if len(p.comments) > 0 {
+		if d.Comments() == nil {
+			d.MakeComments()
+		}
+		d.SetRightComment(strings.Join(p.comments, "\n"))
+	}
 	return d
 }
 
@@ -1285,40 +1139,38 @@ func (p *parser) varDecl(group *Group) Decl {
 // Function     = Signature FunctionBody .
 // MethodDecl   = "func" Receiver MethodName ( Function | Signature ) .
 // Receiver     = Parameters .
-func (p *parser) funcDeclOrNil(stmt func() Stmt) *FuncDecl {
+func (p *parser) FuncDeclOrNil(stmt func() nodes.Stmt) *nodes.FuncDecl {
 	if trace {
 		defer p.trace("funcDecl")("")
 	}
 
-	f := new(FuncDecl)
-	f.pos = p.pos()
-	if p.lineDirects {
-		f.linedirect = f.pos
+	f := new(nodes.FuncDecl)
+	f.SetPos(p.Pos())
+	if p.lineDirectives {
+		f.TagLineDirect()
 	}
-	if p.docComments != nil {
-		f.comments = &Comments{Alone: []Comment{}, Above: []Comment{}, Left: []Comment{}, Right: []Comment{}, Below: []Comment{}}
-		for _, c := range p.docComments {
-			f.comments.Above = append(f.comments.Above, Comment{Text: c})
-		}
-		p.docComments = nil
+	if p.docComments != "" {
+		f.MakeComments()
+		f.SetAboveComment(p.docComments)
+		p.docComments = ""
 	}
 
-	if p.tok == _Lparen {
-		rcvr := p.paramList()
+	if p.tok == nodes.LparenT {
+		rcvr := p.ParamList()
 		switch len(rcvr) {
 		case 0:
-			p.error("method has no receiver")
+			p.Error("method has no receiver")
 		default:
-			p.error("method has multiple receivers")
+			p.Error("method has multiple receivers")
 			fallthrough
 		case 1:
 			f.Recv = rcvr[0]
 		}
 	}
 
-	if p.tok != _Name {
-		p.syntaxError("expecting name or (")
-		p.advance(_Lbrace, _Semi)
+	if p.tok != nodes.NameT {
+		p.SyntaxError("expecting name or (")
+		p.Advance(nodes.LbraceT, nodes.SemiT)
 		return nil
 	}
 
@@ -1330,21 +1182,21 @@ func (p *parser) funcDeclOrNil(stmt func() Stmt) *FuncDecl {
 	// 	}
 	// }
 
-	f.Name = p.name()
-	f.Type = p.funcType()
-	if p.pkgName == "main" && f.Name.Value == "main" {
+	f.Name = p.Name()
+	f.Type = p.FuncType()
+	if p.currPkg.Name == "main" && f.Name.Value == "main" {
 		if len(f.Type.ParamList) != 0 || len(f.Type.ResultList) != 0 {
-			p.error("func main must have no arguments and no return values")
+			p.Error("func main must have no arguments and no return values")
 		}
 	}
 	if f.Name.Value == "main" && len(f.Type.ParamList) == 0 && len(f.Type.ResultList) == 0 {
-		p.sectHasMain = true
+		p.currSect.HasMain = true
 	}
-	if p.tok == _Lbrace {
-		f.Body = p.funcBody(stmt)
+	if p.tok == nodes.LbraceT {
+		f.Body = p.FuncBody(stmt)
 	}
 
-	f.Pragma = p.pragma
+	//f.Pragma = p.pragma
 	return f
 }
 
@@ -1353,48 +1205,46 @@ func (p *parser) funcDeclOrNil(stmt func() Stmt) *FuncDecl {
 //--------------------------------------------------------------------------------
 // Possible statement for init() =
 // 	IfStmt | ForStmt | SwitchStmt | SelectStmt | DeferStmt | GoStmt | ReturnStmt | DoStmt | ToplevelBlock | StringLit.
-func (p *parser) tlBlock() *FuncDecl {
+func (p *parser) TlBlock() *nodes.FuncDecl {
 	if trace {
 		defer p.trace("toplevel standalone stmts")("")
 	}
 
-	p.sectHasStmts = true
-	f := p.newBlankFunc("init")
-	l := []Stmt{}
+	p.currSect.HasStmts = true
+	f := p.NewBlankFunc("init")
+	l := []nodes.Stmt{}
 forloop:
 	for {
 		switch p.tok {
 		//these keyword-based statements can be standalone
-		case _If, _For, _Switch, _Select, _Go, _Var, _Const, _Type, _Lbrace, _Literal:
-			l = append(l, p.tlStmt())
+		case nodes.IfT, nodes.ForT, nodes.SwitchT, nodes.SelectT, nodes.GoT, nodes.VarT, nodes.ConstT, nodes.TypeT, nodes.LbraceT, nodes.LiteralT:
+			l = append(l, p.TlStmt())
 		default:
-			if p.isName("do") || (p.tok == _Name && p.macroRegistry[p.lit] != nil) {
-				if p.lineDirects {
-					f.linedirect = f.pos
+			if p.IsName("do") || (p.tok == nodes.NameT && p.stmtRegistry[p.lit] != nil) {
+				if p.lineDirectives {
+					f.TagLineDirect()
 				}
 				if len(p.comments) > 0 {
-					f.comments = &Comments{Alone: []Comment{}, Above: []Comment{}, Left: []Comment{}, Right: []Comment{}, Below: []Comment{}}
-					for i, c := range p.comments {
-						if i >= len(p.comments)-p.numDocComments {
-							f.comments.Above = append(f.comments.Above, Comment{Text: c})
-						}
+					f.MakeComments()
+					if len(p.comments) > 0 {
+						f.SetAboveComment(strings.Join(p.comments, "\n"))
 					}
 				}
-				l = append(l, p.tlStmt())
+				l = append(l, p.TlStmt())
 			} else {
 				break forloop
 			}
 		}
 
 		// ";" is optional before "}"
-		if p.tok != _EOF && !p.got(_Semi) && p.tok != _Rbrace {
-			p.syntaxError("at end of statement")
-			p.advance(_Const, _Type, _Var, _Func, _If, _For, _Switch, _Select, _Go, _Semi, _Rbrace, _Case, _Default)
-			p.got(_Semi) // avoid spurious empty statement
+		if p.tok != nodes.EofT && !p.Got(nodes.SemiT) && p.tok != nodes.RbraceT {
+			p.SyntaxError("at end of statement")
+			p.Advance(nodes.ConstT, nodes.TypeT, nodes.VarT, nodes.FuncT, nodes.IfT, nodes.ForT, nodes.SwitchT, nodes.SelectT, nodes.GoT, nodes.SemiT, nodes.RbraceT, nodes.CaseT, nodes.DefaultT)
+			p.Got(nodes.SemiT) // avoid spurious empty statement
 			return nil
 		}
 	}
-	f.Body.Rbrace = p.pos()
+	f.Body.Rbrace = p.Pos()
 	f.Body.List = l
 	return f
 }
@@ -1402,20 +1252,20 @@ forloop:
 //--------------------------------------------------------------------------------
 // Possible statement for init() =
 // 	IfStmt | ForStmt | SwitchStmt | SelectStmt | DeferStmt | GoStmt | ReturnStmt | DoStmt | ToplevelBlock | StringLit.
-func (p *parser) tlStmtList(stmt func() Stmt) []Stmt {
+func (p *parser) TlStmtList(stmt func() nodes.Stmt) []nodes.Stmt {
 	if trace {
 		defer p.trace("seq of toplevel-style stmts")("")
 	}
 
-	l := []Stmt{}
+	l := []nodes.Stmt{}
 forloop:
 	for {
 		switch p.tok {
 		//these keyword-based statements can be standalone
-		case _If, _For, _Switch, _Select, _Go, _Defer, _Var, _Const, _Type, _Lbrace, _Literal:
+		case nodes.IfT, nodes.ForT, nodes.SwitchT, nodes.SelectT, nodes.GoT, nodes.DeferT, nodes.VarT, nodes.ConstT, nodes.TypeT, nodes.LbraceT, nodes.LiteralT:
 			l = append(l, stmt())
 		default:
-			if p.isName("do") || (p.tok == _Name && p.macroRegistry[p.lit] != nil) {
+			if p.IsName("do") || (p.tok == nodes.NameT && p.stmtRegistry[p.lit] != nil) {
 				l = append(l, stmt())
 			} else {
 				break forloop
@@ -1423,10 +1273,10 @@ forloop:
 		}
 
 		// ";" is optional before "}"
-		if p.tok != _EOF && !p.got(_Semi) && p.tok != _Rbrace {
-			p.syntaxError("at end of statement")
-			p.advance(_Const, _Type, _Var, _Func, _If, _For, _Switch, _Select, _Go, _Semi, _Rbrace, _Case, _Default)
-			p.got(_Semi) // avoid spurious empty statement
+		if p.tok != nodes.EofT && !p.Got(nodes.SemiT) && p.tok != nodes.RbraceT {
+			p.SyntaxError("at end of statement")
+			p.Advance(nodes.ConstT, nodes.TypeT, nodes.VarT, nodes.FuncT, nodes.IfT, nodes.ForT, nodes.SwitchT, nodes.SelectT, nodes.GoT, nodes.SemiT, nodes.RbraceT, nodes.CaseT, nodes.DefaultT)
+			p.Got(nodes.SemiT) // avoid spurious empty statement
 			return nil
 		}
 	}
@@ -1434,73 +1284,79 @@ forloop:
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) tlStmt() Stmt {
+func (p *parser) TlStmt() nodes.Stmt {
 	if trace {
 		defer p.trace("top-level standalone stmt")("")
 	}
 
 	switch p.tok {
-	case _Literal:
-		return p.simpleStmt(nil, false)
+	case nodes.LiteralT:
+		return p.SimpleStmt(nil, false)
 
-	case _Var:
-		return p.declStmt(p.varDecl)
+	case nodes.VarT:
+		return p.DeclStmt(p.VarDecl)
 
-	case _Const:
-		return p.declStmt(p.constDecl)
+	case nodes.ConstT:
+		return p.DeclStmt(p.ConstDecl)
 
-	case _Type:
-		return p.declStmt(p.typeDecl)
+	case nodes.TypeT:
+		return p.DeclStmt(p.TypeDecl)
 
-	case _If:
-		return p.ifStmt(p.procStmt)
+	case nodes.IfT:
+		return p.IfStmt(p.ProcStmt)
 
-	case _For:
-		return p.forStmt(p.procStmt)
+	case nodes.ForT:
+		return p.ForStmt(p.ProcStmt)
 
-	case _Switch:
-		return p.switchStmt(p.procStmt)
+	case nodes.SwitchT:
+		return p.SwitchStmt(p.ProcStmt)
 
-	case _Select:
-		return p.selectStmt(p.procStmt)
+	case nodes.SelectT:
+		return p.SelectStmt(p.ProcStmt)
 
-	case _Go:
-		return p.callStmt(p.procStmt)
+	case nodes.GoT:
+		return p.CallStmt(p.ProcStmt)
 
-	case _Lbrace:
-		return p.blockStmt("", p.procStmt)
+	case nodes.LbraceT:
+		return p.BlockStmt("", p.ProcStmt)
 
-	case _Semi:
-		s := new(EmptyStmt)
-		s.pos = p.pos()
+	case nodes.SemiT:
+		s := new(nodes.EmptyStmt)
+		s.SetPos(p.Pos())
 		return s
 
 	default:
-		if p.isName("do") {
-			p.want(_Name)
+		if p.IsName("do") {
+			p.Want(nodes.NameT)
 			switch p.tok {
 			//don't include labelled stmts, var, const, func, type,
 			// defer, fallthrough, continue, break, goto, return within do-statements
-			case _If, _For, _Switch, _Select, _Go:
-				return p.stmtOrNil()
-			case _Name:
-				return p.simpleStmt(p.exprList(), false)
-			case _Lbrace:
-				return p.blockStmt("", p.stmtOrNil)
-			case _Operator, _Star:
-				switch p.op {
-				case Add, Sub, Mul, And, Xor, Not:
-					return p.simpleStmt(nil, false) // unary operators
+			case nodes.IfT, nodes.ForT, nodes.SwitchT, nodes.SelectT, nodes.GoT:
+				return p.StmtOrNil()
+			case nodes.NameT:
+				lhs := p.ExprList(false)
+				t := p.DynamicAssignOpOrNil(lhs)
+				if t != nil {
+					return t
+				} else {
+					return p.SimpleStmt(lhs, false)
 				}
-			case _Literal, _Func, _Lparen, // operands
-				_Lbrack, _Struct, _Map, _Chan, _Interface, // composite types
-				_Arrow: // receive operator
-				return p.simpleStmt(nil, false)
+			case nodes.LbraceT:
+				return p.BlockStmt("", p.StmtOrNil)
+			case nodes.OperatorT, nodes.StarT:
+				switch p.op {
+				case nodes.Add, nodes.Sub, nodes.Mul, nodes.And, nodes.Xor, nodes.Not:
+					return p.SimpleStmt(nil, false) // unary operators
+				}
+			case nodes.LiteralT, nodes.FuncT, nodes.LparenT, // operands
+				nodes.LbrackT, nodes.StructT, nodes.MapT, nodes.ChanT, nodes.InterfaceT, // composite types
+				nodes.ArrowT: // receive operator
+				return p.SimpleStmt(nil, false)
 			}
 		}
-		if mac := p.macroRegistry[p.lit]; p.tok == _Name && mac != nil {
-			p.next()
-			return mac(p, p.tlStmt) //p.tlStmt needed for "let"
+		if mac := p.stmtRegistry[p.lit]; p.tok == nodes.NameT && mac != nil {
+			p.Next()
+			return mac(p, p.TlStmt) //p.tlStmt needed for "let"
 		}
 	}
 
@@ -1508,136 +1364,145 @@ func (p *parser) tlStmt() Stmt {
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) procStmt() Stmt {
+func (p *parser) ProcStmt() nodes.Stmt {
 	if trace {
 		defer p.trace("standalone stmt within proc")("")
 	}
 
-	if p.isName("do") {
-		p.want(_Name)
+	if p.IsName("do") {
+		p.Want(nodes.NameT)
 		switch p.tok {
 		//don't include labelled stmts, var, const, func, type,
 		// fallthrough, continue, break, goto, return within do-statements
-		case _If, _For, _Switch, _Select, _Go, _Defer:
-			return p.stmtOrNil()
-		case _Name:
-			return p.simpleStmt(p.exprList(), false)
-		case _Lbrace:
-			return p.blockStmt("", p.stmtOrNil)
-		case _Operator, _Star:
-			switch p.op {
-			case Add, Sub, Mul, And, Xor, Not:
-				return p.simpleStmt(nil, false) // unary operators
+		case nodes.IfT, nodes.ForT, nodes.SwitchT, nodes.SelectT, nodes.GoT, nodes.DeferT:
+			return p.StmtOrNil()
+		case nodes.NameT:
+			lhs := p.ExprList(false)
+			t := p.DynamicAssignOpOrNil(lhs)
+			if t != nil {
+				return t
+			} else {
+				return p.SimpleStmt(lhs, false)
 			}
-		case _Literal, _Func, _Lparen, // operands
-			_Lbrack, _Struct, _Map, _Chan, _Interface, // composite types
-			_Arrow: // receive operator
-			return p.simpleStmt(nil, false)
+		case nodes.LbraceT:
+			return p.BlockStmt("", p.StmtOrNil)
+		case nodes.OperatorT, nodes.StarT:
+			switch p.op {
+			case nodes.Add, nodes.Sub, nodes.Mul, nodes.And, nodes.Xor, nodes.Not:
+				return p.SimpleStmt(nil, false) // unary operators
+			}
+		case nodes.LiteralT, nodes.FuncT, nodes.LparenT, // operands
+			nodes.LbrackT, nodes.StructT, nodes.MapT, nodes.ChanT, nodes.InterfaceT, // composite types
+			nodes.ArrowT: // receive operator
+			return p.SimpleStmt(nil, false)
 		}
-	} else if mac := p.macroRegistry[p.lit]; p.tok == _Name && mac != nil {
-		p.next()
-		return mac(p, p.procStmt) //p.procStmt needed for "let"
-	} else if p.tok == _Name { //TODO: check label as first if-option
-		pos := p.pos()
-		lhs := p.exprList()
-		if label, ok := lhs.(*Name); ok && p.tok == _Colon {
-			return p.labeledStmtOrNil(label)
+	} else if mac := p.stmtRegistry[p.lit]; p.tok == nodes.NameT && mac != nil {
+		p.Next()
+		return mac(p, p.ProcStmt) //p.procStmt needed for "let"
+	} else if p.tok == nodes.NameT { //TODO: check label as first if-option
+		pos := p.Pos()
+		lhs := p.ExprList(false)
+		if label, ok := lhs.(*nodes.Name); ok && p.tok == nodes.ColonT {
+			return p.LabeledStmtOrNil(label)
 		}
-		p.syntaxErrorAt(pos, fmt.Sprintf("unexpected name, expecting \"do\", label or macro name"))
+		p.SyntaxErrorAt(pos, fmt.Sprintf("unexpected name, expecting \"do\", label or macro name"))
 		return nil
 	}
 	switch p.tok {
-	case _Literal:
-		return p.simpleStmt(nil, false)
+	case nodes.LiteralT:
+		return p.SimpleStmt(nil, false)
 
-	case _Var:
-		return p.declStmt(p.varDecl)
+	case nodes.VarT:
+		return p.DeclStmt(p.VarDecl)
 
-	case _Const:
-		return p.declStmt(p.constDecl)
+	case nodes.ConstT:
+		return p.DeclStmt(p.ConstDecl)
 
-	case _Type:
-		return p.declStmt(p.typeDecl)
+	case nodes.TypeT:
+		return p.DeclStmt(p.TypeDecl)
 
-	case _If:
-		return p.ifStmt(p.procStmt)
+	case nodes.IfT:
+		return p.IfStmt(p.ProcStmt)
 
-	case _For:
-		return p.forStmt(p.procStmt)
+	case nodes.ForT:
+		return p.ForStmt(p.ProcStmt)
 
-	case _Switch:
-		return p.switchStmt(p.procStmt)
+	case nodes.SwitchT:
+		return p.SwitchStmt(p.ProcStmt)
 
-	case _Select:
-		return p.selectStmt(p.procStmt)
+	case nodes.SelectT:
+		return p.SelectStmt(p.ProcStmt)
 
-	case _Go, _Defer:
-		return p.callStmt(p.procStmt)
+	case nodes.GoT, nodes.DeferT:
+		return p.CallStmt(p.ProcStmt)
 
-	case _Lbrace:
-		return p.blockStmt("", p.procStmt)
+	case nodes.LbraceT:
+		return p.BlockStmt("", p.ProcStmt)
 
-	case _Semi:
-		s := new(EmptyStmt)
-		s.pos = p.pos()
+	case nodes.SemiT:
+		s := new(nodes.EmptyStmt)
+		s.SetPos(p.Pos())
 		return s
 
-	case _Fallthrough:
-		s := new(BranchStmt)
-		s.pos = p.pos()
-		p.next()
-		s.Tok = _Fallthrough
-		return s
-
-	case _Break, _Continue:
-		s := new(BranchStmt)
-		s.pos = p.pos()
-		s.Tok = p.tok
-		p.next()
-		if p.tok == _Name {
-			s.Label = p.name()
-		}
-		return s
-
-	case _Goto:
-		if !p.permits["goto"] {
-			p.syntaxError("goto-statement has been prohibited by blacklist")
-			p.advance(_Semi)
+	case nodes.FallthroughT:
+		if !p.checkPermit("fallthroughKw") {
+			p.Advance(nodes.SemiT)
 			return nil
 		}
-		s := new(BranchStmt)
-		s.pos = p.pos()
-		s.Tok = _Goto
-		p.next()
-		s.Label = p.name()
+		s := new(nodes.BranchStmt)
+		s.SetPos(p.Pos())
+		p.Next()
+		s.Tok = nodes.FallthroughT
 		return s
 
-	case _Return:
-		if !p.permits["return"] {
-			p.syntaxError("return-statement has been prohibited by blacklist")
-			p.advance(_Semi)
-			return nil
-		}
-		s := new(ReturnStmt)
-		s.pos = p.pos()
-		p.next()
-		if p.tok != _Semi && p.tok != _Rbrace {
-			s.Results = p.exprList()
-		}
-		return s
+	case nodes.BreakT, nodes.ContinueT:
+		return p.BreakOrContinueStmt()
+
+	case nodes.GotoT:
+		return p.GotoStmt()
+
+	case nodes.ReturnT:
+		return p.ReturnStmt()
 	}
 
 	return nil //should never reach
 }
 
 //--------------------------------------------------------------------------------
+// context must be a non-empty string unless we know that p.tok == _Lbrace.
+func (p *parser) BlockStmt(context string, stmt func() nodes.Stmt) *nodes.BlockStmt {
+	if trace {
+		defer p.trace("blockStmt")("")
+	}
+
+	s := new(nodes.BlockStmt)
+	s.SetPos(p.Pos())
+
+	// people coming from C may forget that braces are mandatory in Go
+	if !p.Got(nodes.LbraceT) {
+		p.SyntaxError("expecting { after " + context)
+		p.Advance(nodes.NameT, nodes.RbraceT)
+		s.Rbrace = p.Pos() // in case we found "}"
+		if p.Got(nodes.RbraceT) {
+			return s
+		}
+	}
+
+	s.List = p.StmtList(stmt)
+	s.Rbrace = p.Pos()
+	p.Want(nodes.RbraceT)
+
+	return s
+}
+
+//--------------------------------------------------------------------------------
 // StatementList = { Statement ";" } .
-func (p *parser) stmtList(stmt func() Stmt) (l []Stmt) {
+func (p *parser) StmtList(stmt func() nodes.Stmt) (l []nodes.Stmt) {
 	if trace {
 		defer p.trace("stmtList")("")
 	}
 
-	for p.tok != _EOF && p.tok != _Rbrace && p.tok != _Case && p.tok != _Default {
+	for p.tok != nodes.EofT && p.tok != nodes.RbraceT && p.tok != nodes.CaseT && p.tok != nodes.DefaultT {
 		s := stmt()
 		if s == nil {
 			break
@@ -1645,10 +1510,10 @@ func (p *parser) stmtList(stmt func() Stmt) (l []Stmt) {
 		l = append(l, s)
 
 		// ";" is optional before "}"
-		if !p.got(_Semi) && p.tok != _Rbrace {
-			p.syntaxError("at end of statement")
-			p.advance(_Semi, _Rbrace, _Case, _Default)
-			p.got(_Semi) // avoid spurious empty statement
+		if !p.Got(nodes.SemiT) && p.tok != nodes.RbraceT {
+			p.SyntaxError("at end of statement")
+			p.Advance(nodes.SemiT, nodes.RbraceT, nodes.CaseT, nodes.DefaultT)
+			p.Got(nodes.SemiT) // avoid spurious empty statement
 		}
 
 	}
@@ -1661,425 +1526,537 @@ func (p *parser) stmtList(stmt func() Stmt) (l []Stmt) {
 // 	GoStmt | ReturnStmt | BreakStmt | ContinueStmt | GotoStmt |
 // 	FallthroughStmt | Block | IfStmt | SwitchStmt | SelectStmt | ForStmt |
 // 	DeferStmt .
-func (p *parser) stmtOrNil() Stmt {
+func (p *parser) StmtOrNil() nodes.Stmt {
 	if trace {
 		defer p.trace("stmt " + p.tok.String())("")
 	}
 
 	// Most statements (assignments) start with an identifier;
 	// look for it first before doing anything more expensive.
-	if p.tok == _Name {
-		lhs := p.exprList()
-		if label, ok := lhs.(*Name); ok && p.tok == _Colon {
-			return p.labeledStmtOrNil(label)
+	if p.tok == nodes.NameT {
+		lhs := p.ExprList(false)
+		if label, ok := lhs.(*nodes.Name); ok && p.tok == nodes.ColonT {
+			return p.LabeledStmtOrNil(label)
 		}
-		return p.simpleStmt(lhs, false)
+		t := p.DynamicAssignOpOrNil(lhs)
+		if t != nil {
+			return t
+		} else {
+			return p.SimpleStmt(lhs, false)
+		}
 	}
 
 	switch p.tok {
-	case _Lbrace:
-		return p.blockStmt("", p.stmtOrNil)
+	case nodes.LbraceT:
+		return p.BlockStmt("", p.StmtOrNil)
 
-	case _Var:
-		return p.declStmt(p.varDecl)
+	case nodes.VarT:
+		return p.DeclStmt(p.VarDecl)
 
-	case _Const:
-		return p.declStmt(p.constDecl)
+	case nodes.ConstT:
+		return p.DeclStmt(p.ConstDecl)
 
-	case _Type:
-		return p.declStmt(p.typeDecl)
+	case nodes.TypeT:
+		return p.DeclStmt(p.TypeDecl)
 
-	case _Operator, _Star:
+	case nodes.OperatorT, nodes.StarT:
 		switch p.op {
-		case Add, Sub, Mul, And, Xor, Not:
-			return p.simpleStmt(nil, false) // unary operators
+		case nodes.Add, nodes.Sub, nodes.Mul, nodes.And, nodes.Xor, nodes.Not:
+			return p.SimpleStmt(nil, false) // unary operators
 		}
 
-	case _Literal, _Func, _Lparen, // operands
-		_Lbrack, _Struct, _Map, _Chan, _Interface, // composite types
-		_Arrow: // receive operator
-		return p.simpleStmt(nil, false)
+	case nodes.LiteralT, nodes.FuncT, nodes.LparenT, // operands
+		nodes.LbrackT, nodes.StructT, nodes.MapT, nodes.ChanT, nodes.InterfaceT, // composite types
+		nodes.ArrowT: // receive operator
+		return p.SimpleStmt(nil, false)
 
-	case _If:
-		return p.ifStmt(p.stmtOrNil)
+	case nodes.IfT:
+		return p.IfStmt(p.StmtOrNil)
 
-	case _For:
-		return p.forStmt(p.stmtOrNil)
+	case nodes.ForT:
+		return p.ForStmt(p.StmtOrNil)
 
-	case _Switch:
-		return p.switchStmt(p.stmtOrNil)
+	case nodes.SwitchT:
+		return p.SwitchStmt(p.StmtOrNil)
 
-	case _Select:
-		return p.selectStmt(p.stmtOrNil)
+	case nodes.SelectT:
+		return p.SelectStmt(p.StmtOrNil)
 
-	case _Fallthrough:
-		s := new(BranchStmt)
-		s.pos = p.pos()
-		p.next()
-		s.Tok = _Fallthrough
+	case nodes.GoT, nodes.DeferT:
+		return p.CallStmt(p.StmtOrNil)
+
+	case nodes.SemiT:
+		s := new(nodes.EmptyStmt)
+		s.SetPos(p.Pos())
 		return s
 
-	case _Break, _Continue:
-		s := new(BranchStmt)
-		s.pos = p.pos()
-		s.Tok = p.tok
-		p.next()
-		if p.tok == _Name {
-			s.Label = p.name()
-		}
-		return s
-
-	case _Go, _Defer:
-		return p.callStmt(p.stmtOrNil)
-
-	case _Goto:
-		if !p.permits["goto"] {
-			p.syntaxError("goto-statement has been prohibited by blacklist")
-			p.advance(_Semi)
+	case nodes.FallthroughT:
+		if !p.checkPermit("fallthroughKw") {
+			p.Advance(nodes.SemiT)
 			return nil
 		}
-		s := new(BranchStmt)
-		s.pos = p.pos()
-		s.Tok = _Goto
-		p.next()
-		s.Label = p.name()
+		s := new(nodes.BranchStmt)
+		s.SetPos(p.Pos())
+		p.Next()
+		s.Tok = nodes.FallthroughT
 		return s
 
-	case _Return:
-		if !p.permits["return"] {
-			p.syntaxError("return-statement has been prohibited by blacklist")
-			p.advance(_Semi)
-			return nil
-		}
-		s := new(ReturnStmt)
-		s.pos = p.pos()
-		p.next()
-		if p.tok != _Semi && p.tok != _Rbrace {
-			s.Results = p.exprList()
-		}
-		return s
+	case nodes.BreakT, nodes.ContinueT:
+		return p.BreakOrContinueStmt()
 
-	case _Semi:
-		s := new(EmptyStmt)
-		s.pos = p.pos()
-		return s
+	case nodes.GotoT:
+		return p.GotoStmt()
+
+	case nodes.ReturnT:
+		return p.ReturnStmt()
 	}
 
 	return nil
 }
 
 //--------------------------------------------------------------------------------
-// We represent x++, x-- as assignments x += ImplicitOne, x -= ImplicitOne.
-// We use ImplicitOne so they'll be printed by printer.go as x++/-- instead of x +=/-= 1.
-// ImplicitOne should not be used elsewhere.
-var ImplicitOne = &BasicLit{Value: "1"}
+func (p *parser) DynamicAssignOpOrNil(lhs nodes.Expr) nodes.Stmt {
+	if _, ok := lhs.(*nodes.ListExpr); !ok && p.tok == nodes.AssignOpT {
+		binOp := dynAssignOps[p.op]
+		if p.dynamicBlock != "" && binOp != "" {
+			p.Next()
+			rhs := &nodes.RhsExpr{X: p.Expr()}
+			t := &nodes.CallExpr{
+				Fun: &nodes.SelectorExpr{
+					X:   &nodes.Name{Value: p.dynamicBlock},
+					Sel: &nodes.Name{Value: binOp},
+				},
+				ArgList: []nodes.Expr{
+					&nodes.Operation{
+						Op: nodes.And,
+						X:  lhs,
+						Y:  nil,
+					},
+				},
+			}
+			t.SetPos(p.Pos())
+			_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock)
+			t.ArgList = append(t.ArgList, rhs)
+			return &nodes.ExprStmt{
+				X: t,
+			}
+		} else {
+			return nil
+		}
+	} else {
+		return nil
+	}
+}
+
+var dynAssignOps = map[nodes.Operator]string{
+	nodes.Mul:    "MultAssign",       // *=
+	nodes.Div:    "DivideAssign",     // /=
+	nodes.Rem:    "ModAssign",        // %=
+	nodes.And:    "SeqAssign",        // &=
+	nodes.AndNot: "SeqXorAssign",     // &^=
+	nodes.Shl:    "LeftShiftAssign",  // <<=
+	nodes.Shr:    "RightShiftAssign", // >>=
+	nodes.LftAnd: "LeftAndAssign",    // <&=
+	nodes.AndRgt: "RightAndAssign",   // &>=
+	nodes.Add:    "PlusAssign",       // +=
+	nodes.Sub:    "MinusAssign",      // -=
+	nodes.Or:     "AltAssign",        // |=
+	nodes.Xor:    "XorAssign",        // ^=
+}
 
 //--------------------------------------------------------------------------------
 // SimpleStmt = EmptyStmt | ExpressionStmt | SendStmt | IncDecStmt | Assignment | ShortVarDecl .
-func (p *parser) simpleStmt(lhs Expr, rangeOk bool) SimpleStmt {
+func (p *parser) SimpleStmt(lhs nodes.Expr, rangeOk bool) nodes.SimpleStmt {
 	if trace {
 		defer p.trace("simpleStmt")("")
 	}
 
-	if rangeOk && p.tok == _Range {
+	if rangeOk && p.tok == nodes.RangeT {
 		// _Range expr
 		if debug && lhs != nil {
 			panic("invalid call of simpleStmt")
 		}
-		return p.newRangeClause(nil, false)
+		return p.NewRangeClause(nil, false)
 	}
 
 	if lhs == nil {
-		lhs = p.exprList()
+		lhs = p.ExprList(false)
 	}
 
-	if _, ok := lhs.(*ListExpr); !ok && p.tok != _Assign && p.tok != _Define {
+	if _, ok := lhs.(*nodes.ListExpr); !ok && p.tok != nodes.AssignT && p.tok != nodes.DefineT {
 		// expr
-		pos := p.pos()
+		pos := p.Pos()
 		switch p.tok {
-		case _AssignOp:
+		case nodes.AssignOpT:
 			// lhs op= rhs
 			op := p.op
-			p.next()
-			return p.newAssignStmt(pos, op, lhs, p.expr())
+			p.Next()
+			rhs := p.Expr()
+			if p.dynamicBlock != "" {
+				rhs = &nodes.RhsExpr{X: rhs}
+			}
+			return p.NewAssignStmt(pos, op, lhs, rhs)
 
-		case _IncOp:
+		case nodes.IncOpT:
 			// lhs++ or lhs--
 			op := p.op
-			p.next()
-			return p.newAssignStmt(pos, op, lhs, ImplicitOne)
+			p.Next()
+			if p.dynamicBlock != "" {
+				lhs = &nodes.RhsExpr{X: lhs} //parsed as lhs but actually rhs
+			}
+			return p.NewAssignStmt(pos, op, lhs, nodes.ImplicitOne)
 
-		case _Arrow:
+		case nodes.ArrowT:
 			// lhs <- rhs
-			s := new(SendStmt)
-			s.pos = pos
-			p.next()
+			s := new(nodes.SendStmt)
+			s.SetPos(pos)
+			p.Next()
 			s.Chan = lhs
-			s.Value = p.expr()
+			rhs := p.Expr()
+			if p.dynamicBlock != "" {
+				rhs = &nodes.RhsExpr{X: rhs}
+			}
+			s.Value = rhs
 			return s
 
 		default:
 			// expr
-			s := new(ExprStmt)
-			s.pos = lhs.Pos()
+			s := new(nodes.ExprStmt)
+			s.SetPos(lhs.Pos())
+			if p.dynamicBlock != "" {
+				lhs = &nodes.RhsExpr{X: lhs} //parsed as lhs but actually rhs
+			}
 			s.X = lhs
+			s.MakeComments()
+			if len(p.comments) > 0 {
+				s.SetRightComment(strings.Join(p.comments, "\n"))
+			}
 			return s
 		}
 	}
 
 	// expr_list
-	pos := p.pos()
+	pos := p.Pos()
 	switch p.tok {
-	case _Assign:
-		p.next()
+	case nodes.AssignT:
+		p.Next()
 
-		if rangeOk && p.tok == _Range {
-			// expr_list '=' _Range expr
-			return p.newRangeClause(lhs, false)
+		if rangeOk && p.tok == nodes.RangeT {
+			// expr_list '=' RangeT expr
+			return p.NewRangeClause(lhs, false)
 		}
 
 		// expr_list '=' expr_list
-		return p.newAssignStmt(pos, 0, lhs, p.exprList())
+		return p.NewAssignStmt(pos, 0, lhs, p.ExprList(true))
 
-	case _Define:
-		p.next()
+	case nodes.DefineT:
+		p.Next()
 
-		if rangeOk && p.tok == _Range {
+		if rangeOk && p.tok == nodes.RangeT {
 			// expr_list ':=' range expr
-			return p.newRangeClause(lhs, true)
+			return p.NewRangeClause(lhs, true)
 		}
 
 		// expr_list ':=' expr_list
-		rhs := p.exprList()
+		rhs := p.ExprList(true)
 
-		if x, ok := rhs.(*TypeSwitchGuard); ok {
+		if x, ok := rhs.(*nodes.TypeSwitchGuard); ok {
 			switch lhs := lhs.(type) {
-			case *Name:
+			case *nodes.Name:
 				x.Lhs = lhs
-			case *ListExpr:
-				p.errorAt(lhs.Pos(), fmt.Sprintf("cannot assign 1 value to %d variables", len(lhs.ElemList)))
+			case *nodes.ListExpr:
+				p.ErrorAt(lhs.Pos(), fmt.Sprintf("cannot assign 1 value to %d variables", len(lhs.ElemList)))
 				// make the best of what we have
-				if lhs, ok := lhs.ElemList[0].(*Name); ok {
+				if lhs, ok := lhs.ElemList[0].(*nodes.Name); ok {
 					x.Lhs = lhs
 				}
 			default:
-				p.errorAt(lhs.Pos(), fmt.Sprintf("invalid variable name %s in type switch", String(lhs)))
+				p.ErrorAt(lhs.Pos(), fmt.Sprintf("invalid variable name %s in type switch", String(lhs)))
 			}
-			s := new(ExprStmt)
-			s.pos = x.Pos()
+			s := new(nodes.ExprStmt)
+			s.SetPos(x.Pos())
 			s.X = x
 			return s
 		}
 
-		as := p.newAssignStmt(pos, Def, lhs, rhs)
+		as := p.NewAssignStmt(pos, nodes.Def, lhs, rhs)
 		return as
 
 	default:
-		p.syntaxError("expecting := or = or comma")
-		p.advance(_Semi, _Rbrace)
+		p.SyntaxError("expecting := or = or comma")
+		p.Advance(nodes.SemiT, nodes.RbraceT)
 		// make the best of what we have
-		if x, ok := lhs.(*ListExpr); ok {
+		if x, ok := lhs.(*nodes.ListExpr); ok {
 			lhs = x.ElemList[0]
 		}
-		s := new(ExprStmt)
-		s.pos = lhs.Pos()
+		s := new(nodes.ExprStmt)
+		s.SetPos(lhs.Pos())
 		s.X = lhs
 		return s
 	}
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) newRangeClause(lhs Expr, def bool) *RangeClause {
-	r := new(RangeClause)
-	r.pos = p.pos()
-	p.next() // consume _Range
+func (p *parser) NewRangeClause(lhs nodes.Expr, def bool) *nodes.RangeClause {
+	r := new(nodes.RangeClause)
+	r.SetPos(p.Pos())
+	p.Next() // consume _Range
 	r.Lhs = lhs
 	r.Def = def
-	r.X = p.expr()
+	rhs := p.Expr()
+	if p.dynamicBlock != "" {
+		rhs = &nodes.RhsExpr{X: rhs}
+	}
+	r.X = rhs
 	return r
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) newAssignStmt(pos src.Pos, op Operator, lhs, rhs Expr) *AssignStmt {
-	a := new(AssignStmt)
-	a.pos = pos
+func (p *parser) NewAssignStmt(pos src.Pos, op nodes.Operator, lhs, rhs nodes.Expr) *nodes.AssignStmt {
+	a := new(nodes.AssignStmt)
+	a.SetPos(pos)
 	a.Op = op
 	a.Lhs = lhs
 	a.Rhs = rhs
+	a.MakeComments()
+	if len(p.comments) > 0 {
+		a.SetRightComment(strings.Join(p.comments, "\n"))
+	}
 	return a
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) labeledStmtOrNil(label *Name) Stmt {
+func (p *parser) LabeledStmtOrNil(label *nodes.Name) nodes.Stmt {
 	if trace {
 		defer p.trace("labeledStmt")("")
 	}
 
-	s := new(LabeledStmt)
-	s.pos = p.pos()
+	s := new(nodes.LabeledStmt)
+	s.SetPos(p.Pos())
 	s.Label = label
 
-	p.want(_Colon)
+	p.Want(nodes.ColonT)
 
-	if p.tok == _Rbrace {
+	if p.tok == nodes.RbraceT {
 		// We expect a statement (incl. an empty statement), which must be
 		// terminated by a semicolon. Because semicolons may be omitted before
 		// an _Rbrace, seeing an _Rbrace implies an empty statement.
-		e := new(EmptyStmt)
-		e.pos = p.pos()
+		e := new(nodes.EmptyStmt)
+		e.SetPos(p.Pos())
 		s.Stmt = e
 		return s
 	}
 
-	s.Stmt = p.stmtOrNil()
+	s.Stmt = p.StmtOrNil()
 	if s.Stmt != nil {
 		return s
 	}
 
 	// report error at line of ':' token
-	p.syntaxErrorAt(s.pos, "missing statement after label")
+	p.SyntaxErrorAt(s.Pos(), "missing statement after label")
 	// we are already at the end of the labeled statement - no need to advance
 	return nil // avoids follow-on errors (see e.g., fixedbugs/bug274.go)
 }
 
 //--------------------------------------------------------------------------------
-// context must be a non-empty string unless we know that p.tok == _Lbrace.
-func (p *parser) blockStmt(context string, stmt func() Stmt) *BlockStmt {
+func (p *parser) DeclStmt(f func(*nodes.DeclGroup) nodes.Decl) *nodes.DeclStmt {
 	if trace {
-		defer p.trace("blockStmt")("")
+		defer p.trace("declStmt")("")
 	}
 
-	s := new(BlockStmt)
-	s.pos = p.pos()
-
-	// people coming from C may forget that braces are mandatory in Go
-	if !p.got(_Lbrace) {
-		p.syntaxError("expecting { after " + context)
-		p.advance(_Name, _Rbrace)
-		s.Rbrace = p.pos() // in case we found "}"
-		if p.got(_Rbrace) {
-			return s
-		}
+	s := new(nodes.DeclStmt)
+	s.SetPos(p.Pos())
+	s.MakeComments()
+	if len(p.comments) > 0 {
+		s.SetAboveComment(strings.Join(p.comments, "\n"))
 	}
-
-	s.List = p.stmtList(stmt)
-	s.Rbrace = p.pos()
-	p.want(_Rbrace)
+	p.Next() // _Const, _Type, or _Var
+	s.DeclList = p.AppendGroup(nil, f)
 
 	return s
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) declStmt(f func(*Group) Decl) *DeclStmt {
-	if trace {
-		defer p.trace("declStmt")("")
+func (p *parser) ReturnStmt() *nodes.ReturnStmt {
+	if !p.checkPermit("returnKw") {
+		p.Advance(nodes.SemiT)
+		return nil
 	}
+	s := new(nodes.ReturnStmt)
+	s.SetPos(p.Pos())
+	s.MakeComments()
+	if len(p.comments) > 0 {
+		s.SetAboveComment(strings.Join(p.comments, "\n"))
+	}
+	p.Next()
+	if p.tok != nodes.SemiT && p.tok != nodes.RbraceT {
+		s.Results = p.ExprList(true)
+	}
+	if len(p.comments) > 0 {
+		s.SetRightComment(strings.Join(p.comments, "\n"))
+	}
+	return s
+}
 
-	s := new(DeclStmt)
-	s.pos = p.pos()
+//--------------------------------------------------------------------------------
+// breakOrContinueStmt parses 'break' or 'continue' statements
+func (p *parser) BreakOrContinueStmt() *nodes.BranchStmt {
+	if p.tok == nodes.BreakT && !p.checkPermit("breakKw") ||
+		p.tok == nodes.ContinueT && !p.checkPermit("continueKw") {
+		p.Advance(nodes.SemiT)
+		return nil
+	}
+	s := new(nodes.BranchStmt)
+	s.SetPos(p.Pos())
+	s.Tok = p.tok
+	s.MakeComments()
+	if len(p.comments) > 0 {
+		s.SetAboveComment(strings.Join(p.comments, "\n"))
+	}
+	p.Next()
+	if p.tok == nodes.NameT {
+		s.Label = p.Name()
+	}
+	if len(p.comments) > 0 {
+		s.SetRightComment(strings.Join(p.comments, "\n"))
+	}
+	return s
+}
 
-	p.next() // _Const, _Type, or _Var
-	s.DeclList = p.appendGroup(nil, f)
-
+//--------------------------------------------------------------------------------
+func (p *parser) GotoStmt() *nodes.BranchStmt {
+	if !p.checkPermit("gotoKw") {
+		p.Advance(nodes.SemiT)
+		return nil
+	}
+	s := new(nodes.BranchStmt)
+	s.SetPos(p.Pos())
+	s.Tok = nodes.GotoT
+	s.MakeComments()
+	if len(p.comments) > 0 {
+		s.SetAboveComment(strings.Join(p.comments, "\n"))
+	}
+	p.Next()
+	s.Label = p.Name()
+	if len(p.comments) > 0 {
+		s.SetRightComment(strings.Join(p.comments, "\n"))
+	}
 	return s
 }
 
 //--------------------------------------------------------------------------------
 // callStmt parses call-like statements that can be preceded by 'defer' and 'go'.
-func (p *parser) callStmt(stmt func() Stmt) *CallStmt {
+func (p *parser) CallStmt(stmt func() nodes.Stmt) *nodes.CallStmt {
 	if trace {
 		defer p.trace("callStmt")("")
 	}
 
-	s := new(CallStmt)
-	s.pos = p.pos()
-	s.Tok = p.tok // _Defer or _Go
-	p.next()
-	var x Expr
+	if p.tok == nodes.DeferT && !p.checkPermit("deferKw") ||
+		p.tok == nodes.GoT && !p.checkPermit("goKw") {
+		p.Advance(nodes.SemiT)
+		return nil
+	}
+	s := new(nodes.CallStmt)
+	s.SetPos(p.Pos())
+	s.Tok = p.tok // DeferT or GoT
+	s.MakeComments()
+	if len(p.comments) > 0 {
+		s.SetAboveComment(strings.Join(p.comments, "\n"))
+	}
+	p.Next()
+	var x nodes.Expr
 
-	if p.tok == _Lbrace {
-		t := new(FuncType)
-		t.pos = p.pos()
-		t.ParamList = []*Field{}
+	if p.tok == nodes.LbraceT {
+		t := new(nodes.FuncType)
+		t.SetPos(p.Pos())
+		t.ParamList = []*nodes.Field{}
 		t.ResultList = nil
-		f := new(FuncLit)
-		f.pos = p.pos()
+		f := new(nodes.FuncLit)
+		f.SetPos(p.Pos())
 		f.Type = t
-		f.Body = p.blockStmt("", stmt)
-		e := new(CallExpr)
-		e.pos = p.pos()
-		e.ArgList = []Expr{}
+		f.Body = p.BlockStmt("", stmt)
+		e := new(nodes.CallExpr)
+		e.SetPos(p.Pos())
+		e.ArgList = []nodes.Expr{}
 		e.Fun = f
 		x = e
 	} else {
-		x = p.pexpr(p.tok == _Lparen) // keep_parens so we can report error below
+		x = p.PExpr(p.tok == nodes.LparenT) // keep_parens so we can report error below
 		if t := unparen(x); t != x {
-			p.error(fmt.Sprintf("expression in %s must not be parenthesized", s.Tok))
+			p.Error(fmt.Sprintf("expression in %s must not be parenthesized", s.Tok))
 			// already progressed, no need to advance
 			x = t
 		}
 	}
-	cx, ok := x.(*CallExpr)
+	cx, ok := x.(*nodes.CallExpr)
 	if !ok {
-		p.error(fmt.Sprintf("expression in %s must be function call", s.Tok))
+		p.Error(fmt.Sprintf("expression in %s must be function call", s.Tok))
 		// already progressed, no need to advance
-		cx = new(CallExpr)
-		cx.pos = x.Pos()
-		cx.Fun = p.bad()
+		cx = new(nodes.CallExpr)
+		cx.SetPos(x.Pos())
+		cx.Fun = p.BadExpr()
 	}
 	s.Call = cx
 	return s
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) ifStmt(stmt func() Stmt) *IfStmt {
+func (p *parser) IfStmt(stmt func() nodes.Stmt) *nodes.IfStmt {
 	if trace {
 		defer p.trace("ifStmt")("")
 	}
-	if !p.permits["if"] {
-		p.syntaxError("if-statement has been prohibited by blacklist")
-		p.advance(_Rbrace)
+
+	if !p.checkPermit("ifKw") {
+		p.Advance(nodes.RbraceT)
 		return nil
 	}
-	s := new(IfStmt)
-	s.pos = p.pos()
+	s := new(nodes.IfStmt)
+	s.SetPos(p.Pos())
 
-	s.Init, s.Cond, _ = p.header(_If)
-	s.Then = p.blockStmt("if clause", stmt)
+	s.MakeComments()
+	if len(p.comments) > 0 {
+		s.SetAboveComment(strings.Join(p.comments, "\n"))
+	}
+	s.Init, s.Cond, _ = p.header(nodes.IfT)
+	s.Then = p.BlockStmt("if clause", stmt)
 
-	if p.got(_Else) {
+	if !p.checkPermit("elseKw") {
+		p.Advance(nodes.SemiT, nodes.RbraceT)
+		return nil
+	}
+	if p.Got(nodes.ElseT) {
 		switch p.tok {
-		case _If:
-			s.Else = p.ifStmt(stmt)
-		case _Switch:
-			body := new(BlockStmt)
-			body.pos = p.pos()
-			body.List = []Stmt{p.switchStmt(stmt)}
-			body.Rbrace = p.pos()
+		case nodes.IfT:
+			s.Else = p.IfStmt(stmt)
+		case nodes.SwitchT:
+			body := new(nodes.BlockStmt)
+			body.SetPos(p.Pos())
+			body.List = []nodes.Stmt{p.SwitchStmt(stmt)}
+			body.Rbrace = p.Pos()
 			s.Else = body
-		case _For:
-			body := new(BlockStmt)
-			body.pos = p.pos()
-			body.List = []Stmt{p.forStmt(stmt)}
-			body.Rbrace = p.pos()
+		case nodes.ForT:
+			body := new(nodes.BlockStmt)
+			body.SetPos(p.Pos())
+			body.List = []nodes.Stmt{p.ForStmt(stmt)}
+			body.Rbrace = p.Pos()
 			s.Else = body
-		case _Select:
-			body := new(BlockStmt)
-			body.pos = p.pos()
-			body.List = []Stmt{p.selectStmt(stmt)}
-			body.Rbrace = p.pos()
+		case nodes.SelectT:
+			body := new(nodes.BlockStmt)
+			body.SetPos(p.Pos())
+			body.List = []nodes.Stmt{p.SelectStmt(stmt)}
+			body.Rbrace = p.Pos()
 			s.Else = body
-		case _Go, _Defer:
-			body := new(BlockStmt)
-			body.pos = p.pos()
-			body.List = []Stmt{p.callStmt(stmt)}
-			body.Rbrace = p.pos()
+		case nodes.GoT, nodes.DeferT:
+			body := new(nodes.BlockStmt)
+			body.SetPos(p.Pos())
+			body.List = []nodes.Stmt{p.CallStmt(stmt)}
+			body.Rbrace = p.Pos()
 			s.Else = body
-		case _Lbrace:
-			s.Else = p.blockStmt("", stmt)
+		case nodes.LbraceT:
+			s.Else = p.BlockStmt("", stmt)
 		default:
-			p.syntaxError("else must be followed by if,switch,for,select,go,defer or statement block")
-			p.advance(_Name, _Rbrace)
+			p.SyntaxError("else must be followed by if,switch,for,select,go,defer or statement block")
+			p.Advance(nodes.NameT, nodes.RbraceT)
 		}
 	}
 
@@ -2087,32 +2064,12 @@ func (p *parser) ifStmt(stmt func() Stmt) *IfStmt {
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) forStmt(stmt func() Stmt) Stmt {
-	if trace {
-		defer p.trace("forStmt")("")
-	}
-	if !p.permits["for"] {
-		p.syntaxError("for-statement has been prohibited by blacklist")
-		p.advance(_Rbrace)
-		return nil
-	}
+func (p *parser) header(keyword nodes.Token) (init nodes.SimpleStmt, cond nodes.Expr, post nodes.SimpleStmt) {
+	p.Want(keyword)
 
-	s := new(ForStmt)
-	s.pos = p.pos()
-
-	s.Init, s.Cond, s.Post = p.header(_For)
-	s.Body = p.blockStmt("for clause", stmt)
-
-	return s
-}
-
-//--------------------------------------------------------------------------------
-func (p *parser) header(keyword token) (init SimpleStmt, cond Expr, post SimpleStmt) {
-	p.want(keyword)
-
-	if p.tok == _Lbrace {
-		if keyword == _If {
-			p.syntaxError("missing condition in if statement")
+	if p.tok == nodes.LbraceT {
+		if keyword == nodes.IfT {
+			p.SyntaxError("missing condition in if statement")
 		}
 		return
 	}
@@ -2121,45 +2078,49 @@ func (p *parser) header(keyword token) (init SimpleStmt, cond Expr, post SimpleS
 	outer := p.xnest
 	p.xnest = -1
 
-	if p.tok != _Semi {
+	if p.tok != nodes.SemiT {
 		// accept potential varDecl but complain
-		if p.got(_Var) {
-			p.syntaxError(fmt.Sprintf("var declaration not allowed in %s initializer", keyword.String()))
+		if p.Got(nodes.VarT) {
+			p.SyntaxError(fmt.Sprintf("var declaration not allowed in %s initializer", keyword.String()))
 		}
-		init = p.simpleStmt(nil, keyword == _For)
+		init = p.SimpleStmt(nil, keyword == nodes.ForT)
 		// If we have a range clause, we are done (can only happen for keyword == _For).
-		if _, ok := init.(*RangeClause); ok {
+		if _, ok := init.(*nodes.RangeClause); ok {
+			if !p.checkPermit("rangeKw") {
+				p.Advance(nodes.SemiT, nodes.RbraceT)
+				return
+			}
 			p.xnest = outer
 			return
 		}
 	}
 
-	var condStmt SimpleStmt
+	var condStmt nodes.SimpleStmt
 	var semi struct {
 		pos src.Pos
 		lit string // valid if pos.IsKnown()
 	}
-	if p.tok == _Semi {
-		semi.pos = p.pos()
+	if p.tok == nodes.SemiT {
+		semi.pos = p.Pos()
 		semi.lit = p.lit
-		p.next()
-		if keyword == _For {
-			if p.tok != _Semi {
-				if p.tok == _Lbrace {
-					p.syntaxError("expecting for loop condition")
+		p.Next()
+		if keyword == nodes.ForT {
+			if p.tok != nodes.SemiT {
+				if p.tok == nodes.LbraceT {
+					p.SyntaxError("expecting for loop condition")
 					goto done
 				}
-				condStmt = p.simpleStmt(nil, false)
+				condStmt = p.SimpleStmt(nil, false)
 			}
-			p.want(_Semi)
-			if p.tok != _Lbrace {
-				post = p.simpleStmt(nil, false)
-				if a, _ := post.(*AssignStmt); a != nil && a.Op == Def {
-					p.syntaxErrorAt(a.Pos(), "cannot declare in post statement of for loop")
+			p.Want(nodes.SemiT)
+			if p.tok != nodes.LbraceT {
+				post = p.SimpleStmt(nil, false)
+				if a, _ := post.(*nodes.AssignStmt); a != nil && a.Op == nodes.Def {
+					p.SyntaxErrorAt(a.Pos(), "cannot declare in post statement of for loop")
 				}
 			}
-		} else if p.tok != _Lbrace {
-			condStmt = p.simpleStmt(nil, false)
+		} else if p.tok != nodes.LbraceT {
+			condStmt = p.SimpleStmt(nil, false)
 		}
 	} else {
 		condStmt = init
@@ -2170,17 +2131,17 @@ done:
 	// unpack condStmt
 	switch s := condStmt.(type) {
 	case nil:
-		if keyword == _If && semi.pos.IsKnown() {
+		if keyword == nodes.IfT && semi.pos.IsKnown() {
 			if semi.lit != "semicolon" {
-				p.syntaxErrorAt(semi.pos, fmt.Sprintf("unexpected %s, expecting { after if clause", semi.lit))
+				p.SyntaxErrorAt(semi.pos, fmt.Sprintf("unexpected %s, expecting { after if clause", semi.lit))
 			} else {
-				p.syntaxErrorAt(semi.pos, "missing condition in if statement")
+				p.SyntaxErrorAt(semi.pos, "missing condition in if statement")
 			}
 		}
-	case *ExprStmt:
+	case *nodes.ExprStmt:
 		cond = s.X
 	default:
-		p.syntaxError(fmt.Sprintf("%s used as value", String(s)))
+		p.SyntaxError(fmt.Sprintf("%s used as value", String(s)))
 	}
 
 	p.xnest = outer
@@ -2188,104 +2149,151 @@ done:
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) switchStmt(stmt func() Stmt) *SwitchStmt {
+func (p *parser) ForStmt(stmt func() nodes.Stmt) nodes.Stmt {
 	if trace {
-		defer p.trace("switchStmt")("")
+		defer p.trace("forStmt")("")
 	}
-	if !p.permits["switch"] {
-		p.syntaxError("switch-statement has been prohibited by blacklist")
-		p.advance(_Rbrace)
+
+	if !p.checkPermit("forKw") {
+		p.Advance(nodes.RbraceT)
 		return nil
 	}
+	s := new(nodes.ForStmt)
+	s.SetPos(p.Pos())
 
-	s := new(SwitchStmt)
-	s.pos = p.pos()
-
-	s.Init, s.Tag, _ = p.header(_Switch)
-
-	if !p.got(_Lbrace) {
-		p.syntaxError("missing { after switch clause")
-		p.advance(_Case, _Default, _Rbrace)
+	s.MakeComments()
+	if len(p.comments) > 0 {
+		s.SetAboveComment(strings.Join(p.comments, "\n"))
 	}
-	for p.tok != _EOF && p.tok != _Rbrace {
-		s.Body = append(s.Body, p.caseClause(stmt))
-	}
-	s.Rbrace = p.pos()
-	p.want(_Rbrace)
+	s.Init, s.Cond, s.Post = p.header(nodes.ForT)
+	s.Body = p.BlockStmt("for clause", stmt)
 
 	return s
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) caseClause(stmt func() Stmt) *CaseClause {
+func (p *parser) SwitchStmt(stmt func() nodes.Stmt) *nodes.SwitchStmt {
+	if trace {
+		defer p.trace("switchStmt")("")
+	}
+
+	if !p.checkPermit("switchKw") {
+		p.Advance(nodes.RbraceT)
+		return nil
+	}
+	s := new(nodes.SwitchStmt)
+	s.SetPos(p.Pos())
+
+	s.MakeComments()
+	if len(p.comments) > 0 {
+		s.SetAboveComment(strings.Join(p.comments, "\n"))
+	}
+	s.Init, s.Tag, _ = p.header(nodes.SwitchT)
+
+	if !p.Got(nodes.LbraceT) {
+		p.SyntaxError("missing { after switch clause")
+		p.Advance(nodes.CaseT, nodes.DefaultT, nodes.RbraceT)
+	}
+	for p.tok != nodes.EofT && p.tok != nodes.RbraceT {
+		s.Body = append(s.Body, p.CaseClause(stmt))
+	}
+	if len(s.Body) > 0 {
+		s.Body[len(s.Body)-1].Final = true
+	}
+	s.Rbrace = p.Pos()
+	p.Want(nodes.RbraceT)
+
+	return s
+}
+
+//--------------------------------------------------------------------------------
+func (p *parser) CaseClause(stmt func() nodes.Stmt) *nodes.CaseClause {
 	if trace {
 		defer p.trace("caseClause")("")
 	}
 
-	c := new(CaseClause)
-	c.pos = p.pos()
+	c := new(nodes.CaseClause)
+	c.SetPos(p.Pos())
 
 	switch p.tok {
-	case _Case:
-		p.next()
-		c.Cases = p.exprList()
+	case nodes.CaseT:
+		if !p.checkPermit("caseKw") {
+			p.Advance(nodes.SemiT)
+			return nil
+		}
+		p.Next()
+		c.Cases = p.ExprList(true)
 
-	case _Default:
-		p.next()
+	case nodes.DefaultT:
+		if !p.checkPermit("defaultKw") {
+			p.Advance(nodes.SemiT)
+			return nil
+		}
+		p.Next()
 
 	default:
-		p.syntaxError("expecting case or default or }")
-		p.advance(_Colon, _Case, _Default, _Rbrace)
+		p.SyntaxError("expecting case or default or }")
+		p.Advance(nodes.ColonT, nodes.CaseT, nodes.DefaultT, nodes.RbraceT)
 	}
 
-	c.Colon = p.pos()
-	p.want(_Colon)
-	c.Body = p.stmtList(stmt)
+	c.Colon = p.Pos()
+	p.Want(nodes.ColonT)
+	c.Body = p.StmtList(stmt)
 
 	return c
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) selectStmt(stmt func() Stmt) *SelectStmt {
+func (p *parser) SelectStmt(stmt func() nodes.Stmt) *nodes.SelectStmt {
 	if trace {
 		defer p.trace("selectStmt")("")
 	}
-	if !p.permits["select"] {
-		p.syntaxError("select-statement has been prohibited by blacklist")
-		p.advance(_Rbrace)
+
+	if !p.checkPermit("selectKw") {
+		p.Advance(nodes.RbraceT)
 		return nil
 	}
+	s := new(nodes.SelectStmt)
+	s.SetPos(p.Pos())
 
-	s := new(SelectStmt)
-	s.pos = p.pos()
-
-	p.want(_Select)
-	if !p.got(_Lbrace) {
-		p.syntaxError("missing { after select clause")
-		p.advance(_Case, _Default, _Rbrace)
+	s.MakeComments()
+	if len(p.comments) > 0 {
+		s.SetAboveComment(strings.Join(p.comments, "\n"))
 	}
-	for p.tok != _EOF && p.tok != _Rbrace {
-		s.Body = append(s.Body, p.commClause(stmt))
+	p.Want(nodes.SelectT)
+	if !p.Got(nodes.LbraceT) {
+		p.SyntaxError("missing { after select clause")
+		p.Advance(nodes.CaseT, nodes.DefaultT, nodes.RbraceT)
 	}
-	s.Rbrace = p.pos()
-	p.want(_Rbrace)
+	for p.tok != nodes.EofT && p.tok != nodes.RbraceT {
+		s.Body = append(s.Body, p.CommClause(stmt))
+	}
+	if len(s.Body) > 0 {
+		s.Body[len(s.Body)-1].Final = true
+	}
+	s.Rbrace = p.Pos()
+	p.Want(nodes.RbraceT)
 
 	return s
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) commClause(stmt func() Stmt) *CommClause {
+func (p *parser) CommClause(stmt func() nodes.Stmt) *nodes.CommClause {
 	if trace {
 		defer p.trace("commClause")("")
 	}
 
-	c := new(CommClause)
-	c.pos = p.pos()
+	c := new(nodes.CommClause)
+	c.SetPos(p.Pos())
 
 	switch p.tok {
-	case _Case:
-		p.next()
-		c.Comm = p.simpleStmt(nil, false)
+	case nodes.CaseT:
+		if !p.checkPermit("caseKw") {
+			p.Advance(nodes.SemiT)
+			return nil
+		}
+		p.Next()
+		c.Comm = p.SimpleStmt(nil, false)
 
 		// The syntax restricts the possible simple statements here to:
 		//
@@ -2299,17 +2307,21 @@ func (p *parser) commClause(stmt func() Stmt) *CommClause {
 		// TODO(gri) eventually may want to restrict valid syntax trees
 		// here.
 
-	case _Default:
-		p.next()
+	case nodes.DefaultT:
+		if !p.checkPermit("defaultKw") {
+			p.Advance(nodes.SemiT)
+			return nil
+		}
+		p.Next()
 
 	default:
-		p.syntaxError("expecting case or default or }")
-		p.advance(_Colon, _Case, _Default, _Rbrace)
+		p.SyntaxError("expecting case or default or }")
+		p.Advance(nodes.ColonT, nodes.CaseT, nodes.DefaultT, nodes.RbraceT)
 	}
 
-	c.Colon = p.pos()
-	p.want(_Colon)
-	c.Body = p.stmtList(stmt)
+	c.Colon = p.Pos()
+	p.Want(nodes.ColonT)
+	c.Body = p.StmtList(stmt)
 
 	return c
 }
@@ -2317,70 +2329,85 @@ func (p *parser) commClause(stmt func() Stmt) *CommClause {
 //--------------------------------------------------------------------------------
 // Expressions
 //--------------------------------------------------------------------------------
-func (p *parser) expr() Expr {
+// ExpressionList = Expression { "," Expression } .
+func (p *parser) ExprList(inRhs bool) nodes.Expr {
+	if trace {
+		defer p.trace("exprList")("")
+	}
+
+	dynRhs := inRhs && p.dynamicBlock != ""
+	x := p.Expr()
+	if dynRhs {
+		x = &nodes.RhsExpr{X: x}
+	}
+	if p.Got(nodes.CommaT) {
+		y := p.Expr()
+		if dynRhs {
+			y = &nodes.RhsExpr{X: y}
+		}
+		list := []nodes.Expr{x, y}
+		for p.Got(nodes.CommaT) {
+			z := p.Expr()
+			if dynRhs {
+				z = &nodes.RhsExpr{X: z}
+			}
+			list = append(list, z)
+		}
+		t := new(nodes.ListExpr)
+		t.SetPos(x.Pos())
+		t.ElemList = list
+		x = t
+	}
+	return x
+}
+
+//--------------------------------------------------------------------------------
+func (p *parser) Expr() nodes.Expr {
 	if trace {
 		defer p.trace("expr")("")
 	}
 
-	return p.binaryExpr(0)
-}
-
-//--------------------------------------------------------------------------------
-// Arguments = "(" [ ( ExpressionList | Type [ "," ExpressionList ] ) [ "..." ] [ "," ] ] ")" .
-//func (p *parser) call(fun Expr) *CallExpr {
-func (p *parser) argList() (list []Expr, hasDots bool) {
-	if trace {
-		defer p.trace("argList")("")
-	}
-
-	p.xnest++
-	p.list(_Lparen, _Comma, _Rparen, func() bool {
-		list = append(list, p.expr())
-		hasDots = p.got(_DotDotDot)
-		return hasDots
-	})
-	p.xnest--
-	return
+	return p.BinaryExpr(0)
 }
 
 //--------------------------------------------------------------------------------
 // Expression = UnaryExpr | Expression binary_op Expression .
-func (p *parser) binaryExpr(prec int) Expr {
+func (p *parser) BinaryExpr(prec nodes.Prec) nodes.Expr {
 	// don't trace binaryExpr - only leads to overly nested trace output
-	x := p.unaryExpr()
-	for (p.tok == _Operator || p.tok == _Star) && p.prec > prec {
+	x := p.UnaryExpr()
+	for (p.tok == nodes.OperatorT || p.tok == nodes.StarT) && p.prec > prec {
 		op := p.op
 		binOp := dynBinOps[op]
 		if p.dynamicBlock == "" || binOp == "" {
-			t := new(Operation)
-			t.pos = p.pos()
+			t := new(nodes.Operation)
+			t.SetPos(p.Pos())
 			t.Op = p.op
 			t.X = x
 			tprec := p.prec
-			p.next()
-			t.Y = p.binaryExpr(tprec)
+			p.Next()
+			t.Y = p.BinaryExpr(tprec)
 			x = t
 		} else {
-			t := &CallExpr{
-				Fun: &SelectorExpr{
-					X:   &Name{Value: p.dynamicBlock},
-					Sel: &Name{Value: binOp},
+			t := &nodes.CallExpr{
+				Fun: &nodes.SelectorExpr{
+					X:   &nodes.Name{Value: p.dynamicBlock},
+					Sel: &nodes.Name{Value: binOp},
 				},
-				ArgList: []Expr{x},
+				ArgList: []nodes.Expr{x},
 			}
-			t.pos = p.pos()
-			_ = p.procImportAlias(&BasicLit{Value: dynLib, Kind: StringLit}, p.dynamicBlock)
+			t.SetPos(p.Pos())
+			_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock)
 			tprec := p.prec
-			p.next()
-			expr := p.binaryExpr(tprec)
-			if op == AndAnd || op == OrOr {
-				expr = &FuncLit{
-					Type: &FuncType{
-						ParamList:  []*Field{},
-						ResultList: []*Field{&Field{Type: &InterfaceType{MethodList: []*Field{}}}},
+			p.Next()
+			expr := p.BinaryExpr(tprec)
+			if op == nodes.AndAnd || op == nodes.OrOr {
+				expr = &nodes.FuncLit{
+					Type: &nodes.FuncType{
+						ParamList:  []*nodes.Field{},
+						ResultList: []*nodes.Field{&nodes.Field{Type: &nodes.InterfaceType{MethodList: []*nodes.Field{}}}},
 					},
-					Body: &BlockStmt{
-						List: []Stmt{&ReturnStmt{Results: expr}},
+					Body: &nodes.BlockStmt{
+						List: []nodes.Stmt{&nodes.ReturnStmt{Results: expr}},
 					},
 				}
 			}
@@ -2391,92 +2418,88 @@ func (p *parser) binaryExpr(prec int) Expr {
 	return x
 }
 
-var dynBinOps = map[Operator]string{
-	Add:    "Plus",             // +
-	Sub:    "Minus",            // -
-	Or:     "Alt",              // |
-	Xor:    "Xor",              // ^
-	Mul:    "Mult",             // *
-	Div:    "Divide",           // /
-	Rem:    "Mod",              // %
-	And:    "Seq",              // &
-	AndNot: "SeqXor",           // &^
-	Shl:    "LeftShift",        // <<
-	Shr:    "RightShift",       // >>
-	Eql:    "IsEqual",          // ==
-	Neq:    "IsNotEqual",       // !=
-	Lss:    "IsLessThan",       // <
-	Leq:    "IsLessOrEqual",    // <=
-	Gtr:    "IsGreaterThan",    // >
-	Geq:    "IsGreaterOrEqual", // >=
-	AndAnd: "And",              // &&
-	OrOr:   "Or",               // ||
+var dynBinOps = map[nodes.Operator]string{
+	nodes.Mul:    "Mult",             // * //multiplicative prec
+	nodes.Div:    "Divide",           // /
+	nodes.Rem:    "Mod",              // %
+	nodes.And:    "Seq",              // &
+	nodes.AndNot: "SeqXor",           // &^
+	nodes.Shl:    "LeftShift",        // <<
+	nodes.Shr:    "RightShift",       // >>
+	nodes.LftAnd: "LeftAnd",          // <&
+	nodes.AndRgt: "RightAnd",         // &>
+	nodes.Add:    "Plus",             // + //additive prec
+	nodes.Sub:    "Minus",            // -
+	nodes.Or:     "Alt",              // |
+	nodes.Xor:    "Xor",              // ^
+	nodes.Eql:    "IsEqual",          // == //comparative prec
+	nodes.Neq:    "IsNotEqual",       // !=
+	nodes.Lss:    "IsLessThan",       // <
+	nodes.Leq:    "IsLessOrEqual",    // <=
+	nodes.Gtr:    "IsGreaterThan",    // >
+	nodes.Geq:    "IsGreaterOrEqual", // >=
+	nodes.AndAnd: "And",              // && //boolean precs
+	nodes.OrOr:   "Or",               // ||
 }
 
-var dynUnaryOps = map[Operator]string{
-	Add: "Identity", // +
-	Sub: "Negate",   // -
-	Not: "Not",      // !
-	//Xor: "", // ^
-}
-
-//TODO: "Matcher", "Finder", "FindAll", "FindFirst", "RegexRepeat", "Group", "Parenthesize"
+//TODO: "Matcher", "FindAll", "FindFirst", "Group", "Parenthesize"
 
 //--------------------------------------------------------------------------------
 // UnaryExpr = PrimaryExpr | unary_op UnaryExpr .
-func (p *parser) unaryExpr() Expr {
+func (p *parser) UnaryExpr() nodes.Expr {
 	if trace {
 		defer p.trace("unaryExpr")("")
 	}
 
 	switch p.tok {
-	case _Operator, _Star:
+	case nodes.OperatorT, nodes.StarT:
 		switch p.op {
-		case Mul, Add, Sub, Not, Xor:
+		//nodes.Or used as the dynamic unary "reflect" operator...
+		case nodes.Mul, nodes.Add, nodes.Sub, nodes.Not, nodes.Xor, nodes.Or:
 			unaryOp := dynUnaryOps[p.op]
 			if p.dynamicBlock == "" || unaryOp == "" {
-				x := new(Operation)
-				x.pos = p.pos()
+				x := new(nodes.Operation)
+				x.SetPos(p.Pos())
 				x.Op = p.op
-				p.next()
-				x.X = p.unaryExpr()
+				p.Next()
+				x.X = p.UnaryExpr()
 				return x
 			} else {
-				t := &CallExpr{
-					Fun: &SelectorExpr{
-						X:   &Name{Value: p.dynamicBlock},
-						Sel: &Name{Value: unaryOp},
+				t := &nodes.CallExpr{
+					Fun: &nodes.SelectorExpr{
+						X:   &nodes.Name{Value: p.dynamicBlock},
+						Sel: &nodes.Name{Value: unaryOp},
 					},
-					ArgList: []Expr{},
+					ArgList: []nodes.Expr{},
 				}
-				t.pos = p.pos()
-				p.next()
-				t.ArgList = append(t.ArgList, p.unaryExpr())
-				_ = p.procImportAlias(&BasicLit{Value: dynLib, Kind: StringLit}, p.dynamicBlock)
+				t.SetPos(p.Pos())
+				p.Next()
+				t.ArgList = append(t.ArgList, p.UnaryExpr())
+				_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock)
 				return t
 			}
 
-		case And:
-			x := new(Operation)
-			x.pos = p.pos()
-			x.Op = And
-			p.next()
+		case nodes.And:
+			x := new(nodes.Operation)
+			x.SetPos(p.Pos())
+			x.Op = nodes.And
+			p.Next()
 			// unaryExpr may have returned a parenthesized composite literal
 			// (see comment in operand) - remove parentheses if any
-			x.X = unparen(p.unaryExpr())
+			x.X = unparen(p.UnaryExpr())
 			return x
 		}
 
-	case _Arrow:
+	case nodes.ArrowT:
 		// receive op (<-x) or receive-only channel (<-chan E)
-		pos := p.pos()
-		p.next()
+		pos := p.Pos()
+		p.Next()
 
 		// If the next token is _Chan we still don't know if it is
 		// a channel (<-chan int) or a receive op (<-chan int(ch)).
 		// We only know once we have found the end of the unaryExpr.
 
-		x := p.unaryExpr()
+		x := p.UnaryExpr()
 
 		// There are two cases:
 		//
@@ -2489,38 +2512,38 @@ func (p *parser) unaryExpr() Expr {
 		//   <-(chan E)   =>  (<-chan E)
 		//   <-(chan<-E)  =>  (<-chan (<-E))
 
-		if _, ok := x.(*ChanType); ok {
+		if _, ok := x.(*nodes.ChanType); ok {
 			// x is a channel type => re-associate <-
-			dir := SendOnly
+			dir := nodes.SendOnly
 			t := x
-			for dir == SendOnly {
-				c, ok := t.(*ChanType)
+			for dir == nodes.SendOnly {
+				c, ok := t.(*nodes.ChanType)
 				if !ok {
 					break
 				}
 				dir = c.Dir
-				if dir == RecvOnly {
+				if dir == nodes.RecvOnly {
 					// t is type <-chan E but <-<-chan E is not permitted
 					// (report same error as for "type _ <-<-chan E")
-					p.syntaxError("unexpected <-, expecting chan")
+					p.SyntaxError("unexpected <-, expecting chan")
 					// already progressed, no need to advance
 				}
-				c.Dir = RecvOnly
+				c.Dir = nodes.RecvOnly
 				t = c.Elem
 			}
-			if dir == SendOnly {
+			if dir == nodes.SendOnly {
 				// channel dir is <- but channel element E is not a channel
 				// (report same error as for "type _ <-chan<-E")
-				p.syntaxError(fmt.Sprintf("unexpected %s, expecting chan", String(t)))
+				p.SyntaxError(fmt.Sprintf("unexpected %s, expecting chan", String(t)))
 				// already progressed, no need to advance
 			}
 			return x
 		}
 
 		// x is not a channel type => we have a receive op
-		o := new(Operation)
-		o.pos = pos
-		o.Op = Recv
+		o := new(nodes.Operation)
+		o.SetPos(pos)
+		o.Op = nodes.Recv
 		o.X = x
 		return o
 	}
@@ -2528,133 +2551,15 @@ func (p *parser) unaryExpr() Expr {
 	// TODO(mdempsky): We need parens here so we can report an
 	// error for "(x) := true". It should be possible to detect
 	// and reject that more efficiently though.
-	return p.pexpr(true)
+	return p.PExpr(true)
 }
 
-//--------------------------------------------------------------------------------
-// Operand     = Literal | OperandName | MethodExpr | "(" Expression ")" .
-// Literal     = BasicLit | CompositeLit | FunctionLit .
-// BasicLit    = int_lit | float_lit | imaginary_lit | rune_lit | string_lit .
-// OperandName = identifier | QualifiedIdent.
-func (p *parser) operand(keep_parens bool) Expr {
-	if trace {
-		defer p.trace("operand " + p.tok.String())("")
-	}
-
-	switch p.tok {
-	case _Name:
-		return p.name()
-	case _Literal:
-		lit := p.oliteral()
-		if lit.Kind == StringLit && p.tok == _Dot {
-			if !p.permits["inplaceImps"] {
-				p.syntaxError("inplace-imports disabled but are present")
-				return nil
-			}
-			a := p.procImportAlias(lit, "")
-			lit.Value = a
-			return lit
-		}
-		if p.dynamicBlock != "" {
-			switch lit.Kind {
-			case StringLit:
-				t := &CallExpr{
-					Fun: &SelectorExpr{
-						X:   &Name{Value: "utf88"},
-						Sel: &Name{Value: "Desur"},
-					},
-					ArgList: []Expr{lit},
-				}
-				t.pos = p.pos()
-				_ = p.procImportAlias(&BasicLit{Value: utf88Lib, Kind: StringLit}, "utf88")
-				return t
-			case RuneLit:
-				t := &CallExpr{
-					Fun: &SelectorExpr{
-						X:   &Name{Value: p.dynamicBlock},
-						Sel: &Name{Value: "Runex"},
-					},
-					ArgList: []Expr{&BasicLit{Value: strconv.Quote(strings.Trim(lit.Value, "'")), Kind: StringLit}},
-				}
-				t.pos = p.pos()
-				_ = p.procImportAlias(&BasicLit{Value: dynLib, Kind: StringLit}, p.dynamicBlock)
-				return t
-			}
-		}
-		return lit
-
-	case _Lparen:
-		pos := p.pos()
-		p.next()
-		p.xnest++
-		x := p.expr()
-		p.xnest--
-		p.want(_Rparen)
-
-		// Optimization: Record presence of ()'s only where needed
-		// for error reporting. Don't bother in other cases; it is
-		// just a waste of memory and time.
-
-		// Parentheses are not permitted on lhs of := .
-		// switch x.Op {
-		// case ONAME, ONONAME, OPACK, OTYPE, OLITERAL, OTYPESW:
-		// 	keep_parens = true
-		// }
-
-		// Parentheses are not permitted around T in a composite
-		// literal T{}. If the next token is a {, assume x is a
-		// composite literal type T (it may not be, { could be
-		// the opening brace of a block, but we don't know yet).
-		if p.tok == _Lbrace {
-			keep_parens = true
-		}
-
-		// Parentheses are also not permitted around the expression
-		// in a go/defer statement. In that case, operand is called
-		// with keep_parens set.
-		if keep_parens {
-			px := new(ParenExpr)
-			px.pos = pos
-			px.X = x
-			x = px
-		}
-		return x
-
-	case _Func:
-		pos := p.pos()
-		p.next()
-		t := p.funcType()
-		if p.tok == _Lbrace {
-			p.xnest++
-
-			f := new(FuncLit)
-			f.pos = pos
-			f.Type = t
-			/*f.Body = p.blockStmt("", p.stmtOrNil)
-			if p.mode&CheckBranches != 0 {
-				checkBranches(f.Body, p.errh)
-			}*/
-			f.Body = p.funcBody(p.stmtOrNil)
-
-			p.xnest--
-			return f
-		}
-		return t
-
-	case _Lbrack, _Chan, _Map, _Struct, _Interface:
-		return p.type_() // othertype
-
-	default:
-		x := p.bad()
-		p.syntaxError("expecting expression")
-		p.advance()
-		return x
-	}
-
-	// Syntactically, composite literals are operands. Because a complit
-	// type may be a qualified identifier which is handled by pexpr
-	// (together with selector expressions), complits are parsed there
-	// as well (operand is only called from pexpr).
+var dynUnaryOps = map[nodes.Operator]string{
+	nodes.Add: "Identity",   // +
+	nodes.Sub: "Negate",     // -
+	nodes.Not: "Not",        // !
+	nodes.Xor: "Complement", // ^
+	nodes.Or:  "Reflect",    // |
 }
 
 //--------------------------------------------------------------------------------
@@ -2674,117 +2579,77 @@ func (p *parser) operand(keep_parens bool) Expr {
 //                  "]" .
 // TypeAssertion  = "." "(" Type ")" .
 // Arguments      = "(" [ ( ExpressionList | Type [ "," ExpressionList ] ) [ "..." ] [ "," ] ] ")" .
-func (p *parser) pexpr(keep_parens bool) Expr {
+func (p *parser) PExpr(keep_parens bool) nodes.Expr {
 	if trace {
-		defer p.trace("pexpr")("")
+		defer p.trace("pExpr")("")
 	}
 
-	x := p.operand(keep_parens)
+	x := p.Operand(keep_parens)
 
 loop:
 	for {
-		pos := p.pos()
+		pos := p.Pos()
 		switch p.tok {
-		case _Dot:
-			p.next()
+		case nodes.DotT:
+			p.Next()
 			switch p.tok {
-			case _Name:
+			case nodes.NameT:
 				// pexpr '.' sym
-				t := new(SelectorExpr)
-				t.pos = pos
+				t := new(nodes.SelectorExpr)
+				t.SetPos(pos)
 				t.X = x
-				t.Sel = p.name()
+				t.Sel = p.Name()
 				x = t
 
-			case _Lparen:
-				p.next()
-				if p.got(_Type) {
-					t := new(TypeSwitchGuard)
-					t.pos = pos
+			case nodes.LparenT:
+				p.Next()
+				if p.Got(nodes.TypeT) {
+					t := new(nodes.TypeSwitchGuard)
+					t.SetPos(pos)
 					t.X = x
 					x = t
 				} else {
-					t := new(AssertExpr)
-					t.pos = pos
+					t := new(nodes.AssertExpr)
+					t.SetPos(pos)
 					t.X = x
-					t.Type = p.expr()
+					t.Type = p.Expr()
 					x = t
 				}
-				p.want(_Rparen)
+				p.Want(nodes.RparenT)
 
 			default:
-				p.syntaxError("expecting name or (")
-				p.advance(_Semi, _Rparen)
+				p.SyntaxError("expecting name or (")
+				p.Advance(nodes.SemiT, nodes.RparenT)
 			}
 
-		case _Lbrack:
-			p.next()
-			p.xnest++
-
-			var i Expr
-			if p.tok != _Colon {
-				i = p.expr()
-				if p.got(_Rbrack) {
-					// x[i]
-					t := new(IndexExpr)
-					t.pos = pos
-					t.X = x
-					t.Index = i
-					x = t
-					p.xnest--
-					break
-				}
+		case nodes.LbrackT:
+			if p.dynamicBlock == "" {
+				x = p.IndexExpr(x)
+			} else {
+				x = p.DynamicIndexing(x)
 			}
 
-			// x[i:...
-			t := new(SliceExpr)
-			t.pos = pos
-			t.X = x
-			t.Index[0] = i
-			p.want(_Colon)
-			if p.tok != _Colon && p.tok != _Rbrack {
-				// x[i:j...
-				t.Index[1] = p.expr()
-			}
-			if p.got(_Colon) {
-				t.Full = true
-				// x[i:j:...]
-				if t.Index[1] == nil {
-					p.error("middle index required in 3-index slice")
-				}
-				if p.tok != _Rbrack {
-					// x[i:j:k...
-					t.Index[2] = p.expr()
-				} else {
-					p.error("final index required in 3-index slice")
-				}
-			}
-			p.want(_Rbrack)
-
-			x = t
-			p.xnest--
-
-		case _Lparen:
+		case nodes.LparenT:
 			//x = p.call(x)
-			t := new(CallExpr)
-			t.pos = pos
+			t := new(nodes.CallExpr)
+			t.SetPos(pos)
 			t.Fun = x
-			t.ArgList, t.HasDots = p.argList()
+			t.ArgList, t.HasDots = p.ArgList()
 			x = t
 
-		case _Lbrace:
+		case nodes.LbraceT:
 			// operand may have returned a parenthesized complit
 			// type; accept it but complain if we have a complit
 			t := unparen(x)
 			// determine if '{' belongs to a composite literal or a block statement
 			complit_ok := false
 			switch t.(type) {
-			case *Name, *SelectorExpr:
+			case *nodes.Name, *nodes.SelectorExpr:
 				if p.xnest >= 0 {
 					// x is considered a composite literal type
 					complit_ok = true
 				}
-			case *ArrayType, *SliceType, *StructType, *MapType:
+			case *nodes.ArrayType, *nodes.SliceType, *nodes.StructType, *nodes.MapType:
 				// x is a comptype
 				complit_ok = true
 			}
@@ -2792,10 +2657,10 @@ loop:
 				break loop
 			}
 			if t != x {
-				p.syntaxError("cannot parenthesize type in composite literal")
+				p.SyntaxError("cannot parenthesize type in composite literal")
 				// already progressed, no need to advance
 			}
-			n := p.complitexpr()
+			n := p.CompLitExpr()
 			n.Type = x
 			x = n
 
@@ -2808,279 +2673,214 @@ loop:
 }
 
 //--------------------------------------------------------------------------------
-// Element = Expression | LiteralValue .
-func (p *parser) bare_complitexpr() Expr {
+// Operand     = Literal | OperandName | MethodExpr | "(" Expression ")" .
+// Literal     = BasicLit | CompositeLit | FunctionLit .
+// BasicLit    = int_lit | float_lit | imaginary_lit | rune_lit | string_lit .
+// OperandName = identifier | QualifiedIdent.
+func (p *parser) Operand(keep_parens bool) nodes.Expr {
 	if trace {
-		defer p.trace("bare_complitexpr")("")
+		defer p.trace("operand " + p.tok.String())("")
 	}
 
-	if p.tok == _Lbrace {
-		// '{' start_complit braced_keyval_list '}'
-		return p.complitexpr()
-	}
-
-	return p.expr()
-}
-
-//--------------------------------------------------------------------------------
-// LiteralValue = "{" [ ElementList [ "," ] ] "}" .
-func (p *parser) complitexpr() *CompositeLit {
-	if trace {
-		defer p.trace("complitexpr")("")
-	}
-
-	x := new(CompositeLit)
-	x.pos = p.pos()
-	p.xnest++
-	x.Rbrace = p.list(_Lbrace, _Comma, _Rbrace, func() bool {
-		// value
-		e := p.bare_complitexpr()
-		if p.tok == _Colon {
-			// key ':' value
-			l := new(KeyValueExpr)
-			l.pos = p.pos()
-			p.next()
-			l.Key = e
-			l.Value = p.bare_complitexpr()
-			e = l
-			x.NKeys++
-		}
-		x.ElemList = append(x.ElemList, e)
-		return false
-	})
-	p.xnest--
-	return x
-}
-
-//--------------------------------------------------------------------------------
-func (p *parser) bad() *BadExpr {
-	b := new(BadExpr)
-	b.pos = p.pos()
-	return b
-}
-
-//--------------------------------------------------------------------------------
-// Types
-//--------------------------------------------------------------------------------
-func (p *parser) type_() Expr {
-	if trace {
-		defer p.trace("type_")("")
-	}
-
-	typ := p.typeOrNil()
-	if typ == nil {
-		typ = p.bad()
-		p.syntaxError("expecting type")
-		p.advance()
-	}
-
-	return typ
-}
-
-//--------------------------------------------------------------------------------
-// typeOrNil is like type_ but it returns nil if there was no type
-// instead of reporting an error.
-//
-// Type     = TypeName | TypeLit | "(" Type ")" .
-// TypeName = identifier | QualifiedIdent .
-// TypeLit  = ArrayType | StructType | PointerType | FunctionType | InterfaceType |
-// 	      SliceType | MapType | Channel_Type .
-func (p *parser) typeOrNil() Expr {
-	if trace {
-		defer p.trace("typeOrNil")("")
-	}
-
-	pos := p.pos()
 	switch p.tok {
-	case _Star:
-		// ptrtype
-		p.next()
-		return newIndirect(pos, p.type_())
+	case nodes.NameT:
+		return p.Name()
+	case nodes.LiteralT:
+		lit := p.OLiteral()
+		if lit.Kind == nodes.StringLit && p.tok == nodes.DotT {
+			if !p.checkPermit("inplaceImps") {
+				p.Advance(nodes.SemiT)
+				return nil
+			}
+			a := p.ProcImportAlias(lit, "")
+			lit.Value = a
+			return lit
+		}
+		if p.dynamicBlock != "" {
+			switch lit.Kind {
+			case nodes.StringLit:
+				t := &nodes.CallExpr{
+					Fun: &nodes.SelectorExpr{
+						X:   &nodes.Name{Value: p.dynamicBlock},
+						Sel: &nodes.Name{Value: "MakeText"},
+					},
+					ArgList: []nodes.Expr{lit},
+				}
+				t.SetPos(p.Pos())
+				_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock)
+				return t
+			case nodes.RuneLit:
+				t := &nodes.CallExpr{
+					Fun: &nodes.SelectorExpr{
+						X:   &nodes.Name{Value: p.dynamicBlock},
+						Sel: &nodes.Name{Value: "Runex"},
+					},
+					ArgList: []nodes.Expr{&nodes.BasicLit{Value: strconv.Quote(strings.Trim(lit.Value, "'")), Kind: nodes.StringLit}},
+				}
+				t.SetPos(p.Pos())
+				_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock)
+				return t
+			case nodes.IntLit, nodes.FloatLit, nodes.ImagLit:
+				lit.Value = strings.Replace(lit.Value, "_", "", -1)
+				return lit
+			case nodes.DateLit:
+				lit.Value = strings.Replace(lit.Value, "_", "", -1)
+				vals := strings.Split(lit.Value, ".")
+				if len(vals) != 3 {
+					p.SyntaxError("invalid date format")
+				}
+				t := &nodes.CallExpr{
+					Fun: &nodes.SelectorExpr{
+						X:   &nodes.Name{Value: "time"},
+						Sel: &nodes.Name{Value: "Date"},
+					},
+					ArgList: []nodes.Expr{
+						&nodes.BasicLit{Value: vals[0], Kind: nodes.IntLit},
+						&nodes.BasicLit{Value: vals[1], Kind: nodes.IntLit},
+						&nodes.BasicLit{Value: vals[2], Kind: nodes.IntLit},
+						&nodes.BasicLit{Value: "0", Kind: nodes.IntLit},
+						&nodes.BasicLit{Value: "0", Kind: nodes.IntLit},
+						&nodes.BasicLit{Value: "0", Kind: nodes.IntLit},
+						&nodes.BasicLit{Value: "0", Kind: nodes.IntLit},
+						&nodes.SelectorExpr{
+							X:   &nodes.Name{Value: "time"},
+							Sel: &nodes.Name{Value: "UTC"},
+						},
+					},
+				}
+				t.SetPos(p.Pos())
+				_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock) //XXXX
+				_ = p.ProcImportAlias(&nodes.BasicLit{Value: "\"time\"", Kind: nodes.StringLit}, "time")
+				return t
+			}
+		}
+		return lit
 
-	case _Arrow:
-		// recvchantype
-		p.next()
-		p.want(_Chan)
-		t := new(ChanType)
-		t.pos = pos
-		t.Dir = RecvOnly
-		t.Elem = p.chanElem()
-		return t
-
-	case _Func:
-		// fntype
-		p.next()
-		return p.funcType()
-
-	case _Lbrack:
-		// '[' oexpr ']' ntype
-		// '[' _DotDotDot ']' ntype
-		p.next()
+	case nodes.LparenT:
+		pos := p.Pos()
+		p.Next()
 		p.xnest++
-		if p.got(_Rbrack) {
-			// []T
-			p.xnest--
-			t := new(SliceType)
-			t.pos = pos
-			t.Elem = p.type_()
-			return t
-		}
-
-		// [n]T
-		t := new(ArrayType)
-		t.pos = pos
-		if !p.got(_DotDotDot) {
-			t.Len = p.expr()
-		}
-		p.want(_Rbrack)
+		x := p.Expr()
 		p.xnest--
-		t.Elem = p.type_()
-		return t
+		p.Want(nodes.RparenT)
 
-	case _Chan:
-		// _Chan non_recvchantype
-		// _Chan _Comm ntype
-		p.next()
-		t := new(ChanType)
-		t.pos = pos
-		if p.got(_Arrow) {
-			t.Dir = SendOnly
+		// Optimization: Record presence of ()'s only where needed
+		// for error reporting. Don't bother in other cases; it is
+		// just a waste of memory and time.
+
+		// Parentheses are not permitted on lhs of := .
+		// switch x.Op {
+		// case ONAME, ONONAME, OPACK, OTYPE, OLITERAL, OTYPESW:
+		// 	keep_parens = true
+		// }
+
+		// Parentheses are not permitted around T in a composite
+		// literal T{}. If the next token is a {, assume x is a
+		// composite literal type T (it may not be, { could be
+		// the opening brace of a block, but we don't know yet).
+		if p.tok == nodes.LbraceT {
+			keep_parens = true
 		}
-		t.Elem = p.chanElem()
-		return t
 
-	case _Map:
-		// _Map '[' ntype ']' ntype
-		p.next()
-		p.want(_Lbrack)
-		t := new(MapType)
-		t.pos = pos
-		t.Key = p.type_()
-		p.want(_Rbrack)
-		t.Value = p.type_()
-		return t
+		// Parentheses are also not permitted around the expression
+		// in a go/defer statement. In that case, operand is called
+		// with keep_parens set.
+		if keep_parens {
+			px := new(nodes.ParenExpr)
+			px.SetPos(pos)
+			px.X = x
+			x = px
+		}
+		return x
 
-	case _Struct:
-		return p.structType()
-
-	case _Interface:
-		return p.interfaceType()
-
-	case _Name:
-		return p.dotname(p.name())
-
-	case _Lparen:
-		p.next()
-		t := p.type_()
-		p.want(_Rparen)
-		return t
-
-	case _Literal:
-		lit := p.oliteral()
-		if lit.Kind == StringLit {
-			a := p.procImportAlias(lit, "")
-			return p.dotname(&Name{Value: a})
-		} else {
+	case nodes.FuncT:
+		pos := p.Pos()
+		if !p.checkPermit("funcKw") {
+			p.Advance(nodes.SemiT)
 			return nil
 		}
-	}
+		p.Next()
+		if p.tok == nodes.LparenT {
+			t := p.FuncType()
+			if p.tok == nodes.LbraceT {
+				p.xnest++
 
-	return nil
-}
+				f := new(nodes.FuncLit)
+				f.SetPos(pos)
+				f.Type = t
+				/*f.Body = p.blockStmt("", p.stmtOrNil)
+				if p.mode&CheckBranches != 0 {
+					checkBranches(f.Body, p.errh)
+				}*/
+				f.Body = p.FuncBody(p.StmtOrNil)
 
-//--------------------------------------------------------------------------------
-func (p *parser) funcType() *FuncType {
-	if trace {
-		defer p.trace("funcType")("")
-	}
+				p.xnest--
+				return f
+			}
+			return t
 
-	typ := new(FuncType)
-	typ.pos = p.pos()
-	typ.ParamList = p.paramList()
-	typ.ResultList = p.funcResult()
-
-	return typ
-}
-
-//--------------------------------------------------------------------------------
-func (p *parser) chanElem() Expr {
-	if trace {
-		defer p.trace("chanElem")("")
-	}
-
-	typ := p.typeOrNil()
-	if typ == nil {
-		typ = p.bad()
-		p.syntaxError("missing channel element type")
-		// assume element type is simply absent - don't advance
-	}
-
-	return typ
-}
-
-//--------------------------------------------------------------------------------
-func (p *parser) dotname(name *Name) Expr {
-	if trace {
-		defer p.trace("dotname")("")
-	}
-
-	if p.tok == _Dot {
-		s := new(SelectorExpr)
-		s.pos = p.pos()
-		p.next()
-		s.X = name
-		s.Sel = p.name()
-		return s
-	}
-	return name
-}
-
-//--------------------------------------------------------------------------------
-// StructType = "struct" "{" { FieldDecl ";" } "}" .
-func (p *parser) structType() *StructType {
-	if trace {
-		defer p.trace("structType")("")
-	}
-
-	typ := new(StructType)
-	typ.pos = p.pos()
-	p.want(_Struct)
-	p.list(_Lbrace, _Semi, _Rbrace, func() bool {
-		p.fieldDecl(typ)
-		return false
-	})
-	return typ
-}
-
-//--------------------------------------------------------------------------------
-// InterfaceType = "interface" "{" { MethodSpec ";" } "}" .
-func (p *parser) interfaceType() *InterfaceType {
-	if trace {
-		defer p.trace("interfaceType")("")
-	}
-
-	typ := new(InterfaceType)
-	typ.pos = p.pos()
-	p.want(_Interface)
-	p.list(_Lbrace, _Semi, _Rbrace, func() bool {
-		if m := p.methodDecl(); m != nil {
-			typ.MethodList = append(typ.MethodList, m)
+		} else if p.dynamicBlock != "" { //short-form function
+			t := &nodes.FuncType{
+				ParamList: []*nodes.Field{{
+					Name: &nodes.Name{Value: "groo_it"},
+					Type: &nodes.DotsType{Elem: &nodes.InterfaceType{MethodList: []*nodes.Field{}}},
+				}},
+				ResultList: []*nodes.Field{
+					{Type: &nodes.InterfaceType{MethodList: []*nodes.Field{}}},
+				},
+			}
+			t.SetPos(p.Pos())
+			if p.tok == nodes.LbraceT {
+				p.xnest++
+				f := new(nodes.FuncLit)
+				f.SetPos(pos)
+				f.Type = t
+				f.ShortForm = true
+				f.Body = p.FuncBody(p.StmtOrNil)
+				p.xnest--
+				if len(f.Body.List) > 0 {
+					lastStmt := f.Body.List[len(f.Body.List)-1]
+					switch lastStmt := lastStmt.(type) {
+					case *nodes.ExprStmt:
+						f.Body.List[len(f.Body.List)-1] = &nodes.ReturnStmt{Results: lastStmt.X}
+					//TODO: case nodes.LabeledStmt, etc
+					default:
+					}
+				}
+				return f
+			}
+			return t
+		} else {
+			p.SyntaxError("invalid func literal syntax")
+			return nil
 		}
-		return false
-	})
-	return typ
+
+	case nodes.LbrackT, nodes.ChanT, nodes.MapT, nodes.StructT, nodes.InterfaceT:
+		return p.Type() // othertype
+
+	default:
+		x := p.BadExpr()
+		p.SyntaxError("expecting expression")
+		p.Advance()
+		return x
+	}
+
+	// Syntactically, composite literals are operands. Because a complit
+	// type may be a qualified identifier which is handled by pexpr
+	// (together with selector expressions), complits are parsed there
+	// as well (operand is only called from pexpr).
 }
 
 //--------------------------------------------------------------------------------
 // FunctionBody = Block .
-func (p *parser) funcBody(stmt func() Stmt) *BlockStmt {
+func (p *parser) FuncBody(stmt func() nodes.Stmt) *nodes.BlockStmt {
 	if trace {
 		defer p.trace("funcBody")("")
 	}
 
 	p.fnest++
 	errcnt := p.errcnt
-	body := p.blockStmt("", stmt)
+	body := p.BlockStmt("", stmt)
 	p.fnest--
 	// Don't check branches if there were syntax errors in the function
 	// as it may lead to spurious errors (e.g., see test/switch2.go) or
@@ -3095,251 +2895,437 @@ func (p *parser) funcBody(stmt func() Stmt) *BlockStmt {
 }
 
 //--------------------------------------------------------------------------------
-// Result = Parameters | Type .
-func (p *parser) funcResult() []*Field {
+// Arguments = "(" [ ( ExpressionList | Type [ "," ExpressionList ] ) [ "..." ] [ "," ] ] ")" .
+//func (p *parser) call(fun Expr) *CallExpr {
+func (p *parser) ArgList() (list []nodes.Expr, hasDots bool) {
 	if trace {
-		defer p.trace("funcResult")("")
+		defer p.trace("argList")("")
 	}
 
-	if p.tok == _Lparen {
-		return p.paramList()
+	p.xnest++
+	p.List(nodes.LparenT, nodes.CommaT, nodes.RparenT, func() bool {
+		list = append(list, p.Expr())
+		hasDots = p.Got(nodes.DotDotDotT)
+		return hasDots
+	})
+	p.xnest--
+	return
+}
+
+//--------------------------------------------------------------------------------
+// LiteralValue = "{" [ ElementList [ "," ] ] "}" .
+func (p *parser) CompLitExpr() *nodes.CompositeLit {
+	if trace {
+		defer p.trace("compLitExpr")("")
 	}
 
-	pos := p.pos()
-	if typ := p.typeOrNil(); typ != nil {
-		f := new(Field)
-		f.pos = pos
-		f.Type = typ
-		return []*Field{f}
+	x := new(nodes.CompositeLit)
+	x.SetPos(p.Pos())
+	p.xnest++
+	x.Rbrace = p.List(nodes.LbraceT, nodes.CommaT, nodes.RbraceT, func() bool {
+		// value
+		e := p.BareCompLitExpr()
+		if p.tok == nodes.ColonT {
+			// key ':' value
+			l := new(nodes.KeyValueExpr)
+			l.SetPos(p.Pos())
+			p.Next()
+			l.Key = e
+			l.Value = p.BareCompLitExpr()
+			e = l
+			x.NKeys++
+		}
+		x.ElemList = append(x.ElemList, e)
+		return false
+	})
+	p.xnest--
+	return x
+}
+
+//--------------------------------------------------------------------------------
+// Element = Expression | LiteralValue .
+func (p *parser) BareCompLitExpr() nodes.Expr {
+	if trace {
+		defer p.trace("bareCompLitExpr")("")
+	}
+
+	if p.tok == nodes.LbraceT {
+		// '{' start_complit braced_keyval_list '}'
+		return p.CompLitExpr()
+	}
+
+	return p.Expr()
+}
+
+//--------------------------------------------------------------------------------
+func (p *parser) IndexExpr(x nodes.Expr) nodes.Expr {
+	pos := p.Pos()
+	p.Next()
+	p.xnest++
+
+	var i nodes.Expr
+	if p.tok != nodes.ColonT {
+		i = p.Expr()
+		if p.tok == nodes.RbrackT {
+			// x[i]
+			t := new(nodes.IndexExpr)
+			t.SetPos(pos)
+			t.X = x
+			t.Index = i
+			x = t
+			p.Want(nodes.RbrackT)
+			p.xnest--
+			return x
+		}
+	}
+
+	// x[i:...
+	t := new(nodes.SliceExpr)
+	t.SetPos(pos)
+	t.X = x
+	t.Index[0] = i
+	p.Want(nodes.ColonT)
+	if p.tok != nodes.ColonT && p.tok != nodes.RbrackT {
+		// x[i:j...
+		t.Index[1] = p.Expr()
+	}
+	if p.Got(nodes.ColonT) {
+		t.Full = true
+		// x[i:j:...]
+		if t.Index[1] == nil {
+			p.Error("middle index required in 3-index slice")
+		}
+		if p.tok != nodes.RbrackT {
+			// x[i:j:k...
+			t.Index[2] = p.Expr()
+		} else {
+			p.Error("final index required in 3-index slice")
+		}
+	}
+	x = t
+	p.Want(nodes.RbrackT)
+	p.xnest--
+	return x
+}
+
+//--------------------------------------------------------------------------------
+func (p *parser) DynamicIndexing(x nodes.Expr) nodes.Expr { //TODO: mustn't be lhs
+	pos := p.Pos()
+	p.Next()
+	p.xnest++
+
+	var i nodes.Expr
+	if p.tok != nodes.ColonT {
+		i = p.Expr()
+		if p.tok == nodes.RbrackT {
+			// x[i]
+			t := &nodes.ParenExpr{X: &nodes.Operation{ //work around bug in printer.go ?
+				Op: nodes.Mul,
+				X: &nodes.CallExpr{
+					Fun: &nodes.SelectorExpr{
+						X:   &nodes.Name{Value: p.dynamicBlock},
+						Sel: &nodes.Name{Value: "GetIndex"},
+					},
+					ArgList: []nodes.Expr{
+						&nodes.Operation{Op: nodes.And, X: x},
+						i,
+					},
+				}},
+			}
+			t.SetPos(pos)
+			x = t
+			_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock)
+
+			p.Want(nodes.RbrackT)
+			p.xnest--
+			return x
+		}
+	}
+
+	// x[i:...
+	p.Want(nodes.ColonT)
+	var j nodes.Expr
+	if p.tok != nodes.RbrackT {
+		// x[i:j...
+		j = p.Expr()
+	} else {
+		// x[i:...
+		j = &nodes.SelectorExpr{
+			X:   &nodes.Name{Value: p.dynamicBlock},
+			Sel: &nodes.Name{Value: "Inf"},
+		}
+	}
+	if p.Got(nodes.ColonT) {
+		p.Error("no more than 2 indexes can be used in a dynamic slice index")
+	}
+
+	t := &nodes.ParenExpr{
+		X: &nodes.Operation{ //work around bug in printer.go ?
+			Op: nodes.Mul,
+			X: &nodes.CallExpr{
+				Fun: &nodes.SelectorExpr{
+					X:   &nodes.Name{Value: p.dynamicBlock},
+					Sel: &nodes.Name{Value: "GetIndex"},
+				},
+				ArgList: []nodes.Expr{
+					&nodes.Operation{Op: nodes.And, X: x},
+					i,
+					j,
+				},
+			},
+		},
+	}
+	t.SetPos(pos)
+	x = t
+	p.Want(nodes.RbrackT)
+	p.xnest--
+	return x
+}
+
+//--------------------------------------------------------------------------------
+func (p *parser) BadExpr() *nodes.BadExpr {
+	b := new(nodes.BadExpr)
+	b.SetPos(p.Pos())
+	return b
+}
+
+//--------------------------------------------------------------------------------
+// Types
+//--------------------------------------------------------------------------------
+func (p *parser) Type() nodes.Expr {
+	if trace {
+		defer p.trace("type")("")
+	}
+
+	typ := p.TypeOrNil()
+	if typ == nil {
+		typ = p.BadExpr()
+		p.SyntaxError("expecting type")
+		p.Advance()
+	}
+
+	return typ
+}
+
+//--------------------------------------------------------------------------------
+// typeOrNil is like type_ but it returns nil if there was no type
+// instead of reporting an error.
+//
+// Type     = TypeName | TypeLit | "(" Type ")" .
+// TypeName = identifier | QualifiedIdent .
+// TypeLit  = ArrayType | StructType | PointerType | FunctionType | InterfaceType |
+// 	      SliceType | MapType | Channel_Type .
+func (p *parser) TypeOrNil() nodes.Expr {
+	if trace {
+		defer p.trace("typeOrNil")("")
+	}
+
+	pos := p.Pos()
+	switch p.tok {
+	case nodes.StarT:
+		// ptrtype
+		p.Next()
+		return newIndirect(pos, p.Type())
+
+	case nodes.ArrowT:
+		// recvchantype
+		p.Next()
+		p.Want(nodes.ChanT)
+		t := new(nodes.ChanType)
+		t.SetPos(pos)
+		t.Dir = nodes.RecvOnly
+		t.Elem = p.ChanElem()
+		return t
+
+	case nodes.FuncT:
+		// fntype
+		p.Next()
+		return p.FuncType()
+
+	case nodes.LbrackT:
+		// '[' oexpr ']' ntype
+		// '[' _DotDotDot ']' ntype
+		// and if dynamic mode, could be [m:n] or [:n] or [m:] or [:]
+		p.Next()
+		p.xnest++
+		if p.Got(nodes.RbrackT) {
+			// []T
+			p.xnest--
+			t := new(nodes.SliceType)
+			t.SetPos(pos)
+			if p.tok == nodes.LbraceT {
+				t.Elem = &nodes.Name{Value: "any"}
+			} else {
+				t.Elem = p.Type()
+			}
+			return t
+		}
+
+		// [n]T or [...]T
+		// or, in dynamic mode, [m:n] or [:n] or [m:] or [:]
+		var fromval nodes.Expr
+		if p.dynamicBlock != "" && p.Got(nodes.ColonT) {
+			//[:n] or [:]
+			fromval = &nodes.BasicLit{
+				Value: "0",
+				Kind:  nodes.IntLit,
+			}
+			var toval nodes.Expr
+			if p.Got(nodes.RbrackT) {
+				toval = &nodes.SelectorExpr{
+					X:   &nodes.Name{Value: p.dynamicBlock},
+					Sel: &nodes.Name{Value: "Inf"},
+				}
+			} else {
+				toval = p.Expr()
+				p.Want(nodes.RbrackT)
+			}
+			p.xnest--
+			t := &nodes.CallExpr{
+				Fun: &nodes.SelectorExpr{
+					X:   &nodes.Name{Value: p.dynamicBlock},
+					Sel: &nodes.Name{Value: "NewMapEntryOrPosIntRange"},
+				},
+				ArgList: []nodes.Expr{fromval, toval},
+			}
+			_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock)
+			return t
+		}
+		if !p.Got(nodes.DotDotDotT) {
+			fromval = p.Expr()
+			if p.dynamicBlock != "" {
+				//[m:] or [m:n]
+				p.Want(nodes.ColonT)
+				var toval nodes.Expr
+				if p.tok != nodes.RbrackT {
+					toval = p.Expr()
+				} else {
+					toval = &nodes.SelectorExpr{
+						X:   &nodes.Name{Value: p.dynamicBlock},
+						Sel: &nodes.Name{Value: "Inf"},
+					}
+				}
+				p.Want(nodes.RbrackT)
+				p.xnest--
+				t := &nodes.CallExpr{
+					Fun: &nodes.SelectorExpr{
+						X:   &nodes.Name{Value: p.dynamicBlock},
+						Sel: &nodes.Name{Value: "NewMapEntryOrPosIntRange"},
+					},
+					ArgList: []nodes.Expr{fromval, toval},
+				}
+				_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock)
+				return t
+			}
+		}
+		p.Want(nodes.RbrackT)
+		p.xnest--
+		t := new(nodes.ArrayType)
+		t.SetPos(pos)
+		t.Len = fromval
+		t.Elem = p.Type()
+		return t
+
+	case nodes.ChanT:
+		// _Chan non_recvchantype
+		// _Chan _Comm ntype
+		if !p.checkPermit("chanKw") {
+			return nil
+		}
+		p.Next()
+		t := new(nodes.ChanType)
+		t.SetPos(pos)
+		if p.Got(nodes.ArrowT) {
+			t.Dir = nodes.SendOnly
+		}
+		t.Elem = p.ChanElem()
+		return t
+
+	case nodes.MapT:
+		// _Map '[' ntype ']' ntype
+		if !p.checkPermit("mapKw") {
+			p.Advance(nodes.SemiT)
+			return nil
+		}
+		p.Next()
+		p.Want(nodes.LbrackT)
+		t := new(nodes.MapType)
+		t.SetPos(pos)
+		t.Key = p.Type()
+		p.Want(nodes.RbrackT)
+		t.Value = p.Type()
+		return t
+
+	case nodes.StructT:
+		return p.StructType()
+
+	case nodes.InterfaceT:
+		return p.InterfaceType()
+
+	case nodes.NameT:
+		return p.DotName(p.Name())
+
+	case nodes.LparenT:
+		p.Next()
+		t := p.Type()
+		p.Want(nodes.RparenT)
+		return t
+
+	case nodes.LiteralT:
+		lit := p.OLiteral()
+		if lit.Kind == nodes.StringLit {
+			a := p.ProcImportAlias(lit, "")
+			return p.DotName(&nodes.Name{Value: a})
+		} else {
+			return nil
+		}
 	}
 
 	return nil
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) addField(styp *StructType, pos src.Pos, name *Name, typ Expr, tag *BasicLit) {
-	if tag != nil {
-		for i := len(styp.FieldList) - len(styp.TagList); i > 0; i-- {
-			styp.TagList = append(styp.TagList, nil)
-		}
-		styp.TagList = append(styp.TagList, tag)
+func (p *parser) ChanElem() nodes.Expr {
+	if trace {
+		defer p.trace("chanElem")("")
 	}
 
-	f := new(Field)
-	f.pos = pos
-	f.Name = name
-	f.Type = typ
-	styp.FieldList = append(styp.FieldList, f)
-
-	if debug && tag != nil && len(styp.FieldList) != len(styp.TagList) {
-		panic("inconsistent struct field list")
+	typ := p.TypeOrNil()
+	if typ == nil {
+		typ = p.BadExpr()
+		p.SyntaxError("missing channel element type")
+		// assume element type is simply absent - don't advance
 	}
+
+	return typ
 }
 
 //--------------------------------------------------------------------------------
-// FieldDecl      = (IdentifierList Type | AnonymousField) [ Tag ] .
-// AnonymousField = [ "*" ] TypeName .
-// Tag            = string_lit .
-func (p *parser) fieldDecl(styp *StructType) {
+func (p *parser) FuncType() *nodes.FuncType {
 	if trace {
-		defer p.trace("fieldDecl")("")
+		defer p.trace("funcType")("")
 	}
 
-	pos := p.pos()
-	switch p.tok {
-	case _Name:
-		name := p.name()
-		if p.tok == _Dot || p.tok == _Literal || p.tok == _Semi || p.tok == _Rbrace {
-			// embed oliteral
-			typ := p.qualifiedName(name)
-			tag := p.oliteral()
-			p.addField(styp, pos, nil, typ, tag)
-			return
-		}
+	typ := new(nodes.FuncType)
+	typ.SetPos(p.Pos())
+	typ.ParamList = p.ParamList()
+	typ.ResultList = p.FuncResult()
 
-		// new_name_list ntype oliteral
-		names := p.nameList(name)
-		typ := p.type_()
-		tag := p.oliteral()
-
-		for _, name := range names {
-			p.addField(styp, name.Pos(), name, typ, tag)
-		}
-
-	case _Lparen:
-		p.next()
-		if p.tok == _Star {
-			// '(' '*' embed ')' oliteral
-			pos := p.pos()
-			p.next()
-			typ := newIndirect(pos, p.qualifiedName(nil))
-			p.want(_Rparen)
-			tag := p.oliteral()
-			p.addField(styp, pos, nil, typ, tag)
-			p.syntaxError("cannot parenthesize embedded type")
-
-		} else {
-			// '(' embed ')' oliteral
-			typ := p.qualifiedName(nil)
-			p.want(_Rparen)
-			tag := p.oliteral()
-			p.addField(styp, pos, nil, typ, tag)
-			p.syntaxError("cannot parenthesize embedded type")
-		}
-
-	case _Star:
-		p.next()
-		if p.got(_Lparen) {
-			// '*' '(' embed ')' oliteral
-			typ := newIndirect(pos, p.qualifiedName(nil))
-			p.want(_Rparen)
-			tag := p.oliteral()
-			p.addField(styp, pos, nil, typ, tag)
-			p.syntaxError("cannot parenthesize embedded type")
-
-		} else {
-			// '*' embed oliteral
-			typ := newIndirect(pos, p.qualifiedName(nil))
-			tag := p.oliteral()
-			p.addField(styp, pos, nil, typ, tag)
-		}
-
-	default:
-		p.syntaxError("expecting field name or embedded type")
-		p.advance(_Semi, _Rbrace)
-	}
-}
-
-//--------------------------------------------------------------------------------
-// MethodSpec        = MethodName Signature | InterfaceTypeName .
-// MethodName        = identifier .
-// InterfaceTypeName = TypeName .
-func (p *parser) methodDecl() *Field {
-	if trace {
-		defer p.trace("methodDecl")("")
-	}
-
-	switch p.tok {
-	case _Name:
-		name := p.name()
-
-		// accept potential name list but complain
-		hasNameList := false
-		for p.got(_Comma) {
-			p.name()
-			hasNameList = true
-		}
-		if hasNameList {
-			p.syntaxError("name list not allowed in interface type")
-			// already progressed, no need to advance
-		}
-
-		f := new(Field)
-		f.pos = name.Pos()
-		if p.tok != _Lparen {
-			// packname
-			f.Type = p.qualifiedName(name)
-			return f
-		}
-
-		f.Name = name
-		f.Type = p.funcType()
-		return f
-
-	case _Lparen:
-		p.syntaxError("cannot parenthesize embedded type")
-		f := new(Field)
-		f.pos = p.pos()
-		p.next()
-		f.Type = p.qualifiedName(nil)
-		p.want(_Rparen)
-		return f
-
-	default:
-		p.syntaxError("expecting method or interface name")
-		p.advance(_Semi, _Rbrace)
-		return nil
-	}
-}
-
-//--------------------------------------------------------------------------------
-// ParameterDecl = [ IdentifierList ] [ "..." ] Type .
-func (p *parser) paramDeclOrNil() *Field {
-	if trace {
-		defer p.trace("paramDecl")("")
-	}
-
-	f := new(Field)
-	f.pos = p.pos()
-
-	switch p.tok {
-	case _Name:
-		f.Name = p.name()
-		switch p.tok {
-		case _Name, _Star, _Arrow, _Func, _Lbrack, _Chan, _Map, _Struct, _Interface, _Lparen:
-			// sym name_or_type
-			f.Type = p.type_()
-
-		case _DotDotDot:
-			// sym dotdotdot
-			f.Type = p.dotsType()
-
-		case _Dot:
-			// name_or_type
-			// from dotname
-			f.Type = p.dotname(f.Name)
-			f.Name = nil
-		}
-
-	case _Arrow, _Star, _Func, _Lbrack, _Chan, _Map, _Struct, _Interface, _Lparen:
-		// name_or_type
-		f.Type = p.type_()
-
-	case _DotDotDot:
-		// dotdotdot
-		f.Type = p.dotsType()
-
-	default:
-		p.syntaxError("expecting )")
-		p.advance(_Comma, _Rparen)
-		return nil
-	}
-
-	return f
-}
-
-//--------------------------------------------------------------------------------
-// ...Type
-func (p *parser) dotsType() *DotsType {
-	if trace {
-		defer p.trace("dotsType")("")
-	}
-
-	t := new(DotsType)
-	t.pos = p.pos()
-
-	p.want(_DotDotDot)
-	t.Elem = p.typeOrNil()
-	if t.Elem == nil {
-		t.Elem = p.bad()
-		p.syntaxError("final argument in variadic function missing type")
-	}
-
-	return t
+	return typ
 }
 
 //--------------------------------------------------------------------------------
 // Parameters    = "(" [ ParameterList [ "," ] ] ")" .
 // ParameterList = ParameterDecl { "," ParameterDecl } .
-func (p *parser) paramList() (list []*Field) {
+func (p *parser) ParamList() (list []*nodes.Field) {
 	if trace {
 		defer p.trace("paramList")("")
 	}
 
-	pos := p.pos()
+	pos := p.Pos()
 	var named int // number of parameters that have an explicit name and type
-	p.list(_Lparen, _Comma, _Rparen, func() bool {
-		if par := p.paramDeclOrNil(); par != nil {
+	p.List(nodes.LparenT, nodes.CommaT, nodes.RparenT, func() bool {
+		if par := p.ParamDeclOrNil(); par != nil {
 			if debug && par.Name == nil && par.Type == nil {
 				panic("parameter without name or type")
 			}
@@ -3363,14 +3349,14 @@ func (p *parser) paramList() (list []*Field) {
 	} else if named != len(list) {
 		// some named => all must be named
 		ok := true
-		var typ Expr
+		var typ nodes.Expr
 		for i := len(list) - 1; i >= 0; i-- {
 			if par := list[i]; par.Type != nil {
 				typ = par.Type
 				if par.Name == nil {
 					ok = false
-					n := p.newName("_")
-					n.pos = typ.Pos() // correct position
+					n := p.NewName("_")
+					n.SetPos(typ.Pos()) // correct position
 					par.Name = n
 				}
 			} else if typ != nil {
@@ -3378,67 +3364,396 @@ func (p *parser) paramList() (list []*Field) {
 			} else {
 				// par.Type == nil && typ == nil => we only have a par.Name
 				ok = false
-				t := p.bad()
-				t.pos = par.Name.Pos() // correct position
+				t := p.BadExpr()
+				t.SetPos(par.Name.Pos()) // correct position
 				par.Type = t
 			}
 		}
 		if !ok {
-			p.syntaxErrorAt(pos, "mixed named and unnamed function parameters")
+			p.SyntaxErrorAt(pos, "mixed named and unnamed function parameters")
 		}
 	}
 
-	//p.want(_Rparen)
 	return
+}
+
+//--------------------------------------------------------------------------------
+// ParameterDecl = [ IdentifierList ] [ "..." ] Type .
+func (p *parser) ParamDeclOrNil() *nodes.Field {
+	if trace {
+		defer p.trace("paramDecl")("")
+	}
+
+	f := new(nodes.Field)
+	f.SetPos(p.Pos())
+
+	switch p.tok {
+	case nodes.NameT:
+		f.Name = p.Name()
+		switch p.tok {
+		case nodes.NameT, nodes.StarT, nodes.ArrowT, nodes.FuncT, nodes.LbrackT, nodes.ChanT, nodes.MapT, nodes.StructT, nodes.InterfaceT, nodes.LparenT:
+			// sym name_or_type
+			f.Type = p.Type()
+
+		case nodes.DotDotDotT:
+			// sym dotdotdot
+			f.Type = p.DotsType()
+
+		case nodes.DotT:
+			// name_or_type
+			// from dotname
+			f.Type = p.DotName(f.Name)
+			f.Name = nil
+		}
+
+	case nodes.ArrowT, nodes.StarT, nodes.FuncT, nodes.LbrackT, nodes.ChanT, nodes.MapT, nodes.StructT, nodes.InterfaceT, nodes.LparenT:
+		// name_or_type
+		f.Type = p.Type()
+
+	case nodes.DotDotDotT:
+		// dotdotdot
+		f.Type = p.DotsType()
+
+	default:
+		p.SyntaxError("expecting )")
+		p.Advance(nodes.CommaT, nodes.RparenT)
+		return nil
+	}
+
+	return f
+}
+
+//--------------------------------------------------------------------------------
+// ...Type
+func (p *parser) DotsType() *nodes.DotsType {
+	if trace {
+		defer p.trace("dotsType")("")
+	}
+
+	t := new(nodes.DotsType)
+	t.SetPos(p.Pos())
+
+	p.Want(nodes.DotDotDotT)
+	t.Elem = p.TypeOrNil()
+	if t.Elem == nil {
+		t.Elem = p.BadExpr()
+		p.SyntaxError("final argument in variadic function missing type")
+	}
+
+	return t
+}
+
+//--------------------------------------------------------------------------------
+func (p *parser) DotName(name *nodes.Name) nodes.Expr {
+	if trace {
+		defer p.trace("dotName")("")
+	}
+
+	if p.tok == nodes.DotT {
+		s := new(nodes.SelectorExpr)
+		s.SetPos(p.Pos())
+		p.Next()
+		s.X = name
+		s.Sel = p.Name()
+		return s
+	}
+	return name
+}
+
+//--------------------------------------------------------------------------------
+// Result = Parameters | Type .
+func (p *parser) FuncResult() []*nodes.Field {
+	if trace {
+		defer p.trace("funcResult")("")
+	}
+
+	if p.tok == nodes.LparenT {
+		return p.ParamList()
+	}
+
+	pos := p.Pos()
+	if typ := p.TypeOrNil(); typ != nil {
+		f := new(nodes.Field)
+		f.SetPos(pos)
+		f.Type = typ
+		return []*nodes.Field{f}
+	}
+
+	return nil
+}
+
+//--------------------------------------------------------------------------------
+// StructType = "struct" "{" { FieldDecl ";" } "}" .
+func (p *parser) StructType() *nodes.StructType {
+	if trace {
+		defer p.trace("structType")("")
+	}
+
+	typ := new(nodes.StructType)
+	typ.SetPos(p.Pos())
+	if !p.checkPermit("structKw") {
+		p.Advance(nodes.SemiT)
+		return nil
+	}
+	p.Want(nodes.StructT)
+	p.List(nodes.LbraceT, nodes.SemiT, nodes.RbraceT, func() bool {
+		p.FieldDecl(typ)
+		return false
+	})
+	return typ
+}
+
+//--------------------------------------------------------------------------------
+// FieldDecl      = (IdentifierList Type | AnonymousField) [ Tag ] .
+// AnonymousField = [ "*" ] TypeName .
+// Tag            = string_lit .
+func (p *parser) FieldDecl(styp *nodes.StructType) {
+	if trace {
+		defer p.trace("fieldDecl")("")
+	}
+
+	pos := p.Pos()
+	switch p.tok {
+	case nodes.NameT:
+		name := p.Name()
+		if p.tok == nodes.DotT || p.tok == nodes.LiteralT || p.tok == nodes.SemiT || p.tok == nodes.RbraceT {
+			// embed oliteral
+			typ := p.QualifiedName(name)
+			tag := p.OLiteral()
+			p.AddField(styp, pos, nil, typ, tag)
+			return
+		}
+
+		// new_name_list ntype oliteral
+		names := p.NameList(name)
+		typ := p.Type()
+		tag := p.OLiteral()
+
+		for _, name := range names {
+			p.AddField(styp, name.Pos(), name, typ, tag)
+		}
+
+	case nodes.LparenT:
+		p.Next()
+		if p.tok == nodes.StarT {
+			// '(' '*' embed ')' oliteral
+			pos := p.Pos()
+			p.Next()
+			typ := newIndirect(pos, p.QualifiedName(nil))
+			p.Want(nodes.RparenT)
+			tag := p.OLiteral()
+			p.AddField(styp, pos, nil, typ, tag)
+			p.SyntaxError("cannot parenthesize embedded type")
+
+		} else {
+			// '(' embed ')' oliteral
+			typ := p.QualifiedName(nil)
+			p.Want(nodes.RparenT)
+			tag := p.OLiteral()
+			p.AddField(styp, pos, nil, typ, tag)
+			p.SyntaxError("cannot parenthesize embedded type")
+		}
+
+	case nodes.StarT:
+		p.Next()
+		if p.Got(nodes.LparenT) {
+			// '*' '(' embed ')' oliteral
+			typ := newIndirect(pos, p.QualifiedName(nil))
+			p.Want(nodes.RparenT)
+			tag := p.OLiteral()
+			p.AddField(styp, pos, nil, typ, tag)
+			p.SyntaxError("cannot parenthesize embedded type")
+
+		} else {
+			// '*' embed oliteral
+			typ := newIndirect(pos, p.QualifiedName(nil))
+			tag := p.OLiteral()
+			p.AddField(styp, pos, nil, typ, tag)
+		}
+
+	default:
+		p.SyntaxError("expecting field name or embedded type")
+		p.Advance(nodes.SemiT, nodes.RbraceT)
+	}
+}
+
+//--------------------------------------------------------------------------------
+func (p *parser) AddField(styp *nodes.StructType, pos src.Pos, name *nodes.Name, typ nodes.Expr, tag *nodes.BasicLit) {
+	if tag != nil {
+		for i := len(styp.FieldList) - len(styp.TagList); i > 0; i-- {
+			styp.TagList = append(styp.TagList, nil)
+		}
+		styp.TagList = append(styp.TagList, tag)
+	}
+
+	f := new(nodes.Field)
+	f.SetPos(pos)
+	f.Name = name
+	f.Type = typ
+	styp.FieldList = append(styp.FieldList, f)
+
+	if debug && tag != nil && len(styp.FieldList) != len(styp.TagList) {
+		panic("inconsistent struct field list")
+	}
+}
+
+//--------------------------------------------------------------------------------
+// InterfaceType = "interface" "{" { MethodSpec ";" } "}" .
+func (p *parser) InterfaceType() *nodes.InterfaceType {
+	if trace {
+		defer p.trace("interfaceType")("")
+	}
+
+	if !p.checkPermit("interfaceKw") {
+		p.Advance(nodes.SemiT)
+		return nil
+	}
+	typ := new(nodes.InterfaceType)
+	typ.SetPos(p.Pos())
+	p.Want(nodes.InterfaceT)
+	p.List(nodes.LbraceT, nodes.SemiT, nodes.RbraceT, func() bool {
+		if m := p.MethodDecl(); m != nil {
+			typ.MethodList = append(typ.MethodList, m)
+		}
+		return false
+	})
+	return typ
+}
+
+//--------------------------------------------------------------------------------
+// MethodSpec        = MethodName Signature | InterfaceTypeName .
+// MethodName        = identifier .
+// InterfaceTypeName = TypeName .
+func (p *parser) MethodDecl() *nodes.Field {
+	if trace {
+		defer p.trace("methodDecl")("")
+	}
+
+	switch p.tok {
+	case nodes.NameT:
+		name := p.Name()
+
+		// accept potential name list but complain
+		hasNameList := false
+		for p.Got(nodes.CommaT) {
+			p.Name()
+			hasNameList = true
+		}
+		if hasNameList {
+			p.SyntaxError("name list not allowed in interface type")
+			// already progressed, no need to advance
+		}
+
+		f := new(nodes.Field)
+		f.SetPos(name.Pos())
+		if p.tok != nodes.LparenT {
+			// packname
+			f.Type = p.QualifiedName(name)
+			return f
+		}
+
+		f.Name = name
+		f.Type = p.FuncType()
+		return f
+
+	case nodes.LparenT:
+		p.SyntaxError("cannot parenthesize embedded type")
+		f := new(nodes.Field)
+		f.SetPos(p.Pos())
+		p.Next()
+		f.Type = p.QualifiedName(nil)
+		p.Want(nodes.RparenT)
+		return f
+
+	default:
+		p.SyntaxError("expecting method or interface name")
+		p.Advance(nodes.SemiT, nodes.RbraceT)
+		return nil
+	}
 }
 
 //--------------------------------------------------------------------------------
 // Common productions
 //--------------------------------------------------------------------------------
-func (p *parser) got(tok token) bool {
+// list parses a possibly empty, sep-separated list, optionally
+// followed by sep and enclosed by ( and ) or { and }. open is
+// one of _Lparen, or _Lbrace, sep is one of _Comma or _Semi,
+// and close is expected to be the (closing) opposite of open.
+// For each list element, f is called. After f returns true, no
+// more list elements are accepted. list returns the position
+// of the closing token.
+//
+// list = "(" { f sep } ")" |
+//        "{" { f sep } "}" . // sep is optional before ")" or "}"
+//
+func (p *parser) List(open, sep, close nodes.Token, f func() bool) src.Pos {
+	p.Want(open)
+
+	var done bool
+	for p.tok != nodes.EofT && p.tok != close && !done {
+		done = f()
+
+		// sep is optional before close
+		if !p.Got(sep) && p.tok != close {
+			p.SyntaxError(fmt.Sprintf("expecting %s or %s", tokstring(sep), tokstring(close)))
+			p.Advance(nodes.RparenT, nodes.RbrackT, nodes.RbraceT)
+			if p.tok != close {
+				return p.Pos()
+				// position could be better but we had an error so we don't care
+			}
+		}
+	}
+
+	pos := p.Pos()
+	p.Want(close)
+	return pos
+}
+
+//--------------------------------------------------------------------------------
+func (p *parser) Got(tok nodes.Token) bool {
 	if p.tok == tok {
-		p.next()
+		p.Next()
 		return true
 	}
 	return false
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) want(tok token) {
-	if !p.got(tok) {
-		p.syntaxError("expecting " + tokstring(tok))
-		p.advance()
+func (p *parser) Want(tok nodes.Token) {
+	if !p.Got(tok) {
+		p.SyntaxError("expecting " + tokstring(tok))
+		p.Advance()
 	}
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) newName(value string) *Name {
-	n := new(Name)
-	n.pos = p.pos()
+func (p *parser) NewName(value string) *nodes.Name {
+	n := new(nodes.Name)
+	n.SetPos(p.Pos())
 	n.Value = value
 	return n
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) name() *Name {
+func (p *parser) Name() *nodes.Name {
 	// no tracing to avoid overly verbose output
 
-	if p.tok == _Name {
-		n := p.newName(p.lit)
-		p.next()
+	if p.tok == nodes.NameT {
+		n := p.NewName(p.lit)
+		p.Next()
 		return n
 	}
 
-	n := p.newName("_")
-	p.syntaxError("expecting name")
-	p.advance()
+	n := p.NewName("_")
+	p.SyntaxError("expecting name")
+	p.Advance()
 	return n
 }
 
 //--------------------------------------------------------------------------------
 // IdentifierList = identifier { "," identifier } .
 // The first name must be provided.
-func (p *parser) nameList(first *Name) []*Name {
+func (p *parser) NameList(first *nodes.Name) []*nodes.Name {
 	if trace {
 		defer p.trace("nameList")("")
 	}
@@ -3447,9 +3762,9 @@ func (p *parser) nameList(first *Name) []*Name {
 		panic("first name not provided")
 	}
 
-	l := []*Name{first}
-	for p.got(_Comma) {
-		l = append(l, p.name())
+	l := []*nodes.Name{first}
+	for p.Got(nodes.CommaT) {
+		l = append(l, p.Name())
 	}
 
 	return l
@@ -3457,7 +3772,7 @@ func (p *parser) nameList(first *Name) []*Name {
 
 //--------------------------------------------------------------------------------
 // The first name may be provided, or nil.
-func (p *parser) qualifiedName(name *Name) Expr {
+func (p *parser) QualifiedName(name *nodes.Name) nodes.Expr {
 	if trace {
 		defer p.trace("qualifiedName")("")
 	}
@@ -3465,62 +3780,88 @@ func (p *parser) qualifiedName(name *Name) Expr {
 	switch {
 	case name != nil:
 		// name is provided
-	case p.tok == _Name:
-		name = p.name()
+	case p.tok == nodes.NameT:
+		name = p.Name()
 	default:
-		name = p.newName("_")
-		p.syntaxError("expecting name")
-		p.advance(_Dot, _Semi, _Rbrace)
+		name = p.NewName("_")
+		p.SyntaxError("expecting name")
+		p.Advance(nodes.DotT, nodes.SemiT, nodes.RbraceT)
 	}
 
-	return p.dotname(name)
+	return p.DotName(name)
 }
 
 //--------------------------------------------------------------------------------
-// ExpressionList = Expression { "," Expression } .
-func (p *parser) exprList() Expr {
-	if trace {
-		defer p.trace("exprList")("")
-	}
-
-	x := p.expr()
-	if p.got(_Comma) {
-		list := []Expr{x, p.expr()}
-		for p.got(_Comma) {
-			list = append(list, p.expr())
-		}
-		t := new(ListExpr)
-		t.pos = x.Pos()
-		t.ElemList = list
-		x = t
-	}
-	return x
-}
-
-//--------------------------------------------------------------------------------
-func (p *parser) oliteral() *BasicLit {
-	if p.tok == _Literal {
-		b := new(BasicLit)
-		b.pos = p.pos()
+func (p *parser) OLiteral() *nodes.BasicLit {
+	if p.tok == nodes.LiteralT {
+		b := new(nodes.BasicLit)
+		b.SetPos(p.Pos())
 		b.Value = p.lit
 		b.Kind = p.kind
-		p.next()
+		p.Next()
 		return b
 	}
 	return nil
 }
 
 //--------------------------------------------------------------------------------
+func (p *parser) IsName(ss ...string) bool {
+	for _, s := range ss {
+		if p.tok == nodes.NameT && p.lit == s {
+			return true
+		}
+	}
+	return false
+}
+
+//--------------------------------------------------------------------------------
+func (p *parser) NewBlankFunc(s string) *nodes.FuncDecl {
+	fn := &nodes.FuncDecl{
+		Name: p.NewName(s),
+		Type: &nodes.FuncType{
+			ParamList:  []*nodes.Field{},
+			ResultList: nil,
+		},
+		Body: &nodes.BlockStmt{
+			List:   []nodes.Stmt{},
+			Rbrace: p.Pos(),
+		},
+	}
+	fn.SetPos(p.Pos())
+	fn.Type.SetPos(p.Pos())
+	fn.Body.SetPos(p.Pos())
+	return fn
+}
+
+//--------------------------------------------------------------------------------
+func (p *parser) NewBlankFuncLit() *nodes.FuncLit {
+	fn := &nodes.FuncLit{
+		Type: &nodes.FuncType{
+			ParamList:  []*nodes.Field{},
+			ResultList: nil,
+		},
+		Body: &nodes.BlockStmt{
+			List:   []nodes.Stmt{},
+			Rbrace: p.Pos(),
+		},
+	}
+	fn.SetPos(p.Pos())
+	fn.Type.SetPos(p.Pos())
+	fn.Body.SetPos(p.Pos())
+	return fn
+}
+
+//--------------------------------------------------------------------------------
 // Error handling
 //--------------------------------------------------------------------------------
 // posAt returns the Pos value for (line, col) and the current position base.
-func (p *parser) posAt(line, col uint) src.Pos {
+func (p *parser) PosAt(line, col uint) src.Pos {
 	return src.MakePos(p.base, line, col)
 }
 
 //--------------------------------------------------------------------------------
 // error reports an error at the given position.
-func (p *parser) errorAt(pos src.Pos, msg string) {
+func (p *parser) ErrorAt(pos src.Pos, msg string) {
 	err := Error{pos, msg}
 	if p.first == nil {
 		p.first = err
@@ -3534,13 +3875,13 @@ func (p *parser) errorAt(pos src.Pos, msg string) {
 
 //--------------------------------------------------------------------------------
 // syntax_error_at reports a syntax error at the given position.
-func (p *parser) syntaxErrorAt(pos src.Pos, msg string) {
+func (p *parser) SyntaxErrorAt(pos src.Pos, msg string) {
 	if trace {
 		defer p.trace("syntaxError (" + msg + ")")("")
 		//p.print("syntax error: " + msg)
 	}
 
-	if p.tok == _EOF && p.first != nil {
+	if p.tok == nodes.EofT && p.first != nil {
 		return // avoid meaningless follow-up errors
 	}
 
@@ -3554,69 +3895,69 @@ func (p *parser) syntaxErrorAt(pos src.Pos, msg string) {
 		msg = ", " + msg
 	default:
 		// plain error - we don't care about current token
-		p.errorAt(pos, "syntax error: "+msg)
+		p.ErrorAt(pos, "syntax error: "+msg)
 		return
 	}
 
 	// determine token string
 	var tok string
 	switch p.tok {
-	case _Name, _Semi:
+	case nodes.NameT, nodes.SemiT:
 		tok = p.lit
-	case _Literal:
+	case nodes.LiteralT:
 		tok = "literal " + p.lit
-	case _Operator:
+	case nodes.OperatorT:
 		tok = p.op.String()
-	case _AssignOp:
+	case nodes.AssignOpT:
 		tok = p.op.String() + "="
-	case _IncOp:
+	case nodes.IncOpT:
 		tok = p.op.String()
 		tok += tok
 	default:
 		tok = tokstring(p.tok)
 	}
 
-	p.errorAt(pos, "syntax error: unexpected "+tok+msg)
+	p.ErrorAt(pos, "syntax error: unexpected "+tok+msg)
 }
 
 //--------------------------------------------------------------------------------
 // Convenience methods using the current token position.
-func (p *parser) pos() src.Pos           { return p.posAt(p.line, p.col) }
-func (p *parser) error(msg string)       { p.errorAt(p.pos(), msg) }
-func (p *parser) syntaxError(msg string) { p.syntaxErrorAt(p.pos(), msg) }
+func (p *parser) Pos() src.Pos           { return p.PosAt(p.line, p.col) }
+func (p *parser) Error(msg string)       { p.ErrorAt(p.Pos(), msg) }
+func (p *parser) SyntaxError(msg string) { p.SyntaxErrorAt(p.Pos(), msg) }
 
 // The stopset contains keywords that start a statement.
 // They are good synchronization points in case of syntax
 // errors and (usually) shouldn't be skipped over.
-const stopset uint64 = 1<<_Break |
-	1<<_Const |
-	1<<_Continue |
-	1<<_Defer |
-	1<<_Fallthrough |
-	1<<_For |
+const stopset uint64 = 1<<nodes.BreakT |
+	1<<nodes.ConstT |
+	1<<nodes.ContinueT |
+	1<<nodes.DeferT |
+	1<<nodes.FallthroughT |
+	1<<nodes.ForT |
 	//1<<_Func |
-	1<<_Go |
-	1<<_Goto |
-	1<<_If |
-	1<<_Return |
-	1<<_Select |
-	1<<_Switch |
-	1<<_Type |
-	1<<_Var
+	1<<nodes.GoT |
+	1<<nodes.GotoT |
+	1<<nodes.IfT |
+	1<<nodes.ReturnT |
+	1<<nodes.SelectT |
+	1<<nodes.SwitchT |
+	1<<nodes.TypeT |
+	1<<nodes.VarT
 
 //--------------------------------------------------------------------------------
 // Advance consumes tokens until it finds a token of the stopset or followlist.
 // The stopset is only considered if we are inside a function (p.fnest > 0).
 // The followlist is the list of valid tokens that can follow a production;
 // if it is empty, exactly one (non-EOF) token is consumed to ensure progress.
-func (p *parser) advance(followlist ...token) {
+func (p *parser) Advance(followlist ...nodes.Token) {
 	if trace {
 		p.print(fmt.Sprintf("advance %s", followlist))
 	}
 
 	// compute follow set
 	// (not speed critical, advance is only called in error situations)
-	var followset uint64 = 1 << _EOF // don't skip over EOF
+	var followset uint64 = 1 << nodes.EofT // don't skip over EOF
 	if len(followlist) > 0 {
 		if p.fnest > 0 {
 			followset |= stopset
@@ -3626,11 +3967,11 @@ func (p *parser) advance(followlist ...token) {
 		}
 	}
 
-	for !contains(followset, p.tok) {
+	for !nodes.Contains(followset, p.tok) {
 		if trace {
 			p.print("skip " + p.tok.String())
 		}
-		p.next()
+		p.Next()
 		if len(followlist) == 0 {
 			break
 		}
@@ -3680,52 +4021,42 @@ func (p *parser) tag(msg string, args ...interface{}) {
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) isName(ss ...string) bool {
-	for _, s := range ss {
-		if p.tok == _Name && p.lit == s {
-			return true
-		}
-	}
-	return false
-}
-
-//--------------------------------------------------------------------------------
 // functions not attached to parser
 //--------------------------------------------------------------------------------
 // tokstring returns the English word for selected punctuation tokens
 // for more readable error messages.
-func tokstring(tok token) string {
+func tokstring(tok nodes.Token) string {
 	switch tok {
 	//case _EOF:
 	//return "EOF"
-	case _Comma:
+	case nodes.CommaT:
 		return "comma"
-	case _Semi:
+	case nodes.SemiT:
 		return "semicolon"
 	}
 	return tok.String()
 }
 
 //--------------------------------------------------------------------------------
-func isEmptyFuncDecl(dcl Decl) bool {
-	f, ok := dcl.(*FuncDecl)
+func isEmptyFuncDecl(dcl nodes.Decl) bool {
+	f, ok := dcl.(*nodes.FuncDecl)
 	return ok && f.Body == nil
 }
 
 //--------------------------------------------------------------------------------
-func newIndirect(pos src.Pos, typ Expr) Expr {
-	o := new(Operation)
-	o.pos = pos
-	o.Op = Mul
+func newIndirect(pos src.Pos, typ nodes.Expr) nodes.Expr {
+	o := new(nodes.Operation)
+	o.SetPos(pos)
+	o.Op = nodes.Mul
 	o.X = typ
 	return o
 }
 
 //--------------------------------------------------------------------------------
 // unparen removes all parentheses around an expression.
-func unparen(x Expr) Expr {
+func unparen(x nodes.Expr) nodes.Expr {
 	for {
-		p, ok := x.(*ParenExpr)
+		p, ok := x.(*nodes.ParenExpr)
 		if !ok {
 			break
 		}

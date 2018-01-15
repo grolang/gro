@@ -5,9 +5,10 @@
 package utf88_test
 
 import (
-	u8 "github.com/grolang/gro/utf88"
 	"reflect"
 	"testing"
+
+	u8 "github.com/grolang/gro/utf88"
 )
 
 var surPointTests = []struct {
@@ -397,7 +398,7 @@ func TestValidRunes(t *testing.T) {
 		rs := u8.ValidRunes(tt.rs)
 		b := tt.b
 		if rs != b {
-			t.Errorf("%d: %#x != %#x", i, rs, b)
+			t.Errorf("%d: %#x != %t", i, rs, b)
 		}
 	}
 }
@@ -407,7 +408,7 @@ func TestValidBytes(t *testing.T) {
 		bi := u8.ValidBytes(tt.in)
 		bo := tt.valid
 		if bi != bo {
-			t.Errorf("%d: %#x != %#x", i, bi, bo)
+			t.Errorf("%d: %#x != %t", i, bi, bo)
 		}
 	}
 }
@@ -475,7 +476,7 @@ func TestValidForSurrogation(t *testing.T) {
 		bi := u8.ValidForSurrogation(tt.in)
 		bo := tt.valid
 		if bi != bo {
-			t.Errorf("%d: %#b != %#b", i, bi, bo)
+			t.Errorf("%d: %t != %t", i, bi, bo)
 		}
 	}
 }
@@ -485,7 +486,7 @@ func TestValidForEncoding(t *testing.T) {
 		bi := u8.ValidForEncoding(tt.in)
 		bo := tt.validBytes
 		if bi != bo {
-			t.Errorf("%d: %#b != %#b", i, bi, bo)
+			t.Errorf("%d: %t != %t", i, bi, bo)
 		}
 	}
 }

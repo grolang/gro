@@ -17,13 +17,15 @@ import (
 	"io"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/grolang/gro/nodes"
 )
 
 //--------------------------------------------------------------------------------
 func init() {
 	// populate keywordMap
-	for tok := _Break; tok <= _Var; tok++ {
-		h := hash([]byte(tokstrings[tok]))
+	for tok := nodes.BreakT; tok <= nodes.VarT; tok++ {
+		h := hash([]byte(nodes.Tokstrings[tok]))
 		if keywordMap[h] != 0 {
 			panic("imperfect hash")
 		}
@@ -56,18 +58,19 @@ type scanner struct {
 
 	// current token, valid after calling next()
 	line, col uint
-	tok       token
-	lit       string   // valid if tok is _Name, _Literal, or _Semi ("semicolon", "newline", or "EOF")
-	kind      LitKind  // valid if tok is _Literal
-	op        Operator // valid if tok is _Operator, _AssignOp, or _IncOp
-	prec      int      // valid if tok is _Operator, _AssignOp, or _IncOp
+	tok       nodes.Token
+	lit       string         // valid if tok is _Name, _Literal, or _Semi ("semicolon", "newline", or "EOF")
+	kind      nodes.LitKind  // valid if tok is _Literal
+	op        nodes.Operator // valid if tok is _Operator, _AssignOp, or _IncOp
+	prec      nodes.Prec     // valid if tok is _Operator, _AssignOp, or _IncOp
 
-	comments       []string
-	numDocComments int
-	dynamicMode    bool
+	commentGroups [][]string
+	comments      []string
+	dynamicMode   bool
+	dynCharSet    string
 }
 
-var keywordMap [1 << 6]token // size must be power of two
+var keywordMap [1 << 6]nodes.Token // size must be power of two
 
 //--------------------------------------------------------------------------------
 func (s *scanner) init(src io.Reader, errh, pragh func(line, col uint, msg string)) {
@@ -90,11 +93,11 @@ func (s *scanner) init(src io.Reader, errh, pragh func(line, col uint, msg strin
 // The (line, col) position passed to the error and directive
 // handler is always at or after the current source reading
 // position.
-func (s *scanner) next() {
+func (s *scanner) Next() {
 	nlsemi := s.nlsemi
 	s.nlsemi = false
+	s.commentGroups = nil
 	s.comments = []string{}
-	s.numDocComments = 0
 
 redo:
 	// skip white space
@@ -107,7 +110,11 @@ redo:
 		c = s.getr()
 	}
 	if numNl >= 2 { //second newline in a row disqualifies preceding comment as doc-comment
-		s.numDocComments = 0
+		if s.commentGroups == nil {
+			s.commentGroups = [][]string{}
+		}
+		s.commentGroups = append(s.commentGroups, s.comments)
+		s.comments = []string{}
 	}
 
 	// token start
@@ -122,14 +129,14 @@ redo:
 	case -1:
 		if nlsemi {
 			s.lit = "EOF"
-			s.tok = _Semi
+			s.tok = nodes.SemiT
 			break
 		}
-		s.tok = _EOF
+		s.tok = nodes.EofT
 
 	case '\n':
 		s.lit = "newline"
-		s.tok = _Semi
+		s.tok = nodes.SemiT
 
 	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 		s.number(c)
@@ -144,40 +151,40 @@ redo:
 		s.rune()
 
 	case '(':
-		s.tok = _Lparen
+		s.tok = nodes.LparenT
 
 	case '[':
-		s.tok = _Lbrack
+		s.tok = nodes.LbrackT
 
 	case '{':
-		s.tok = _Lbrace
+		s.tok = nodes.LbraceT
 
 	case ',':
-		s.tok = _Comma
+		s.tok = nodes.CommaT
 
 	case ';':
 		s.lit = "semicolon"
-		s.tok = _Semi
+		s.tok = nodes.SemiT
 
 	case ')':
 		s.nlsemi = true
-		s.tok = _Rparen
+		s.tok = nodes.RparenT
 
 	case ']':
 		s.nlsemi = true
-		s.tok = _Rbrack
+		s.tok = nodes.RbrackT
 
 	case '}':
 		s.nlsemi = true
-		s.tok = _Rbrace
+		s.tok = nodes.RbraceT
 
 	case ':':
 		if s.getr() == '=' {
-			s.tok = _Define
+			s.tok = nodes.DefineT
 			break
 		}
 		s.ungetr()
-		s.tok = _Colon
+		s.tok = nodes.ColonT
 
 	case '.':
 		c = s.getr()
@@ -189,41 +196,41 @@ redo:
 		if c == '.' {
 			c = s.getr()
 			if c == '.' {
-				s.tok = _DotDotDot
+				s.tok = nodes.DotDotDotT
 				break
 			}
 			s.ungetr2()
 		}
 		s.ungetr()
-		s.tok = _Dot
+		s.tok = nodes.DotT
 
 	case '+':
-		s.op, s.prec = Add, precAdd
+		s.op, s.prec = nodes.Add, nodes.PrecAdd
 		c = s.getr()
 		if c != '+' {
 			goto assignop
 		}
 		s.nlsemi = true
-		s.tok = _IncOp
+		s.tok = nodes.IncOpT
 
 	case '-':
-		s.op, s.prec = Sub, precAdd
+		s.op, s.prec = nodes.Sub, nodes.PrecAdd
 		c = s.getr()
 		if c != '-' {
 			goto assignop
 		}
 		s.nlsemi = true
-		s.tok = _IncOp
+		s.tok = nodes.IncOpT
 
 	case '*':
-		s.op, s.prec = Mul, precMul
+		s.op, s.prec = nodes.Mul, nodes.PrecMul
 		// don't goto assignop - want _Star token
 		if s.getr() == '=' {
-			s.tok = _AssignOp
+			s.tok = nodes.AssignOpT
 			break
 		}
 		s.ungetr()
-		s.tok = _Star
+		s.tok = nodes.StarT
 
 	case '/':
 		c = s.getr()
@@ -237,41 +244,62 @@ redo:
 				// A multi-line comment acts like a newline;
 				// it translates to a ';' if nlsemi is set.
 				s.lit = "newline"
-				s.tok = _Semi
+				s.tok = nodes.SemiT
 				break
 			}
 			goto redo
 		}
-		s.op, s.prec = Div, precMul
+		s.op, s.prec = nodes.Div, nodes.PrecMul
 		goto assignop
 
+	case '#':
+		if s.line != 1 || s.col != 1 {
+			s.error("#! not at first position")
+		}
+		c = s.getr()
+		if c != '!' {
+			s.error("# not followed by !")
+		}
+		r := s.getr()
+		s.startLit()
+		s.skipLine(r)
+		s.getr()
+		s.stopLit()
+		goto redo
+
 	case '%':
-		s.op, s.prec = Rem, precMul
+		s.op, s.prec = nodes.Rem, nodes.PrecMul
 		c = s.getr()
 		goto assignop
 
 	case '&':
 		c = s.getr()
 		if c == '&' {
-			s.op, s.prec = AndAnd, precAndAnd
-			s.tok = _Operator
+			s.op, s.prec = nodes.AndAnd, nodes.PrecAndAnd
+			s.tok = nodes.OperatorT
 			break
 		}
-		s.op, s.prec = And, precMul
+		s.op, s.prec = nodes.And, nodes.PrecMul
 		if c == '^' {
-			s.op = AndNot
+			s.op = nodes.AndNot
 			c = s.getr()
+			goto assignop
+		}
+		if c == '>' {
+			s.op = nodes.AndRgt
+			c = s.getr()
+			goto assignop
 		}
 		goto assignop
 
 	case '|':
 		c = s.getr()
 		if c == '|' {
-			s.op, s.prec = OrOr, precOrOr
-			s.tok = _Operator
+			s.op, s.prec = nodes.OrOr, nodes.PrecOrOr
+			s.tok = nodes.OperatorT
 			break
 		}
-		s.op, s.prec = Or, precAdd
+		s.op, s.prec = nodes.Or, nodes.PrecAdd
 		goto assignop
 
 	case '~':
@@ -279,64 +307,69 @@ redo:
 		fallthrough
 
 	case '^':
-		s.op, s.prec = Xor, precAdd
+		s.op, s.prec = nodes.Xor, nodes.PrecAdd
 		c = s.getr()
 		goto assignop
 
 	case '<':
 		c = s.getr()
 		if c == '=' {
-			s.op, s.prec = Leq, precCmp
-			s.tok = _Operator
+			s.op, s.prec = nodes.Leq, nodes.PrecCmp
+			s.tok = nodes.OperatorT
 			break
 		}
 		if c == '<' {
-			s.op, s.prec = Shl, precMul
+			s.op, s.prec = nodes.Shl, nodes.PrecMul
+			c = s.getr()
+			goto assignop
+		}
+		if c == '&' {
+			s.op, s.prec = nodes.LftAnd, nodes.PrecMul
 			c = s.getr()
 			goto assignop
 		}
 		if c == '-' {
-			s.tok = _Arrow
+			s.tok = nodes.ArrowT
 			break
 		}
 		s.ungetr()
-		s.op, s.prec = Lss, precCmp
-		s.tok = _Operator
+		s.op, s.prec = nodes.Lss, nodes.PrecCmp
+		s.tok = nodes.OperatorT
 
 	case '>':
 		c = s.getr()
 		if c == '=' {
-			s.op, s.prec = Geq, precCmp
-			s.tok = _Operator
+			s.op, s.prec = nodes.Geq, nodes.PrecCmp
+			s.tok = nodes.OperatorT
 			break
 		}
 		if c == '>' {
-			s.op, s.prec = Shr, precMul
+			s.op, s.prec = nodes.Shr, nodes.PrecMul
 			c = s.getr()
 			goto assignop
 		}
 		s.ungetr()
-		s.op, s.prec = Gtr, precCmp
-		s.tok = _Operator
+		s.op, s.prec = nodes.Gtr, nodes.PrecCmp
+		s.tok = nodes.OperatorT
 
 	case '=':
 		if s.getr() == '=' {
-			s.op, s.prec = Eql, precCmp
-			s.tok = _Operator
+			s.op, s.prec = nodes.Eql, nodes.PrecCmp
+			s.tok = nodes.OperatorT
 			break
 		}
 		s.ungetr()
-		s.tok = _Assign
+		s.tok = nodes.AssignT
 
 	case '!':
 		if s.getr() == '=' {
-			s.op, s.prec = Neq, precCmp
-			s.tok = _Operator
+			s.op, s.prec = nodes.Neq, nodes.PrecCmp
+			s.tok = nodes.OperatorT
 			break
 		}
 		s.ungetr()
-		s.op, s.prec = Not, 0
-		s.tok = _Operator
+		s.op, s.prec = nodes.Not, 0
+		s.tok = nodes.OperatorT
 
 	default:
 		s.tok = 0
@@ -348,11 +381,11 @@ redo:
 
 assignop:
 	if c == '=' {
-		s.tok = _AssignOp
+		s.tok = nodes.AssignOpT
 		return
 	}
 	s.ungetr()
-	s.tok = _Operator
+	s.tok = nodes.OperatorT
 }
 
 //--------------------------------------------------------------------------------
@@ -377,8 +410,8 @@ func (s *scanner) ident() {
 
 	// possibly a keyword
 	if len(lit) >= 2 {
-		if tok := keywordMap[hash(lit)]; tok != 0 && tokstrings[tok] == string(lit) {
-			s.nlsemi = contains(1<<_Break|1<<_Continue|1<<_Fallthrough|1<<_Return, tok)
+		if tok := keywordMap[hash(lit)]; tok != 0 && nodes.Tokstrings[tok] == string(lit) {
+			s.nlsemi = nodes.Contains(1<<nodes.BreakT|1<<nodes.ContinueT|1<<nodes.FallthroughT|1<<nodes.ReturnT, tok)
 			s.tok = tok
 			return
 		}
@@ -386,7 +419,7 @@ func (s *scanner) ident() {
 
 	s.nlsemi = true
 	s.lit = string(lit)
-	s.tok = _Name
+	s.tok = nodes.NameT
 }
 
 //--------------------------------------------------------------------------------
@@ -411,14 +444,14 @@ func (s *scanner) number(c rune) {
 	s.startLit()
 
 	if c != '.' {
-		s.kind = IntLit // until proven otherwise
+		s.kind = nodes.IntLit // until proven otherwise
 		if c == '0' {
 			c = s.getr()
 			if c == 'x' || c == 'X' {
 				// hex
 				c = s.getr()
 				hasDigit := false
-				for isDigit(c) || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F' {
+				for isDigit(c) || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F' || c == '_' {
 					c = s.getr()
 					hasDigit = true
 				}
@@ -430,8 +463,8 @@ func (s *scanner) number(c rune) {
 
 			// decimal 0, octal, or float
 			has8or9 := false
-			for isDigit(c) {
-				if c > '7' {
+			for isDigit(c) || c == '_' {
+				if c == '8' || c == '9' {
 					has8or9 = true
 				}
 				c = s.getr()
@@ -446,7 +479,7 @@ func (s *scanner) number(c rune) {
 
 		} else {
 			// decimal or float
-			for isDigit(c) {
+			for isDigit(c) || c == '_' {
 				c = s.getr()
 			}
 		}
@@ -454,16 +487,25 @@ func (s *scanner) number(c rune) {
 
 	// float
 	if c == '.' {
-		s.kind = FloatLit
+		s.kind = nodes.FloatLit
 		c = s.getr()
-		for isDigit(c) {
+		for isDigit(c) || c == '_' {
+			c = s.getr()
+		}
+	}
+
+	// date
+	if c == '.' {
+		s.kind = nodes.DateLit
+		c = s.getr()
+		for isDigit(c) || c == '_' {
 			c = s.getr()
 		}
 	}
 
 	// exponent
 	if c == 'e' || c == 'E' {
-		s.kind = FloatLit
+		s.kind = nodes.FloatLit
 		c = s.getr()
 		if c == '-' || c == '+' {
 			c = s.getr()
@@ -478,7 +520,7 @@ func (s *scanner) number(c rune) {
 
 	// complex
 	if c == 'i' {
-		s.kind = ImagLit
+		s.kind = nodes.ImagLit
 		s.getr()
 	}
 
@@ -486,7 +528,7 @@ done:
 	s.ungetr()
 	s.nlsemi = true
 	s.lit = string(s.stopLit())
-	s.tok = _Literal
+	s.tok = nodes.LiteralT
 }
 
 //--------------------------------------------------------------------------------
@@ -526,15 +568,16 @@ func (s *scanner) rune() {
 	if ok {
 		if n == 0 {
 			s.error("empty character literal or unescaped ' in character literal")
-		} else if n != 1 {
+			/*} else if n != 1 {
 			s.errh(s.line, s.col, "invalid character literal (more than one character)")
+			*/
 		}
 	}
 
 	s.nlsemi = true
 	s.lit = string(s.stopLit())
-	s.kind = RuneLit
-	s.tok = _Literal
+	s.kind = nodes.RuneLit
+	s.tok = nodes.LiteralT
 }
 
 //--------------------------------------------------------------------------------
@@ -563,8 +606,8 @@ func (s *scanner) stdString() {
 
 	s.nlsemi = true
 	s.lit = string(s.stopLit())
-	s.kind = StringLit
-	s.tok = _Literal
+	s.kind = nodes.StringLit
+	s.tok = nodes.LiteralT
 }
 
 //--------------------------------------------------------------------------------
@@ -587,8 +630,8 @@ func (s *scanner) rawString() {
 
 	s.nlsemi = true
 	s.lit = string(s.stopLit())
-	s.kind = StringLit
-	s.tok = _Literal
+	s.kind = nodes.StringLit
+	s.tok = nodes.LiteralT
 }
 
 //--------------------------------------------------------------------------------
@@ -686,7 +729,6 @@ func (s *scanner) lineComment() {
 		s.startLit()
 		s.skipLine(r)
 		s.comments = append(s.comments, "//"+string(s.stopLit()))
-		s.numDocComments++
 		return
 	}
 	// s.col == colbase && s.pragh != nil && (r == 'g' || r == 'l')
@@ -696,14 +738,16 @@ func (s *scanner) lineComment() {
 	if r == 'l' {
 		prefix = "line "
 	}
+	rs := ""
 	for _, m := range prefix {
 		if r != m {
 			s.startLit()
 			s.skipLine(r)
-			s.comments = append(s.comments, "//"+string(s.stopLit()))
-			s.numDocComments++
+			text := s.stopLit()
+			s.comments = append(s.comments, "//"+rs+string(text))
 			return
 		}
+		rs += string(r)
 		r = s.getr()
 	}
 
@@ -716,8 +760,7 @@ func (s *scanner) lineComment() {
 	}
 
 	s.pragh(s.line, s.col+2, prefix+string(text)) // +2 since directive text starts after //
-	s.comments = append(s.comments, "//"+string(text))
-	s.numDocComments++
+	s.comments = append(s.comments, "//"+prefix+string(text))
 }
 
 //--------------------------------------------------------------------------------
@@ -730,7 +773,6 @@ func (s *scanner) fullComment() {
 			r = s.getr()
 			if r == '/' {
 				s.comments = append(s.comments, "/"+string(s.stopLit()))
-				s.numDocComments++
 				return
 			}
 		}

@@ -6,10 +6,12 @@
 package parsec
 
 import (
+	"errors"
 	"fmt"
-	u8 "github.com/grolang/gro/utf88"
 	"regexp"
 	"strings"
+
+	u8 "github.com/grolang/gro/utf88"
 )
 
 var log = map[string]bool{}
@@ -77,9 +79,10 @@ func logFnDe(tag string, so *PState) {
 // Parser Structure
 //------------------------------------------------------------------------------
 
-// Parser is the primary structure in kern, a lazily-called function passed between various combinators,
+// Parser is the primary structure in gro/parsec, a lazily-called function passed between various combinators,
 // enabling complex top-down parsing structures to be built.
-type Parser func(PState) PState
+//type Parser func(PState) PState
+type Parser = func(PState) PState
 
 // PState is a structure of privately-used data used by the Parser.
 type PState struct {
@@ -180,30 +183,21 @@ func (ps PState) clone(ff func(*PState)) PState {
 //==============================================================================
 // Parser Executor
 //------------------------------------------------------------------------------
-func parseStr(p Parser, cs string) PState {
-	return p(PState{input: cs, ok: true, empty: true})
-}
-
-// ParseString accepts a Parser and a string, and applies the parser to it.
-// It returns the value if it succeeds, and returns the error if it fails.
-func ParseString(p Parser, cs string) (result interface{}, ok bool) {
-	s := parseStr(p, cs)
-	if s.ok {
-		return s.value, true
-	} else {
-		return s.error, false
-	}
-}
-
 // ParseText accepts a Parser and some text, utf88-surrogates it to a string,
 // and applies the parser to it. It returns the value if it succeeds,
 // and returns the error if it fails.
-func ParseText(p Parser, tx u8.Text) (result interface{}, ok bool) {
-	s := parseStr(p, u8.Surr(tx))
-	if s.ok {
-		return s.value, true
-	} else {
-		return s.error, false
+func ParseItem(p Parser, y interface{}) (result interface{}, err error) {
+	switch y.(type) {
+	case u8.Text:
+		tx := y.(u8.Text)
+		s := p(PState{input: u8.Surr(tx), ok: true, empty: true})
+		if s.ok {
+			return s.value, nil
+		} else {
+			return nil, errors.New(s.error)
+		}
+	default:
+		panic(fmt.Sprintf("ParseText: illegal type input %T", y))
 	}
 }
 
@@ -488,7 +482,7 @@ func Tokens(ts ...u8.Text) Parser {
 	case 1:
 		return Token(ts[0])
 	default:
-		return Alt(Try(Token(ts[0])), Tokens(ts[1:]...))
+		return Alt(Try(Token(ts[0])), Tokens(ts[1:]...)).(Parser)
 	}
 }
 
@@ -502,28 +496,21 @@ func Field(cs u8.Text) Parser {
 //------------------------------------------------------------------------------
 
 // Fwd delays the evaluation of a parser that was forward-declared but
-// defined recursively. For use in defs of no-arg parsers,
-// since the parser expression evaluates immediately.
-func Fwd(fp func() Parser) Parser {
-	return func(s PState) (so PState) {
-		if log["Fwd"] || (len(s.log) > 0 && s.log[len(s.log)-1] && loggingEnabled) {
-			logFnIn("Fwd", &s)
-			defer logFnDe("Fwd", &so)
-		}
-		so = fp()(s)
-		return
-	}
-}
-
-// FwdWithParams delays the evaluation of a parser that was forward-declared but
 // defined recursively. For use in defs of parsers taking arguments.
-func FwdWithParams(fp func(...interface{}) Parser, params ...interface{}) Parser {
+func Fwd(fps ...interface{}) interface{} {
+	if len(fps) <= 0 {
+		panic("Fwd: not enough args.")
+	}
+	fp, ok := fps[0].(func(...interface{}) interface{})
+	if !ok {
+		panic(fmt.Sprintf("Fwd: first arg wrong type: %T", fps[0]))
+	}
 	return func(s PState) (so PState) {
 		if log["Fwd"] || (len(s.log) > 0 && s.log[len(s.log)-1] && loggingEnabled) {
 			logFnIn("Fwd", &s)
 			defer logFnDe("Fwd", &so)
 		}
-		so = fp(params...)(s)
+		so = fp(fps[1:]).(Parser)(s)
 		return
 	}
 }
@@ -559,7 +546,7 @@ func NotFollowedBy(p Parser) Parser {
 	return Try(Alt(Bind(Try(p), func(x interface{}) Parser {
 		return Fail(u8.Desur(errParsFail))
 	}),
-		Return(nil)))
+		Return(nil)).(Parser))
 }
 
 // Eof succeeds on end of input.
@@ -606,15 +593,15 @@ func Expect(p Parser, m u8.Text) Parser {
 // if a parser fails consuming input; or it will try the next one if a parser fails
 // without consuming input.
 // Same functionality as <|> in Clojure's kern.
-func Alt(ps ...Parser) Parser {
+func Alt(ps ...interface{}) interface{} {
 	switch len(ps) {
 	case 0:
 		return Fail(u8.Desur(errNoParser))
 	case 1:
 		return ps[0]
 	case 2:
-		p := ps[0]
-		q := ps[1]
+		p := ps[0].(Parser)
+		q := ps[1].(Parser)
 		return func(st PState) (so PState) {
 			if log["Alt"] || (len(st.log) > 0 && st.log[len(st.log)-1] && loggingEnabled) {
 				logFnIn("Alt", &st)
@@ -679,15 +666,15 @@ func Bind(p Parser, f func(interface{}) Parser) Parser {
 // SeqLeft parses each parser of ps in sequence; it keeps the first result and
 // skips the rest.
 // Same functionality as << in Clojure's kern.
-func SeqLeft(ps ...Parser) Parser {
+func SeqLeft(ps ...interface{}) interface{} {
 	switch len(ps) {
 	case 0:
 		return Fail(u8.Desur(errNoParser))
 	case 1:
 		return ps[0]
 	case 2:
-		return Bind(ps[0], func(x interface{}) Parser {
-			return SeqRight(ps[1], Return(x))
+		return Bind(ps[0].(Parser), func(x interface{}) Parser {
+			return SeqRight(ps[1], Return(x)).(Parser)
 		})
 	default:
 		return SeqLeft(ps[0], SeqLeft(ps[1:]...))
@@ -697,19 +684,19 @@ func SeqLeft(ps ...Parser) Parser {
 // SeqRight parses each parser of ps in sequence; it skips all but last and keeps
 // the result of the last.
 // Same functionality as >> in Clojure's kern.
-func SeqRight(ps ...Parser) Parser {
+func SeqRight(ps ...interface{}) interface{} {
 	switch len(ps) {
 	case 0:
 		return Fail(u8.Desur(errNoParser))
 	case 1:
 		return ps[0]
 	case 2:
-		return Bind(ps[0], func(_ interface{}) Parser {
-			return ps[1]
+		return Bind(ps[0].(Parser), func(_ interface{}) Parser {
+			return ps[1].(Parser)
 		})
 	default:
-		return Bind(ps[0], func(_ interface{}) Parser {
-			return SeqRight(ps[1:]...)
+		return Bind(ps[0].(Parser), func(_ interface{}) Parser {
+			return SeqRight(ps[1:]...).(Parser)
 		})
 	}
 }
@@ -727,7 +714,7 @@ func Apply(f func(interface{}) interface{}, p Parser) Parser {
 
 // Between applies open, p, close; returns the value of p.
 func Between(open, close, p Parser) Parser {
-	return Try(SeqLeft(SeqRight(open, p), close))
+	return Try(SeqLeft(SeqRight(open, p), close).(Parser))
 }
 
 //------------------------------------------------------------------------------
@@ -887,10 +874,11 @@ func Option(x interface{}, p Parser) Parser {
 //------------------------------------------------------------------------------
 
 // Times applies p n times; collects the results in a slice.
-func Times(n int, p Parser) Parser {
+//func Times(n int, p Parser) Parser {
+func Times(n int64, p Parser) Parser {
 	if n > 0 {
 		as := make([]Parser, n, n)
-		for i := 0; i < n; i++ {
+		for i := 0; int64(i) < n; i++ {
 			as[i] = p
 		}
 		return Collect(as...)
@@ -906,7 +894,7 @@ func Times(n int, p Parser) Parser {
 func ManyTill(p, end Parser) Parser {
 	var scan Parser
 	scan = Alt(
-		SeqRight(end, Return([]interface{}{})),
+		SeqRight(end, Return([]interface{}{})).(Parser),
 		Bind(p, func(x interface{}) Parser {
 			as := make([]interface{}, 0)
 			as = append(as, x)
@@ -916,7 +904,7 @@ func ManyTill(p, end Parser) Parser {
 				}
 				return Return(as)
 			})
-		}))
+		})).(Parser)
 	return scan
 }
 
@@ -925,14 +913,14 @@ func ManyTill(p, end Parser) Parser {
 // SepBy parses p zero or more times while parsing sep in between; collects the results
 // of p in a slice.
 func SepBy(sep, p Parser) Parser {
-	return Alt(SepBy1(sep, p), Return([]interface{}{}))
+	return Alt(SepBy1(sep, p), Return([]interface{}{})).(Parser)
 }
 
 // SepBy1 parses p one or more times while parsing sep in between; collects the results
 // of p in a slice.
 func SepBy1(sep, p Parser) Parser {
 	return Bind(p, func(x interface{}) Parser {
-		return Bind(Many(Try(SeqRight(sep, p))), func(y interface{}) Parser {
+		return Bind(Many(Try(SeqRight(sep, p).(Parser))), func(y interface{}) Parser {
 			return Return(append([]interface{}{x}, y.([]interface{})...))
 		})
 	})
@@ -941,30 +929,30 @@ func SepBy1(sep, p Parser) Parser {
 // EndBy parses p zero or more times, separated and ended by applications of sep;
 // returns the results of p in a slice.
 func EndBy(sep, p Parser) Parser {
-	return Many(Try(SeqLeft(p, sep)))
+	return Many(Try(SeqLeft(p, sep).(Parser)))
 }
 
 // EndBy1 parses p one or more times, separated and ended by applications of sep;
 // returns the results of p in a slice.
 func EndBy1(sep, p Parser) Parser {
-	return Many1(Try(SeqLeft(p, sep)))
+	return Many1(Try(SeqLeft(p, sep).(Parser)))
 }
 
 // SepEndBy parses p one or more times separated, and optionally ended, by sep;
 // collects the results in a slice.
 func SepEndBy(sep, p Parser) Parser {
 	//return Alt(SepEndBy1(sep, Try(p)), Return([]interface{}{})) //QUERY: should p be "try"ed?
-	return Alt(SepEndBy1(sep, p), Return([]interface{}{}))
+	return Alt(SepEndBy1(sep, p), Return([]interface{}{})).(Parser)
 }
 
 // SepEndBy1 parses p zero or more times separated, and optionally ended, by sep;
 // collects the results in a slice.
 func SepEndBy1(sep, p Parser) Parser {
 	return Bind(p, func(x interface{}) Parser {
-		return Alt(Bind(SeqRight(sep, SepEndBy(sep, Try(p))), func(y interface{}) Parser {
+		return Alt(Bind(SeqRight(sep, SepEndBy(sep, Try(p))).(Parser), func(y interface{}) Parser {
 			return Return(append([]interface{}{x}, y.([]interface{})...))
 		}),
-			Return([]interface{}{x}))
+			Return([]interface{}{x})).(Parser)
 	})
 }
 
@@ -972,16 +960,14 @@ func SepEndBy1(sep, p Parser) Parser {
 // collects the results in a slice.
 func BegSepBy(sep, p Parser) Parser {
 	return Option([]interface{}{},
-		Try(SeqRight(sep,
-			SepBy(sep, p))))
+		Try(SeqRight(sep, SepBy(sep, p)).(Parser)))
 }
 
 // BegSepBy1 parses p one or more times separated, but mandatorily begun, by sep;
 // collects the results in a slice.
 func BegSepBy1(sep, p Parser) Parser {
 	return Option([]interface{}{},
-		Try(SeqRight(sep,
-			SepBy1(sep, p))))
+		Try(SeqRight(sep, SepBy1(sep, p)).(Parser)))
 }
 
 //------------------------------------------------------------------------------
@@ -993,13 +979,13 @@ func Skip(ps ...Parser) Parser {
 	case 0:
 		return Fail(u8.Desur(errNoParser))
 	case 1:
-		return SeqRight(ps[0], Return(nil))
+		return SeqRight(ps[0], Return(nil)).(Parser)
 	case 2:
 		return Bind(ps[0], func(_ interface{}) Parser {
 			return Skip(ps[1])
 		})
 	default:
-		return SeqRight(ps[0], Skip(ps[1:]...))
+		return SeqRight(ps[0], Skip(ps[1:]...)).(Parser)
 	}
 }
 
@@ -1028,7 +1014,7 @@ func SkipMany(p Parser) Parser {
 
 // SkipMany1 parses p one or more times and skips the results.
 func SkipMany1(p Parser) Parser {
-	return SeqRight(p, SkipMany(p))
+	return SeqRight(p, SkipMany(p)).(Parser)
 }
 
 //------------------------------------------------------------------------------
@@ -1293,7 +1279,7 @@ func AlterTopStateStack(k interface{}) Parser {
 			}
 			vec = append(vec, k)
 		}
-		return SeqRight(PutState(vec), Return(nil))
+		return SeqRight(PutState(vec), Return(nil)).(Parser)
 	})
 }
 
@@ -1407,7 +1393,7 @@ func LogResume(p Parser) Parser {
 	}
 }
 
-// LogFlagging is not yet used in this version of kern.
+// LogFlagging is not yet used in this version of gro/parsec.
 func LogFlagging(fl logFlags, p Parser) Parser {
 	return func(s PState) (so PState) {
 		if log["Activate"] || loggingEnabled {
@@ -1460,9 +1446,9 @@ func (c Combinator) Monad (ps ...interface{}) Parser {
 func TestExperimental(t *testing.T){
 ts.LogAsserts("Experimental", t, func(tt *ts.T){
 
-  tt.AssertEqual(parseStr(myComb(u8.Codepoint('a')), "abc"),
+  tt.AssertEqual(ParseItem(myComb(u8.Codepoint('a')), "abc"),
                  PState{input:"bc", pos:1, value:u8.Codepoint('a'), ok:true})
-  tt.AssertEqual(parseStr(Combinator(myComb).Monad(u8.Codepoint('a')), "abc"),
+  tt.AssertEqual(ParseItem(Combinator(myComb).Monad(u8.Codepoint('a')), "abc"),
                  PState{input:"bc", pos:1, value:u8.Codepoint('a'), ok:true})
 })}
 */

@@ -32,7 +32,8 @@ func init() {
 	fmt.Println("Hi, world!")
 }
 
-func main() {}`}},
+func main() {}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "package" directive, with single standalone stmt (if)
@@ -47,7 +48,8 @@ if true {
 }
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package abc
@@ -63,7 +65,8 @@ func init() {
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "package" directive, with two standalone stmts together (if, for)
@@ -80,7 +83,8 @@ for i:= 0; i < 10; i++ {
 }
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package abc
@@ -98,7 +102,8 @@ func init() {
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "package" directive, with two separated standalone stmts (if, for)
@@ -115,7 +120,8 @@ func run() {
 }
 for i:= 0; i < 10; i++ {
 	do fmt.Println("Welcome back, world.")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package abc
@@ -136,7 +142,8 @@ func init() {
 	for i := 0; i < 10; i++ {
 		fmt.Println("Welcome back, world.")
 	}
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "package" directive and 2 "section" directives with standalone stmts (if, do-block, do-standalone, for)
@@ -164,14 +171,15 @@ for i:= 1; i<=10; i++ {
 }
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"this.go": `package abc
 
 import "fmt"
 
-var n int
+var n int //should be interpreted as top-level decl
 
 func init() {
 	if true {
@@ -182,7 +190,8 @@ func init() {
 
 func run() {
 	fmt.Println("Hello, world!")
-}`,
+}
+`,
 				// - - - - - - - - - - - - - - - - - - - -
 				"that.go": `package abc
 
@@ -202,7 +211,8 @@ func init() {
 
 func run() {
 	fmt.Println("Hello, world!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "project" directive with standalone stmts (do-block, bare-block)
@@ -222,7 +232,8 @@ do {
 	do a:= 17
 	do b:= 18
 	do fmt.Println(a*b)
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"abc.go": `// +build ignore
@@ -245,7 +256,8 @@ func init() {
 	}
 }
 
-func main() {}`}},
+func main() {}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single "section" directive with standalone stmts (do-block, do-standalone)
@@ -283,7 +295,8 @@ func init() {
 	fmt.Println(a * b)
 }
 
-func main() {}`}},
+func main() {}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//standalone stmts only (do-standalone)
@@ -306,7 +319,8 @@ func init() {
 	fmt.Println(a + b)
 }
 
-func main() {}`}},
+func main() {}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single standalone stmt (for with embedded do-standalone)
@@ -327,7 +341,8 @@ func init() {
 	}
 }
 
-func main() {}`}},
+func main() {}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//single standalone block (bare-block)
@@ -348,7 +363,8 @@ func init() {
 	}
 }
 
-func main() {}`}},
+func main() {}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//do-for, for-standalone
@@ -363,7 +379,8 @@ do for a:= range as {
 for a:= range as {
 	do b:= a
 	do fmt.Printf("Hello, %s of Mars!", a)
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package abc
@@ -378,7 +395,8 @@ func init() {
 		b := a
 		fmt.Printf("Hello, %s of Mars!", a)
 	}
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//do-if, if-standalone
@@ -393,7 +411,8 @@ do if a < 10 {
 if a < 10 {
 	do b:= a
 	do fmt.Printf("Hello, %s of Mars!", a)
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package abc
@@ -408,7 +427,8 @@ func init() {
 		b := a
 		fmt.Printf("Hello, %s of Mars!", a)
 	}
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//do-switch
@@ -422,7 +442,8 @@ case 2:
 	a:= 7
 default:
 	"fmt".Println("defg")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `// +build ignore
@@ -444,7 +465,8 @@ func init() {
 	}
 }
 
-func main() {}`}},
+func main() {}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//do-go, go-standalone with syntax shortcut
@@ -486,7 +508,8 @@ func init() {
 	go func() {
 		fmt.Printf("Hello, %s of Saturn!", a)
 	}()
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//do-defer at top-level
@@ -556,7 +579,8 @@ func run() {
 }
 proc runtwo() {
 	do fmt.Println("Hello, Mars!")
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package abc
@@ -569,7 +593,8 @@ func run() {
 
 func runtwo() {
 	fmt.Println("Hello, Mars!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//const at top-level, within proc, and within do-block
@@ -586,7 +611,8 @@ proc runtwo() {
 }
 do {
 	const z = 789
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package abc
@@ -608,7 +634,8 @@ func init() {
 	{
 		const z = 789
 	}
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//var and type, each both at top-level and within proc
@@ -624,7 +651,8 @@ proc runtwo() {
 	type ij int32
 	var b = 789
 	do fmt.Println("b is:", b)
-}`,
+}
+`,
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
 				"dud.go": `package abc
@@ -643,7 +671,8 @@ func runtwo() {
 	type ij int32
 	var b = 789
 	fmt.Println("b is:", b)
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//check Gro-sans-Go keywords can still be used as names
@@ -674,7 +703,8 @@ const internal = "abc"
 
 func init() {
 	fmt.Println("sec is:", section, "; intern is:", internal)
-}`,
+}
+`,
 				"defg.go": `package abc
 
 import "fmt"
@@ -686,7 +716,8 @@ const main = "zyx"
 func init() {
 	fmt.Println("do is:", do, "; main is:", main)
 	do := 7
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//
@@ -791,7 +822,8 @@ func TestWithinProc(t *testing.T) {
 import "fmt"
 proc runtwo() {
 	do fmt.Println("Hello, Mars!")
-}`,
+}
+`,
 
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
@@ -801,7 +833,8 @@ import "fmt"
 
 func runtwo() {
 	fmt.Println("Hello, Mars!")
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//do-defer, defer-standalone with syntax shortcut
@@ -823,7 +856,8 @@ proc runthree() {
 	defer {
 		do fmt.Printf("Hello, %s of Saturn!", a)
 	}
-}`,
+}
+`,
 
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
@@ -844,7 +878,8 @@ func runthree() {
 	defer func() {
 		fmt.Printf("Hello, %s of Saturn!", a)
 	}()
-}`}},
+}
+`}},
 
 		//--------------------------------------------------------------------------------
 		//do (within bare block at top-level)
@@ -856,7 +891,8 @@ func runthree() {
 	do a:= 17
 	do b:= 18
 	do fmt.Println(a*b)
-}`,
+}
+`,
 
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
@@ -874,7 +910,48 @@ func init() {
 	}
 }
 
-func main() {}`}},
+func main() {}
+`}},
+
+		//--------------------------------------------------------------------------------
+		//switch/select prints semi in last clause if empty
+		{
+			num: 40,
+			fnm: "dud.gro",
+			src: `import "fmt"
+do {
+	a:=2
+	switch {
+		case 2:
+		;
+		default:
+		;
+	}
+}
+`,
+
+			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+			prt: map[string]string{
+				"dud.go": `// +build ignore
+
+package main
+
+import "fmt"
+
+func init() {
+	{
+		a := 2
+		switch {
+		case 2:
+			;
+		default:
+			;
+		}
+	}
+}
+
+func main() {}
+`}},
 
 		//--------------------------------------------------------------------------------
 	})
