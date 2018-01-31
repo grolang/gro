@@ -661,6 +661,32 @@ for i:= 0; i<10; i++ {
 
 		//--------------------------------------------------------------------------------
 		{
+			num: 620,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("doKw")
+do for i:= 0; i<10; i++ {
+	break
+}
+`,
+			err: "dud.gro:2:1: syntax error: \"do\" keywords are disabled but keyword is present",
+		},
+
+		//--------------------------------------------------------------------------------
+		{
+			num: 630,
+			fnm: "dud.gro",
+			src: `use "blacklist" ("doKw")
+proc ho() {
+	do for i:= 0; i<10; i++ {
+		break
+	}
+}
+`,
+			err: "dud.gro:3:2: syntax error: \"do\" keywords are disabled but keyword is present",
+		},
+
+		//--------------------------------------------------------------------------------
+		{
 			num: 700,
 			fnm: "dud.g", // <--- NOTE: g-file should allow func, for, break, then halt on "range"
 			src: `package main

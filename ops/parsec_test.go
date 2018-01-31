@@ -1,9 +1,9 @@
 // Copyright 2017 The Gro authors. All rights reserved.
-// Portions translated from Armando Blancas' Clojure-based Kern parser.
+// Portions translated from Armando Blancas's Clojure-based Kern parser.
 // Use of this source code is governed by the same BSD-style
 // license as Go that can be found in the LICENSE file.
 
-package parsec
+package ops
 
 import (
 	"testing"
@@ -13,7 +13,7 @@ import (
 	u8 "github.com/grolang/gro/utf88"
 )
 
-func parseStr(p Parser, cs string) PState {
+func parseStr(p Parsec, cs string) PState {
 	return p(PState{input: cs, ok: true, empty: true})
 }
 
@@ -131,7 +131,7 @@ func globalParen(...interface{}) interface{} {
 	return SeqRight(Token(u8.Text(string('('))), SeqLeft(Fwd(globalExpr), Token(u8.Text(string(')')))))
 }
 func globalExpr(...interface{}) interface{} {
-	return Alt(Token(u8.Text(string('a'))), globalParen().(Parser))
+	return AltParse(Token(u8.Text(string('a'))), globalParen().(Parsec))
 }
 
 //--------------------------------------------------------------------------------
@@ -143,21 +143,21 @@ func TestRecursive(t *testing.T) {
 			return SeqRight(Token(u8.Text(string('('))), SeqLeft(Fwd(expr), Token(u8.Text(string(')')))))
 		}
 		expr = func(...interface{}) interface{} {
-			return Alt(Token(u8.Text(string('a'))), paren().(Parser))
+			return AltParse(Token(u8.Text(string('a'))), paren().(Parsec))
 		}
 
-		tt.AssertEqual(parseStr(expr().(Parser), "a"),
+		tt.AssertEqual(parseStr(expr().(Parsec), "a"),
 			PState{input: "", pos: 1, value: u8.Text("a"), ok: true})
-		tt.AssertEqual(parseStr(expr().(Parser), "(a)"),
+		tt.AssertEqual(parseStr(expr().(Parsec), "(a)"),
 			PState{input: "", pos: 3, value: u8.Text("a"), ok: true})
-		tt.AssertEqual(parseStr(expr().(Parser), "((a))"),
+		tt.AssertEqual(parseStr(expr().(Parsec), "((a))"),
 			PState{input: "", pos: 5, value: u8.Text("a"), ok: true})
 
-		tt.AssertEqual(parseStr(globalExpr().(Parser), "a"),
+		tt.AssertEqual(parseStr(globalExpr().(Parsec), "a"),
 			PState{input: "", pos: 1, value: u8.Text("a"), ok: true})
-		tt.AssertEqual(parseStr(globalExpr().(Parser), "(a)"),
+		tt.AssertEqual(parseStr(globalExpr().(Parsec), "(a)"),
 			PState{input: "", pos: 3, value: u8.Text("a"), ok: true})
-		tt.AssertEqual(parseStr(globalExpr().(Parser), "((a))"),
+		tt.AssertEqual(parseStr(globalExpr().(Parsec), "((a))"),
 			PState{input: "", pos: 5, value: u8.Text("a"), ok: true})
 	})
 }
@@ -169,7 +169,7 @@ func globalParenWithParams(ps ...interface{}) interface{} {
 }
 
 func globalExprWithParams(ps ...interface{}) interface{} {
-	return Alt(Token(u8.Text(string('a'))), globalParenWithParams(ps...).(Parser))
+	return AltParse(Token(u8.Text(string('a'))), globalParenWithParams(ps...).(Parsec))
 }
 
 //--------------------------------------------------------------------------------
@@ -182,21 +182,21 @@ func TestRecursiveWithParams(t *testing.T) {
 				SeqLeft(Fwd(append([]interface{}{expr}, as...)...), Token(u8.Text(string(')')))))
 		}
 		expr = func(ps ...interface{}) interface{} {
-			return Alt(Token(u8.Text(string('a'))), paren(ps...).(Parser))
+			return AltParse(Token(u8.Text(string('a'))), paren(ps...).(Parsec))
 		}
 
-		tt.AssertEqual(parseStr(expr(101, 102).(Parser), "a"),
+		tt.AssertEqual(parseStr(expr(101, 102).(Parsec), "a"),
 			PState{input: "", pos: 1, value: u8.Text("a"), ok: true})
-		tt.AssertEqual(parseStr(expr(101, 102).(Parser), "(a)"),
+		tt.AssertEqual(parseStr(expr(101, 102).(Parsec), "(a)"),
 			PState{input: "", pos: 3, value: u8.Text("a"), ok: true})
-		tt.AssertEqual(parseStr(expr(101, 102).(Parser), "((a))"),
+		tt.AssertEqual(parseStr(expr(101, 102).(Parsec), "((a))"),
 			PState{input: "", pos: 5, value: u8.Text("a"), ok: true})
 
-		tt.AssertEqual(parseStr(globalExprWithParams(101, 102).(Parser), "a"),
+		tt.AssertEqual(parseStr(globalExprWithParams(101, 102).(Parsec), "a"),
 			PState{input: "", pos: 1, value: u8.Text("a"), ok: true})
-		tt.AssertEqual(parseStr(globalExprWithParams(101, 102).(Parser), "(a)"),
+		tt.AssertEqual(parseStr(globalExprWithParams(101, 102).(Parsec), "(a)"),
 			PState{input: "", pos: 3, value: u8.Text("a"), ok: true})
-		tt.AssertEqual(parseStr(globalExprWithParams(101, 102).(Parser), "((a))"),
+		tt.AssertEqual(parseStr(globalExprWithParams(101, 102).(Parsec), "((a))"),
 			PState{input: "", pos: 5, value: u8.Text("a"), ok: true})
 	})
 }
@@ -214,24 +214,24 @@ func TestBacktracking(t *testing.T) {
 		tt.AssertEqual(parseStr(Try(letter), ";efg"),
 			PState{input: ";efg", empty: true, error: makeUnexpInp(";")})
 
-		p2 := Bind(digit, func(c1 interface{}) Parser {
-			return Bind(lower, func(c2 interface{}) Parser {
+		p2 := Bind(digit, func(c1 interface{}) Parsec {
+			return Bind(lower, func(c2 interface{}) Parsec {
 				return Return([]interface{}{c1, c2})
 			})
 		})
 		tt.AssertEqual(parseStr(Try(p2), "67fg"),
 			PState{input: "67fg", empty: true, error: makeUnexpInp("7")})
 
-		tt.AssertEqual(parseStr(Try(SeqRight(digit, lower).(Parser)), "66efg"),
+		tt.AssertEqual(parseStr(Try(SeqRight(digit, lower).(Parsec)), "66efg"),
 			PState{input: "66efg", empty: true, error: makeUnexpInp("6")})
 
-		tt.AssertEqual(parseStr(SeqLeft(digit, NotFollowedBy(letter)).(Parser), "66efg"),
+		tt.AssertEqual(parseStr(SeqLeft(digit, NotFollowedBy(letter)).(Parsec), "66efg"),
 			PState{input: "6efg", pos: 1, value: u8.Text("6"), ok: true})
-		tt.AssertEqual(parseStr(SeqRight(digit, NotFollowedBy(letter)).(Parser), "66efg"),
+		tt.AssertEqual(parseStr(SeqRight(digit, NotFollowedBy(letter)).(Parsec), "66efg"),
 			PState{input: "6efg", pos: 1, ok: true})
-		tt.AssertEqual(parseStr(SeqLeft(digit, NotFollowedBy(digit)).(Parser), "66efg"),
+		tt.AssertEqual(parseStr(SeqLeft(digit, NotFollowedBy(digit)).(Parsec), "66efg"),
 			PState{input: "6efg", pos: 1, error: errParsFail})
-		tt.AssertEqual(parseStr(Try(SeqLeft(digit, NotFollowedBy(digit)).(Parser)), "66efg"),
+		tt.AssertEqual(parseStr(Try(SeqLeft(digit, NotFollowedBy(digit)).(Parsec)), "66efg"),
 			PState{input: "66efg", empty: true, error: errParsFail})
 
 		tt.AssertEqual(parseStr(Eof, ""),
@@ -269,7 +269,7 @@ func TestAskExpect(t *testing.T) {
 }
 
 //================================================================================
-//Alt
+//AltParse
 func TestAlternation(t *testing.T) {
 	ts.LogAsserts("Alternation", t, func(tt *ts.T) {
 		letter := Regexp(`\pL`)
@@ -277,28 +277,28 @@ func TestAlternation(t *testing.T) {
 		lower := Regexp(`\p{Ll}`)
 		upper := Regexp(`\p{Lu}`)
 
-		tt.AssertEqual(parseStr(Alt(digit, letter).(Parser), "defg"),
+		tt.AssertEqual(parseStr(AltParse(digit, letter).(Parsec), "defg"),
 			PState{input: "efg", pos: 1, value: u8.Text("d"), ok: true})
-		tt.AssertEqual(parseStr(Alt(digit, letter).(Parser), "6efg"),
+		tt.AssertEqual(parseStr(AltParse(digit, letter).(Parsec), "6efg"),
 			PState{input: "efg", pos: 1, value: u8.Text("6"), ok: true})
-		tt.AssertEqual(parseStr(Alt(digit, letter).(Parser), ";efg"),
+		tt.AssertEqual(parseStr(AltParse(digit, letter).(Parsec), ";efg"),
 			PState{input: ";efg", empty: true, error: errNoAlts})
 
-		tt.AssertEqual(parseStr(Alt(letter).(Parser), "defg"),
+		tt.AssertEqual(parseStr(AltParse(letter).(Parsec), "defg"),
 			PState{input: "efg", pos: 1, value: u8.Text("d"), ok: true})
-		tt.AssertEqual(parseStr(Alt(letter).(Parser), ";efg"),
+		tt.AssertEqual(parseStr(AltParse(letter).(Parsec), ";efg"),
 			PState{input: ";efg", empty: true, error: makeUnexpInp(";")})
 
-		tt.AssertEqual(parseStr(Alt().(Parser), "defg"),
+		tt.AssertEqual(parseStr(AltParse().(Parsec), "defg"),
 			PState{input: "defg", empty: true, error: errNoParser})
 
-		tt.AssertEqual(parseStr(Alt(digit, upper, lower).(Parser), "defg"),
+		tt.AssertEqual(parseStr(AltParse(digit, upper, lower).(Parsec), "defg"),
 			PState{input: "efg", pos: 1, value: u8.Text("d"), ok: true})
-		tt.AssertEqual(parseStr(Alt(digit, upper, lower).(Parser), "6efg"),
+		tt.AssertEqual(parseStr(AltParse(digit, upper, lower).(Parsec), "6efg"),
 			PState{input: "efg", pos: 1, value: u8.Text("6"), ok: true})
-		tt.AssertEqual(parseStr(Alt(digit, upper, lower).(Parser), "Defg"),
+		tt.AssertEqual(parseStr(AltParse(digit, upper, lower).(Parsec), "Defg"),
 			PState{input: "efg", pos: 1, value: u8.Text("D"), ok: true})
-		tt.AssertEqual(parseStr(Alt(digit, upper, lower).(Parser), ";efg"),
+		tt.AssertEqual(parseStr(AltParse(digit, upper, lower).(Parsec), ";efg"),
 			PState{input: ";efg", empty: true, error: errNoAlts})
 	})
 }
@@ -324,22 +324,22 @@ func TestSequencing(t *testing.T) {
 			return len(cc) == 1 && unicode.IsUpper(cc[0])
 		})
 
-		p1 := Bind(digit, func(c interface{}) Parser {
+		p1 := Bind(digit, func(c interface{}) Parsec {
 			return lower
 		})
 		tt.AssertEqual(parseStr(p1, "6efg"), PState{input: "fg", pos: 2, value: u8.Text("e"), ok: true})
 
-		p2 := Bind(singleDigit, func(c1 interface{}) Parser {
-			return Bind(singleLower, func(c2 interface{}) Parser {
+		p2 := Bind(singleDigit, func(c1 interface{}) Parsec {
+			return Bind(singleLower, func(c2 interface{}) Parsec {
 				return Return([]interface{}{c1, c2})
 			})
 		})
 		tt.AssertEqual(parseStr(p2, "6efg"), PState{input: "fg", pos: 2, value: arrCp('6', 'e'), ok: true})
 		tt.AssertEqual(parseStr(p2, "67fg"), PState{input: "7fg", pos: 1, error: makeUnexpInp("7")})
 
-		p3 := Bind(singleDigit, func(c1 interface{}) Parser {
-			return Bind(singleLower, func(c2 interface{}) Parser {
-				return Bind(singleUpper, func(c3 interface{}) Parser {
+		p3 := Bind(singleDigit, func(c1 interface{}) Parsec {
+			return Bind(singleLower, func(c2 interface{}) Parsec {
+				return Bind(singleUpper, func(c3 interface{}) Parsec {
 					return Return([]interface{}{c1, c2, c3})
 				})
 			})
@@ -347,36 +347,36 @@ func TestSequencing(t *testing.T) {
 		tt.AssertEqual(parseStr(p3, "6eFghij"),
 			PState{input: "ghij", pos: 3, value: arrCp('6', 'e', 'F'), ok: true})
 
-		tt.AssertEqual(parseStr(SeqLeft().(Parser), "6efg"),
+		tt.AssertEqual(parseStr(SeqLeft().(Parsec), "6efg"),
 			PState{input: "6efg", empty: true, error: errNoParser})
-		tt.AssertEqual(parseStr(SeqLeft(digit).(Parser), "efg"),
+		tt.AssertEqual(parseStr(SeqLeft(digit).(Parsec), "efg"),
 			PState{input: "efg", empty: true, error: makeUnexpInp("e")})
-		tt.AssertEqual(parseStr(SeqLeft(digit).(Parser), "6efg"),
+		tt.AssertEqual(parseStr(SeqLeft(digit).(Parsec), "6efg"),
 			PState{input: "efg", pos: 1, value: u8.Text("6"), ok: true})
-		tt.AssertEqual(parseStr(SeqLeft(digit, lower).(Parser), "efg"),
+		tt.AssertEqual(parseStr(SeqLeft(digit, lower).(Parsec), "efg"),
 			PState{input: "efg", empty: true, error: makeUnexpInp("e")})
-		tt.AssertEqual(parseStr(SeqLeft(digit, lower).(Parser), "66efg"),
+		tt.AssertEqual(parseStr(SeqLeft(digit, lower).(Parsec), "66efg"),
 			PState{input: "6efg", pos: 1, error: makeUnexpInp("6")})
-		tt.AssertEqual(parseStr(SeqLeft(digit, lower).(Parser), "6efg"),
+		tt.AssertEqual(parseStr(SeqLeft(digit, lower).(Parsec), "6efg"),
 			PState{input: "fg", pos: 2, value: u8.Text("6"), ok: true})
-		tt.AssertEqual(parseStr(SeqLeft(intNum, lower).(Parser), "678efg"),
+		tt.AssertEqual(parseStr(SeqLeft(intNum, lower).(Parsec), "678efg"),
 			PState{input: "fg", pos: 4, value: u8.Text("678"), ok: true})
-		tt.AssertEqual(parseStr(SeqLeft(digit, lower, lower).(Parser), "6efg"),
+		tt.AssertEqual(parseStr(SeqLeft(digit, lower, lower).(Parsec), "6efg"),
 			PState{input: "g", pos: 3, value: u8.Text("6"), ok: true})
 
-		tt.AssertEqual(parseStr(SeqRight().(Parser), "6efg"),
+		tt.AssertEqual(parseStr(SeqRight().(Parsec), "6efg"),
 			PState{input: "6efg", empty: true, error: errNoParser})
-		tt.AssertEqual(parseStr(SeqRight(digit).(Parser), "efg"),
+		tt.AssertEqual(parseStr(SeqRight(digit).(Parsec), "efg"),
 			PState{input: "efg", empty: true, error: makeUnexpInp("e")})
-		tt.AssertEqual(parseStr(SeqRight(digit).(Parser), "6efg"),
+		tt.AssertEqual(parseStr(SeqRight(digit).(Parsec), "6efg"),
 			PState{input: "efg", pos: 1, value: u8.Text("6"), ok: true})
-		tt.AssertEqual(parseStr(SeqRight(digit, lower).(Parser), "efg"),
+		tt.AssertEqual(parseStr(SeqRight(digit, lower).(Parsec), "efg"),
 			PState{input: "efg", empty: true, error: makeUnexpInp("e")})
-		tt.AssertEqual(parseStr(SeqRight(digit, lower).(Parser), "66efg"),
+		tt.AssertEqual(parseStr(SeqRight(digit, lower).(Parsec), "66efg"),
 			PState{input: "6efg", pos: 1, error: makeUnexpInp("6")})
-		tt.AssertEqual(parseStr(SeqRight(digit, lower).(Parser), "6efg"),
+		tt.AssertEqual(parseStr(SeqRight(digit, lower).(Parsec), "6efg"),
 			PState{input: "fg", pos: 2, value: u8.Text("e"), ok: true})
-		tt.AssertEqual(parseStr(SeqRight(digit, lower, lower).(Parser), "6efg"),
+		tt.AssertEqual(parseStr(SeqRight(digit, lower, lower).(Parsec), "6efg"),
 			PState{input: "g", pos: 3, value: u8.Text("f"), ok: true})
 	})
 }
@@ -406,68 +406,68 @@ func TestAsk(t *testing.T) {
 		//Try...
 		tt.AssertEqual(parseStr(Try(letter), ";efg"),
 			PState{input: ";efg", empty: true, error: "Unexpected ; input. Expecting letter"})
-		pp2 := Bind(digit, func(c1 interface{}) Parser {
-			return Bind(lower, func(c2 interface{}) Parser {
+		pp2 := Bind(digit, func(c1 interface{}) Parsec {
+			return Bind(lower, func(c2 interface{}) Parsec {
 				return Return([]interface{}{c1, c2})
 			})
 		})
 		tt.AssertEqual(parseStr(Try(pp2), "67fg"),
 			PState{input: "67fg", empty: true, error: "Unexpected 7 input. Expecting lower"})
-		tt.AssertEqual(parseStr(Try(SeqRight(digit, lower).(Parser)), "66efg"),
+		tt.AssertEqual(parseStr(Try(SeqRight(digit, lower).(Parsec)), "66efg"),
 			PState{input: "66efg", empty: true, error: "Unexpected 6 input. Expecting lower"})
 
 		//NotFollowedBy...
-		tt.AssertEqual(parseStr(SeqLeft(digit, NotFollowedBy(letter)).(Parser), "66efg"),
+		tt.AssertEqual(parseStr(SeqLeft(digit, NotFollowedBy(letter)).(Parsec), "66efg"),
 			PState{input: "6efg", pos: 1, value: u8.Text("6"), ok: true})
-		tt.AssertEqual(parseStr(SeqRight(digit, NotFollowedBy(letter)).(Parser), "66efg"),
+		tt.AssertEqual(parseStr(SeqRight(digit, NotFollowedBy(letter)).(Parsec), "66efg"),
 			PState{input: "6efg", pos: 1, ok: true})
-		tt.AssertEqual(parseStr(SeqLeft(digit, NotFollowedBy(digit)).(Parser), "66efg"),
+		tt.AssertEqual(parseStr(SeqLeft(digit, NotFollowedBy(digit)).(Parsec), "66efg"),
 			PState{input: "6efg", pos: 1, error: errParsFail})
-		tt.AssertEqual(parseStr(Try(SeqLeft(digit, NotFollowedBy(digit)).(Parser)), "66efg"),
+		tt.AssertEqual(parseStr(Try(SeqLeft(digit, NotFollowedBy(digit)).(Parsec)), "66efg"),
 			PState{input: "66efg", empty: true, error: errParsFail})
 
-		//Alt...
-		tt.AssertEqual(parseStr(Alt(digit, letter).(Parser), "defg"),
+		//AltParse...
+		tt.AssertEqual(parseStr(AltParse(digit, letter).(Parsec), "defg"),
 			PState{input: "efg", pos: 1, value: u8.Text("d"), ok: true})
-		tt.AssertEqual(parseStr(Alt(digit, letter).(Parser), "6efg"),
+		tt.AssertEqual(parseStr(AltParse(digit, letter).(Parsec), "6efg"),
 			PState{input: "efg", pos: 1, value: u8.Text("6"), ok: true})
-		tt.AssertEqual(parseStr(Alt(digit, letter).(Parser), ";efg"),
+		tt.AssertEqual(parseStr(AltParse(digit, letter).(Parsec), ";efg"),
 			PState{input: ";efg", empty: true, error: errNoAlts})
 
-		tt.AssertEqual(parseStr(Alt(letter).(Parser), "defg"),
+		tt.AssertEqual(parseStr(AltParse(letter).(Parsec), "defg"),
 			PState{input: "efg", pos: 1, value: u8.Text("d"), ok: true})
-		tt.AssertEqual(parseStr(Alt(letter).(Parser), ";efg"),
+		tt.AssertEqual(parseStr(AltParse(letter).(Parsec), ";efg"),
 			PState{input: ";efg", empty: true, error: "Unexpected ; input. Expecting letter"})
 
-		tt.AssertEqual(parseStr(Alt().(Parser), "defg"),
+		tt.AssertEqual(parseStr(AltParse().(Parsec), "defg"),
 			PState{input: "defg", empty: true, error: errNoParser})
 
-		tt.AssertEqual(parseStr(Alt(digit, upper, lower).(Parser), "defg"),
+		tt.AssertEqual(parseStr(AltParse(digit, upper, lower).(Parsec), "defg"),
 			PState{input: "efg", pos: 1, value: u8.Text("d"), ok: true})
-		tt.AssertEqual(parseStr(Alt(digit, upper, lower).(Parser), "6efg"),
+		tt.AssertEqual(parseStr(AltParse(digit, upper, lower).(Parsec), "6efg"),
 			PState{input: "efg", pos: 1, value: u8.Text("6"), ok: true})
-		tt.AssertEqual(parseStr(Alt(digit, upper, lower).(Parser), "Defg"),
+		tt.AssertEqual(parseStr(AltParse(digit, upper, lower).(Parsec), "Defg"),
 			PState{input: "efg", pos: 1, value: u8.Text("D"), ok: true})
-		tt.AssertEqual(parseStr(Alt(digit, upper, lower).(Parser), ";efg"),
+		tt.AssertEqual(parseStr(AltParse(digit, upper, lower).(Parsec), ";efg"),
 			PState{input: ";efg", pos: 0, empty: true, error: errNoAlts})
 
 		//Bind, SeqLeft, SeqRight... (#18)
-		p1 := Bind(digit, func(c interface{}) Parser {
+		p1 := Bind(digit, func(c interface{}) Parsec {
 			return lower
 		})
 		tt.AssertEqual(parseStr(p1, "6efg"), PState{input: "fg", pos: 2, value: u8.Text("e"), ok: true})
 
-		p2 := Bind(singleDigit, func(c1 interface{}) Parser {
-			return Bind(singleLower, func(c2 interface{}) Parser {
+		p2 := Bind(singleDigit, func(c1 interface{}) Parsec {
+			return Bind(singleLower, func(c2 interface{}) Parsec {
 				return Return([]interface{}{c1, c2})
 			})
 		})
 		tt.AssertEqual(parseStr(p2, "6efg"), PState{input: "fg", pos: 2, value: arrCp('6', 'e'), ok: true})
 		tt.AssertEqual(parseStr(p2, "67fg"), PState{input: "7fg", pos: 1, error: "Unexpected 7 input. Expecting single lower"})
 
-		p3 := Bind(singleDigit, func(c1 interface{}) Parser {
-			return Bind(singleLower, func(c2 interface{}) Parser {
-				return Bind(singleUpper, func(c3 interface{}) Parser {
+		p3 := Bind(singleDigit, func(c1 interface{}) Parsec {
+			return Bind(singleLower, func(c2 interface{}) Parsec {
+				return Bind(singleUpper, func(c3 interface{}) Parsec {
 					return Return([]interface{}{c1, c2, c3})
 				})
 			})
@@ -475,36 +475,36 @@ func TestAsk(t *testing.T) {
 		tt.AssertEqual(parseStr(p3, "6eFghij"),
 			PState{input: "ghij", pos: 3, value: arrCp('6', 'e', 'F'), ok: true})
 
-		tt.AssertEqual(parseStr(SeqLeft().(Parser), "6efg"),
+		tt.AssertEqual(parseStr(SeqLeft().(Parsec), "6efg"),
 			PState{input: "6efg", empty: true, error: errNoParser})
-		tt.AssertEqual(parseStr(SeqLeft(digit).(Parser), "efg"),
+		tt.AssertEqual(parseStr(SeqLeft(digit).(Parsec), "efg"),
 			PState{input: "efg", empty: true, error: "Unexpected e input. Expecting digit"})
-		tt.AssertEqual(parseStr(SeqLeft(digit).(Parser), "6efg"),
+		tt.AssertEqual(parseStr(SeqLeft(digit).(Parsec), "6efg"),
 			PState{input: "efg", pos: 1, value: u8.Text("6"), ok: true})
-		tt.AssertEqual(parseStr(SeqLeft(digit, lower).(Parser), "efg"),
+		tt.AssertEqual(parseStr(SeqLeft(digit, lower).(Parsec), "efg"),
 			PState{input: "efg", empty: true, error: "Unexpected e input. Expecting digit"})
-		tt.AssertEqual(parseStr(SeqLeft(digit, lower).(Parser), "66efg"),
+		tt.AssertEqual(parseStr(SeqLeft(digit, lower).(Parsec), "66efg"),
 			PState{input: "6efg", pos: 1, error: "Unexpected 6 input. Expecting lower"})
-		tt.AssertEqual(parseStr(SeqLeft(digit, lower).(Parser), "6efg"),
+		tt.AssertEqual(parseStr(SeqLeft(digit, lower).(Parsec), "6efg"),
 			PState{input: "fg", pos: 2, value: u8.Text("6"), ok: true})
-		tt.AssertEqual(parseStr(SeqLeft(intNum, lower).(Parser), "678efg"),
+		tt.AssertEqual(parseStr(SeqLeft(intNum, lower).(Parsec), "678efg"),
 			PState{input: "fg", pos: 4, value: u8.Text("678"), ok: true})
-		tt.AssertEqual(parseStr(SeqLeft(digit, lower, lower).(Parser), "6efg"),
+		tt.AssertEqual(parseStr(SeqLeft(digit, lower, lower).(Parsec), "6efg"),
 			PState{input: "g", pos: 3, value: u8.Text("6"), ok: true})
 
-		tt.AssertEqual(parseStr(SeqRight().(Parser), "6efg"),
+		tt.AssertEqual(parseStr(SeqRight().(Parsec), "6efg"),
 			PState{input: "6efg", empty: true, error: errNoParser})
-		tt.AssertEqual(parseStr(SeqRight(digit).(Parser), "efg"),
+		tt.AssertEqual(parseStr(SeqRight(digit).(Parsec), "efg"),
 			PState{input: "efg", empty: true, error: "Unexpected e input. Expecting digit"})
-		tt.AssertEqual(parseStr(SeqRight(digit).(Parser), "6efg"),
+		tt.AssertEqual(parseStr(SeqRight(digit).(Parsec), "6efg"),
 			PState{input: "efg", pos: 1, value: u8.Text("6"), ok: true})
-		tt.AssertEqual(parseStr(SeqRight(digit, lower).(Parser), "efg"),
+		tt.AssertEqual(parseStr(SeqRight(digit, lower).(Parsec), "efg"),
 			PState{input: "efg", empty: true, error: "Unexpected e input. Expecting digit"})
-		tt.AssertEqual(parseStr(SeqRight(digit, lower).(Parser), "66efg"),
+		tt.AssertEqual(parseStr(SeqRight(digit, lower).(Parsec), "66efg"),
 			PState{input: "6efg", pos: 1, error: "Unexpected 6 input. Expecting lower"})
-		tt.AssertEqual(parseStr(SeqRight(digit, lower).(Parser), "6efg"),
+		tt.AssertEqual(parseStr(SeqRight(digit, lower).(Parsec), "6efg"),
 			PState{input: "fg", pos: 2, value: u8.Text("e"), ok: true})
-		tt.AssertEqual(parseStr(SeqRight(digit, lower, lower).(Parser), "6efg"),
+		tt.AssertEqual(parseStr(SeqRight(digit, lower, lower).(Parsec), "6efg"),
 			PState{input: "g", pos: 3, value: u8.Text("f"), ok: true})
 	})
 }
@@ -572,7 +572,7 @@ func TestCollectEtc(t *testing.T) {
 			PState{input: "", pos: 2, value: u8.Text("-1"), ok: true})
 		tt.AssertEqual(parseStr(Flatten(Token(u8.Text("-")), digit, Token(u8.Text(";"))), "-1;"),
 			PState{input: "", pos: 3, value: u8.Text("-1;"), ok: true})
-		tt.AssertEqual(parseStr(Flatten(letter, SeqRight(Token(u8.Text("|")), letter).(Parser), SeqRight(Token(u8.Text("|")), digit).(Parser)), "X|Y|9"),
+		tt.AssertEqual(parseStr(Flatten(letter, SeqRight(Token(u8.Text("|")), letter).(Parsec), SeqRight(Token(u8.Text("|")), digit).(Parsec)), "X|Y|9"),
 			PState{input: "", pos: 5, value: u8.Text("XY9"), ok: true})
 		tt.AssertEqual(parseStr(Flatten(Collect(letter, letter, letter), Collect(digit, digit, digit)), "ABC012"),
 			PState{input: "", pos: 6, value: u8.Text("ABC012"), ok: true})
@@ -640,11 +640,11 @@ func TestTimes(t *testing.T) {
 
 		tt.AssertEqual(parseStr(Times(0, digit), "0*"),
 			PState{input: "0*", pos: 0, value: []interface{}{}, ok: true, empty: true})
-		tt.AssertEqual(parseStr(Times(3, SeqRight(AnyChar, letter).(Parser)), "*a@b$c"),
+		tt.AssertEqual(parseStr(Times(3, SeqRight(AnyChar, letter).(Parsec)), "*a@b$c"),
 			PState{input: "", pos: 6, value: arrText("a", "b", "c"), ok: true, empty: false})
-		tt.AssertEqual(parseStr(Times(3, SeqRight(AnyChar, letter).(Parser)), "*a@b$c"),
+		tt.AssertEqual(parseStr(Times(3, SeqRight(AnyChar, letter).(Parsec)), "*a@b$c"),
 			PState{input: "", pos: 6, value: arrText("a", "b", "c"), ok: true, empty: false})
-		tt.AssertEqual(parseStr(Times(3, SeqRight(AnyChar, letter).(Parser)), "*a@b$$"),
+		tt.AssertEqual(parseStr(Times(3, SeqRight(AnyChar, letter).(Parsec)), "*a@b$$"),
 			PState{input: "$", pos: 5, value: nil, ok: false, empty: false, error: "Unexpected $ input."})
 	})
 }
@@ -661,15 +661,15 @@ func TestManyTill(t *testing.T) {
 			PState{input: "", pos: 5, value: arrText("1", "2", "3", "4"), ok: true})
 		tt.AssertEqual(parseStr(ManyTill(digit, letter), "A*"),
 			PState{input: "*", pos: 1, value: []interface{}{}, ok: true})
-		tt.AssertEqual(parseStr(SeqRight(Token(u8.Text("<!--")), ManyTill(AnyChar, Try(Token(u8.Text("-->"))))).(Parser), "<!-- -->"),
+		tt.AssertEqual(parseStr(SeqRight(Token(u8.Text("<!--")), ManyTill(AnyChar, Try(Token(u8.Text("-->"))))).(Parsec), "<!-- -->"),
 			PState{input: "", pos: 8, value: arrCp(' '), ok: true})
-		tt.AssertEqual(parseStr(SeqRight(Token(u8.Text("<!--")), ManyTill(AnyChar, Try(Token(u8.Text("-->"))))).(Parser), "<!--foo-->"),
+		tt.AssertEqual(parseStr(SeqRight(Token(u8.Text("<!--")), ManyTill(AnyChar, Try(Token(u8.Text("-->"))))).(Parsec), "<!--foo-->"),
 			PState{input: "", pos: 10, value: arrCp('f', 'o', 'o'), ok: true})
 		tt.AssertEqual(parseStr(ManyTill(digit, letter), "*A"),
 			PState{input: "*A", pos: 0, value: nil, empty: true, error: errNoAlts})
 		tt.AssertEqual(parseStr(ManyTill(digit, letter), "123*A"),
 			PState{input: "*A", pos: 3, value: nil, error: errNoAlts})
-		tt.AssertEqual(parseStr(ManyTill(digit, SeqRight(upper, Token(u8.Text("X"))).(Parser)), "123A*"),
+		tt.AssertEqual(parseStr(ManyTill(digit, SeqRight(upper, Token(u8.Text("X"))).(Parsec)), "123A*"),
 			PState{input: "*", pos: 4, value: nil, error: errNoAlts})
 	})
 }
@@ -871,7 +871,7 @@ func TestSkip(t *testing.T) {
 			PState{input: "*", pos: 11, value: nil, ok: true})
 		tt.AssertEqual(parseStr(SkipMany(Collect(digit, lower)), "0x1y2z*"),
 			PState{input: "*", pos: 6, value: nil, ok: true})
-		tt.AssertEqual(parseStr(SeqRight(SkipMany(Optional(digit)), Token(u8.Desur("*"))).(Parser), "0123456789*"),
+		tt.AssertEqual(parseStr(SeqRight(SkipMany(Optional(digit)), Token(u8.Desur("*"))).(Parsec), "0123456789*"),
 			PState{input: "", pos: 11, value: u8.Text("*"), ok: true})
 
 		tt.AssertEqual(parseStr(SkipMany1(letter), "*"),
@@ -884,7 +884,7 @@ func TestSkip(t *testing.T) {
 			PState{input: "*", pos: 11, value: nil, ok: true})
 		tt.AssertEqual(parseStr(SkipMany1(Collect(digit, lower)), "0x1y2z*"),
 			PState{input: "*", pos: 6, value: nil, ok: true})
-		tt.AssertEqual(parseStr(SeqRight(SkipMany1(Optional(digit)), Token(u8.Desur("*"))).(Parser), "0123456789*"),
+		tt.AssertEqual(parseStr(SeqRight(SkipMany1(Optional(digit)), Token(u8.Desur("*"))).(Parsec), "0123456789*"),
 			PState{input: "", pos: 11, value: u8.Text("*"), ok: true})
 	})
 }
@@ -902,7 +902,7 @@ func TestLookAheads(t *testing.T) {
 			PState{input: "YYZ", pos: 0, value: []interface{}{}, ok: true, empty: true})
 		tt.AssertEqual(parseStr(LookAhead(digit), "*"),
 			PState{input: "*", pos: 0, value: nil, ok: true, empty: true, error: ""})
-		tt.AssertEqual(parseStr(LookAhead(SeqRight(letter, digit).(Parser)), "A*"),
+		tt.AssertEqual(parseStr(LookAhead(SeqRight(letter, digit).(Parsec)), "A*"),
 			PState{input: "A*", pos: 0, value: nil, ok: true, empty: true, error: ""})
 
 		tt.AssertEqual(parseStr(Predict(Token(u8.Text("="))), "=10"),
@@ -925,7 +925,7 @@ func TestSearch(t *testing.T) {
 			PState{input: " dollars", pos: 13, value: u8.Text("20"), ok: true})
 		tt.AssertEqual(parseStr(Many(Search(intNum)), "Now I have 20 dollars, or 2 tens."),
 			PState{input: "", pos: 33, value: arrText("20", "2"), ok: true})
-		tt.AssertEqual(parseStr(Many(Search(Alt(intNum, Token(u8.Text("dollars"))).(Parser))), "Now I have 20 dollars"),
+		tt.AssertEqual(parseStr(Many(Search(AltParse(intNum, Token(u8.Text("dollars"))).(Parsec))), "Now I have 20 dollars"),
 			PState{input: "", pos: 21, value: arrText("20", "dollars"), ok: true})
 	})
 }
@@ -942,8 +942,8 @@ func TestBindIdentity(t *testing.T) {
 			return len(cc) == 1 && unicode.IsLetter(cc[0])
 		})
 
-		var bindIdentity = func(q Parser) Parser {
-			return Bind(q, func(s interface{}) Parser {
+		var bindIdentity = func(q Parsec) Parsec {
+			return Bind(q, func(s interface{}) Parsec {
 				return Return(s)
 			})
 		}
@@ -967,47 +967,47 @@ func TestBindIdentity(t *testing.T) {
 			PState{input: ";efg", empty: true, error: makeUnexpInp(";")})
 
 		//Alts
-		tt.AssertEqual(parseStr(bindIdentity(Alt(digit, upper, lower).(Parser)), "6efg"),
+		tt.AssertEqual(parseStr(bindIdentity(AltParse(digit, upper, lower).(Parsec)), "6efg"),
 			PState{input: "efg", pos: 1, value: u8.Text("6"), ok: true})
-		tt.AssertEqual(parseStr(bindIdentity(Alt(digit, upper, lower).(Parser)), "Defg"),
+		tt.AssertEqual(parseStr(bindIdentity(AltParse(digit, upper, lower).(Parsec)), "Defg"),
 			PState{input: "efg", pos: 1, value: u8.Text("D"), ok: true})
-		tt.AssertEqual(parseStr(bindIdentity(Alt(digit, upper, lower).(Parser)), ";efg"),
+		tt.AssertEqual(parseStr(bindIdentity(AltParse(digit, upper, lower).(Parsec)), ";efg"),
 			PState{input: ";efg", empty: true, error: errNoAlts})
 
 		//Seqs
-		p3 := Bind(digit, func(c1 interface{}) Parser {
-			return Bind(lower, func(c2 interface{}) Parser {
-				return Bind(upper, func(c3 interface{}) Parser {
+		p3 := Bind(digit, func(c1 interface{}) Parsec {
+			return Bind(lower, func(c2 interface{}) Parsec {
+				return Bind(upper, func(c3 interface{}) Parsec {
 					return Return([]interface{}{c1, c2, c3})
 				})
 			})
 		})
 		tt.AssertEqual(parseStr(bindIdentity(p3), "6eFghij"),
 			PState{input: "ghij", pos: 3, value: arrText("6", "e", "F"), ok: true})
-		tt.AssertEqual(parseStr(bindIdentity(SeqRight(digit, lower, lower).(Parser)), "6efg"),
+		tt.AssertEqual(parseStr(bindIdentity(SeqRight(digit, lower, lower).(Parsec)), "6efg"),
 			PState{input: "g", pos: 3, value: u8.Text("f"), ok: true})
-		tt.AssertEqual(parseStr(bindIdentity(SeqLeft(digit, lower, lower).(Parser)), "6efg"),
+		tt.AssertEqual(parseStr(bindIdentity(SeqLeft(digit, lower, lower).(Parsec)), "6efg"),
 			PState{input: "g", pos: 3, value: u8.Text("6"), ok: true})
 
 		//Try
-		p2 := Bind(digit, func(c1 interface{}) Parser {
-			return Bind(lower, func(c2 interface{}) Parser {
+		p2 := Bind(digit, func(c1 interface{}) Parsec {
+			return Bind(lower, func(c2 interface{}) Parsec {
 				return Return([]interface{}{c1, c2})
 			})
 		})
 		tt.AssertEqual(parseStr(bindIdentity(Try(p2)), "67fg"),
 			PState{input: "67fg", empty: true, error: makeUnexpInp("7")})
-		tt.AssertEqual(parseStr(bindIdentity(Try(SeqRight(digit, lower).(Parser))), "67efg"),
+		tt.AssertEqual(parseStr(bindIdentity(Try(SeqRight(digit, lower).(Parsec))), "67efg"),
 			PState{input: "67efg", empty: true, error: makeUnexpInp("7")}) //TODO: pos and error don't sync up
 
 		//NotFollowedBy
-		tt.AssertEqual(parseStr(bindIdentity(SeqLeft(digit, NotFollowedBy(letter)).(Parser)), "66efg"),
+		tt.AssertEqual(parseStr(bindIdentity(SeqLeft(digit, NotFollowedBy(letter)).(Parsec)), "66efg"),
 			PState{input: "6efg", pos: 1, value: u8.Text("6"), ok: true})
-		tt.AssertEqual(parseStr(bindIdentity(SeqRight(digit, NotFollowedBy(letter)).(Parser)), "66efg"),
+		tt.AssertEqual(parseStr(bindIdentity(SeqRight(digit, NotFollowedBy(letter)).(Parsec)), "66efg"),
 			PState{input: "6efg", pos: 1, ok: true})
-		tt.AssertEqual(parseStr(bindIdentity(SeqLeft(digit, NotFollowedBy(digit)).(Parser)), "66efg"),
+		tt.AssertEqual(parseStr(bindIdentity(SeqLeft(digit, NotFollowedBy(digit)).(Parsec)), "66efg"),
 			PState{input: "6efg", pos: 1, error: errParsFail})
-		tt.AssertEqual(parseStr(bindIdentity(Try(SeqLeft(digit, NotFollowedBy(digit)).(Parser))), "66efg"),
+		tt.AssertEqual(parseStr(bindIdentity(Try(SeqLeft(digit, NotFollowedBy(digit)).(Parsec))), "66efg"),
 			PState{input: "66efg", empty: true, error: errParsFail})
 
 		//Eof
@@ -1060,7 +1060,7 @@ func TestBindIdentity(t *testing.T) {
 		increment := func(n interface{}, _ ...interface{}) interface{} { return n.(int) + 1 }
 		p4 := SeqRight(
 			SeqRight(PutState(21),
-				Bind(AnyChar, func(x interface{}) (p Parser) {
+				Bind(AnyChar, func(x interface{}) (p Parsec) {
 					if x.(u8.Codepoint) == u8.Codepoint('\n') {
 						return ModifyState(increment)
 					} else {
@@ -1068,11 +1068,11 @@ func TestBindIdentity(t *testing.T) {
 					}
 				})),
 			GetState)
-		tt.AssertEqual(parseStr(bindIdentity(p4.(Parser)), "\naa"),
+		tt.AssertEqual(parseStr(bindIdentity(p4.(Parsec)), "\naa"),
 			PState{input: "aa", pos: 1, value: 22, ok: true, user: 22})
-		tt.AssertEqual(parseStr(bindIdentity(p4.(Parser)), "aa\naa\na"),
+		tt.AssertEqual(parseStr(bindIdentity(p4.(Parsec)), "aa\naa\na"),
 			PState{input: "a\naa\na", pos: 1, value: 21, ok: true, user: 21})
-		tt.AssertEqual(parseStr(bindIdentity(SeqRight(p4, AnyChar).(Parser)), "\naa"),
+		tt.AssertEqual(parseStr(bindIdentity(SeqRight(p4, AnyChar).(Parsec)), "\naa"),
 			PState{input: "a", pos: 2, value: u8.Codepoint('a'), user: 22, ok: true})
 	})
 }

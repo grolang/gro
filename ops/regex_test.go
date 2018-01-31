@@ -10,9 +10,12 @@ import (
 	"testing"
 
 	"github.com/grolang/gro/ops"
-	"github.com/grolang/gro/parsec"
 	u8 "github.com/grolang/gro/utf88"
 )
+
+func newPosIntRange(from, to interface{}) ops.PosIntRange {
+	return ops.NewPair(from, to)
+}
 
 func validateRegex(t *testing.T, b interface{}) {
 	if nb, isCharClass := b.(ops.CharClass); isCharClass {
@@ -166,37 +169,37 @@ func TestRunex(t *testing.T) {
 //================================================================================
 func TestRegexRepeat(t *testing.T) {
 	for _, n := range []struct{ a, b interface{} }{
-		{ops.RegexRepeat(ops.Runex("a"), ops.NewPosIntRange(ops.Int(0), ops.Inf), false), ops.Regex(`a*`)},
-		{ops.RegexRepeat(ops.Runex("a-z"), ops.NewPosIntRange(ops.Int(0), ops.Inf), false), ops.Regex(`[a-z]*`)},
-		{ops.RegexRepeat(u8.Text("abc"), ops.NewPosIntRange(ops.Int(0), ops.Inf), false), ops.Regex(`(?:\Qabc\E)*`)},
-		{ops.RegexRepeat(ops.Regex("a|b"), ops.NewPosIntRange(ops.Int(0), ops.Inf), false), ops.Regex(`(?:a|b)*`)},
+		{ops.RegexRepeat(ops.Runex("a"), newPosIntRange(ops.Int(0), ops.Inf), false), ops.Regex(`a*`)},
+		{ops.RegexRepeat(ops.Runex("a-z"), newPosIntRange(ops.Int(0), ops.Inf), false), ops.Regex(`[a-z]*`)},
+		{ops.RegexRepeat(u8.Text("abc"), newPosIntRange(ops.Int(0), ops.Inf), false), ops.Regex(`(?:\Qabc\E)*`)},
+		{ops.RegexRepeat(ops.Regex("a|b"), newPosIntRange(ops.Int(0), ops.Inf), false), ops.Regex(`(?:a|b)*`)},
 
-		{ops.RegexRepeat(ops.Runex("a"), ops.NewPosIntRange(ops.Int(0), ops.Inf), true), ops.Regex(`a*?`)},
-		{ops.RegexRepeat(ops.Runex("a-z"), ops.NewPosIntRange(ops.Int(0), ops.Inf), true), ops.Regex(`[a-z]*?`)},
-		{ops.RegexRepeat(u8.Text("abc"), ops.NewPosIntRange(ops.Int(0), ops.Inf), true), ops.Regex(`(?:\Qabc\E)*?`)},
-		{ops.RegexRepeat(ops.Regex("a|b"), ops.NewPosIntRange(ops.Int(0), ops.Inf), true), ops.Regex(`(?:a|b)*?`)},
-
-		//--------------------------------------------------------------------------------
-		{ops.RegexRepeat(ops.Runex("a"), ops.NewPosIntRange(ops.Int(1), ops.Inf), false), ops.Regex(`a+`)},
-		{ops.RegexRepeat(ops.Runex("a-z"), ops.NewPosIntRange(ops.Int(1), ops.Inf), false), ops.Regex(`[a-z]+`)},
-		{ops.RegexRepeat(u8.Text("abc"), ops.NewPosIntRange(ops.Int(1), ops.Inf), false), ops.Regex(`(?:\Qabc\E)+`)},
-		{ops.RegexRepeat(ops.Regex("a|b"), ops.NewPosIntRange(ops.Int(1), ops.Inf), false), ops.Regex(`(?:a|b)+`)},
-
-		{ops.RegexRepeat(ops.Runex("a"), ops.NewPosIntRange(ops.Int(1), ops.Inf), true), ops.Regex(`a+?`)},
-		{ops.RegexRepeat(ops.Runex("a-z"), ops.NewPosIntRange(ops.Int(1), ops.Inf), true), ops.Regex(`[a-z]+?`)},
-		{ops.RegexRepeat(u8.Text("abc"), ops.NewPosIntRange(ops.Int(1), ops.Inf), true), ops.Regex(`(?:\Qabc\E)+?`)},
-		{ops.RegexRepeat(ops.Regex("a|b"), ops.NewPosIntRange(ops.Int(1), ops.Inf), true), ops.Regex(`(?:a|b)+?`)},
+		{ops.RegexRepeat(ops.Runex("a"), newPosIntRange(ops.Int(0), ops.Inf), true), ops.Regex(`a*?`)},
+		{ops.RegexRepeat(ops.Runex("a-z"), newPosIntRange(ops.Int(0), ops.Inf), true), ops.Regex(`[a-z]*?`)},
+		{ops.RegexRepeat(u8.Text("abc"), newPosIntRange(ops.Int(0), ops.Inf), true), ops.Regex(`(?:\Qabc\E)*?`)},
+		{ops.RegexRepeat(ops.Regex("a|b"), newPosIntRange(ops.Int(0), ops.Inf), true), ops.Regex(`(?:a|b)*?`)},
 
 		//--------------------------------------------------------------------------------
-		{ops.RegexRepeat(ops.Runex("a"), ops.NewPosIntRange(ops.Int(0), ops.Int(1)), false), ops.Regex(`a?`)},
-		{ops.RegexRepeat(ops.Runex("a-z"), ops.NewPosIntRange(ops.Int(0), ops.Int(1)), false), ops.Regex(`[a-z]?`)},
-		{ops.RegexRepeat(u8.Text("abc"), ops.NewPosIntRange(ops.Int(0), ops.Int(1)), false), ops.Regex(`(?:\Qabc\E)?`)},
-		{ops.RegexRepeat(ops.Regex("a|b"), ops.NewPosIntRange(ops.Int(0), ops.Int(1)), false), ops.Regex(`(?:a|b)?`)},
+		{ops.RegexRepeat(ops.Runex("a"), newPosIntRange(ops.Int(1), ops.Inf), false), ops.Regex(`a+`)},
+		{ops.RegexRepeat(ops.Runex("a-z"), newPosIntRange(ops.Int(1), ops.Inf), false), ops.Regex(`[a-z]+`)},
+		{ops.RegexRepeat(u8.Text("abc"), newPosIntRange(ops.Int(1), ops.Inf), false), ops.Regex(`(?:\Qabc\E)+`)},
+		{ops.RegexRepeat(ops.Regex("a|b"), newPosIntRange(ops.Int(1), ops.Inf), false), ops.Regex(`(?:a|b)+`)},
 
-		{ops.RegexRepeat(ops.Runex("a"), ops.NewPosIntRange(ops.Int(0), ops.Int(1)), true), ops.Regex(`a??`)},
-		{ops.RegexRepeat(ops.Runex("a-z"), ops.NewPosIntRange(ops.Int(0), ops.Int(1)), true), ops.Regex(`[a-z]??`)},
-		{ops.RegexRepeat(u8.Text("abc"), ops.NewPosIntRange(ops.Int(0), ops.Int(1)), true), ops.Regex(`(?:\Qabc\E)??`)},
-		{ops.RegexRepeat(ops.Regex("a|b"), ops.NewPosIntRange(ops.Int(0), ops.Int(1)), true), ops.Regex(`(?:a|b)??`)},
+		{ops.RegexRepeat(ops.Runex("a"), newPosIntRange(ops.Int(1), ops.Inf), true), ops.Regex(`a+?`)},
+		{ops.RegexRepeat(ops.Runex("a-z"), newPosIntRange(ops.Int(1), ops.Inf), true), ops.Regex(`[a-z]+?`)},
+		{ops.RegexRepeat(u8.Text("abc"), newPosIntRange(ops.Int(1), ops.Inf), true), ops.Regex(`(?:\Qabc\E)+?`)},
+		{ops.RegexRepeat(ops.Regex("a|b"), newPosIntRange(ops.Int(1), ops.Inf), true), ops.Regex(`(?:a|b)+?`)},
+
+		//--------------------------------------------------------------------------------
+		{ops.RegexRepeat(ops.Runex("a"), newPosIntRange(ops.Int(0), ops.Int(1)), false), ops.Regex(`a?`)},
+		{ops.RegexRepeat(ops.Runex("a-z"), newPosIntRange(ops.Int(0), ops.Int(1)), false), ops.Regex(`[a-z]?`)},
+		{ops.RegexRepeat(u8.Text("abc"), newPosIntRange(ops.Int(0), ops.Int(1)), false), ops.Regex(`(?:\Qabc\E)?`)},
+		{ops.RegexRepeat(ops.Regex("a|b"), newPosIntRange(ops.Int(0), ops.Int(1)), false), ops.Regex(`(?:a|b)?`)},
+
+		{ops.RegexRepeat(ops.Runex("a"), newPosIntRange(ops.Int(0), ops.Int(1)), true), ops.Regex(`a??`)},
+		{ops.RegexRepeat(ops.Runex("a-z"), newPosIntRange(ops.Int(0), ops.Int(1)), true), ops.Regex(`[a-z]??`)},
+		{ops.RegexRepeat(u8.Text("abc"), newPosIntRange(ops.Int(0), ops.Int(1)), true), ops.Regex(`(?:\Qabc\E)??`)},
+		{ops.RegexRepeat(ops.Regex("a|b"), newPosIntRange(ops.Int(0), ops.Int(1)), true), ops.Regex(`(?:a|b)??`)},
 
 		//--------------------------------------------------------------------------------
 		{ops.RegexRepeat(ops.Runex("a"), ops.Int(2), false), ops.Regex(`a{2}`)},
@@ -209,37 +212,37 @@ func TestRegexRepeat(t *testing.T) {
 		{ops.RegexRepeat(u8.Text("abc"), ops.Int(2), true), ops.Regex(`(?:\Qabc\E){2}?`)},
 		{ops.RegexRepeat(ops.Regex("a|b"), ops.Int(2), true), ops.Regex(`(?:a|b){2}?`)},
 
-		{ops.RegexRepeat(ops.Runex("a"), ops.NewPosIntRange(ops.Int(2), ops.Int(2)), false), ops.Regex(`a{2}`)},
-		{ops.RegexRepeat(ops.Runex("a-z"), ops.NewPosIntRange(ops.Int(2), ops.Int(2)), false), ops.Regex(`[a-z]{2}`)},
-		{ops.RegexRepeat(u8.Text("abc"), ops.NewPosIntRange(ops.Int(2), ops.Int(2)), false), ops.Regex(`(?:\Qabc\E){2}`)},
-		{ops.RegexRepeat(ops.Regex("a|b"), ops.NewPosIntRange(ops.Int(2), ops.Int(2)), false), ops.Regex(`(?:a|b){2}`)},
+		{ops.RegexRepeat(ops.Runex("a"), newPosIntRange(ops.Int(2), ops.Int(2)), false), ops.Regex(`a{2}`)},
+		{ops.RegexRepeat(ops.Runex("a-z"), newPosIntRange(ops.Int(2), ops.Int(2)), false), ops.Regex(`[a-z]{2}`)},
+		{ops.RegexRepeat(u8.Text("abc"), newPosIntRange(ops.Int(2), ops.Int(2)), false), ops.Regex(`(?:\Qabc\E){2}`)},
+		{ops.RegexRepeat(ops.Regex("a|b"), newPosIntRange(ops.Int(2), ops.Int(2)), false), ops.Regex(`(?:a|b){2}`)},
 
-		{ops.RegexRepeat(ops.Runex("a"), ops.NewPosIntRange(ops.Int(2), ops.Int(2)), true), ops.Regex(`a{2}?`)},
-		{ops.RegexRepeat(ops.Runex("a-z"), ops.NewPosIntRange(ops.Int(2), ops.Int(2)), true), ops.Regex(`[a-z]{2}?`)},
-		{ops.RegexRepeat(u8.Text("abc"), ops.NewPosIntRange(ops.Int(2), ops.Int(2)), true), ops.Regex(`(?:\Qabc\E){2}?`)},
-		{ops.RegexRepeat(ops.Regex("a|b"), ops.NewPosIntRange(ops.Int(2), ops.Int(2)), true), ops.Regex(`(?:a|b){2}?`)},
-
-		//--------------------------------------------------------------------------------
-		{ops.RegexRepeat(ops.Runex("a"), ops.NewPosIntRange(ops.Int(2), ops.Inf), false), ops.Regex(`a{2,}`)},
-		{ops.RegexRepeat(ops.Runex("a-z"), ops.NewPosIntRange(ops.Int(2), ops.Inf), false), ops.Regex(`[a-z]{2,}`)},
-		{ops.RegexRepeat(u8.Text("abc"), ops.NewPosIntRange(ops.Int(2), ops.Inf), false), ops.Regex(`(?:\Qabc\E){2,}`)},
-		{ops.RegexRepeat(ops.Regex("a|b"), ops.NewPosIntRange(ops.Int(2), ops.Inf), false), ops.Regex(`(?:a|b){2,}`)},
-
-		{ops.RegexRepeat(ops.Runex("a"), ops.NewPosIntRange(ops.Int(2), ops.Inf), true), ops.Regex(`a{2,}?`)},
-		{ops.RegexRepeat(ops.Runex("a-z"), ops.NewPosIntRange(ops.Int(2), ops.Inf), true), ops.Regex(`[a-z]{2,}?`)},
-		{ops.RegexRepeat(u8.Text("abc"), ops.NewPosIntRange(ops.Int(2), ops.Inf), true), ops.Regex(`(?:\Qabc\E){2,}?`)},
-		{ops.RegexRepeat(ops.Regex("a|b"), ops.NewPosIntRange(ops.Int(2), ops.Inf), true), ops.Regex(`(?:a|b){2,}?`)},
+		{ops.RegexRepeat(ops.Runex("a"), newPosIntRange(ops.Int(2), ops.Int(2)), true), ops.Regex(`a{2}?`)},
+		{ops.RegexRepeat(ops.Runex("a-z"), newPosIntRange(ops.Int(2), ops.Int(2)), true), ops.Regex(`[a-z]{2}?`)},
+		{ops.RegexRepeat(u8.Text("abc"), newPosIntRange(ops.Int(2), ops.Int(2)), true), ops.Regex(`(?:\Qabc\E){2}?`)},
+		{ops.RegexRepeat(ops.Regex("a|b"), newPosIntRange(ops.Int(2), ops.Int(2)), true), ops.Regex(`(?:a|b){2}?`)},
 
 		//--------------------------------------------------------------------------------
-		{ops.RegexRepeat(ops.Runex("a"), ops.NewPosIntRange(ops.Int(2), ops.Int(3)), false), ops.Regex(`a{2,3}`)},
-		{ops.RegexRepeat(ops.Runex("a-z"), ops.NewPosIntRange(ops.Int(2), ops.Int(3)), false), ops.Regex(`[a-z]{2,3}`)},
-		{ops.RegexRepeat(u8.Text("abc"), ops.NewPosIntRange(ops.Int(2), ops.Int(3)), false), ops.Regex(`(?:\Qabc\E){2,3}`)},
-		{ops.RegexRepeat(ops.Regex("a|b"), ops.NewPosIntRange(ops.Int(2), ops.Int(3)), false), ops.Regex(`(?:a|b){2,3}`)},
+		{ops.RegexRepeat(ops.Runex("a"), newPosIntRange(ops.Int(2), ops.Inf), false), ops.Regex(`a{2,}`)},
+		{ops.RegexRepeat(ops.Runex("a-z"), newPosIntRange(ops.Int(2), ops.Inf), false), ops.Regex(`[a-z]{2,}`)},
+		{ops.RegexRepeat(u8.Text("abc"), newPosIntRange(ops.Int(2), ops.Inf), false), ops.Regex(`(?:\Qabc\E){2,}`)},
+		{ops.RegexRepeat(ops.Regex("a|b"), newPosIntRange(ops.Int(2), ops.Inf), false), ops.Regex(`(?:a|b){2,}`)},
 
-		{ops.RegexRepeat(ops.Runex("a"), ops.NewPosIntRange(ops.Int(2), ops.Int(3)), true), ops.Regex(`a{2,3}?`)},
-		{ops.RegexRepeat(ops.Runex("a-z"), ops.NewPosIntRange(ops.Int(2), ops.Int(3)), true), ops.Regex(`[a-z]{2,3}?`)},
-		{ops.RegexRepeat(u8.Text("abc"), ops.NewPosIntRange(ops.Int(2), ops.Int(3)), true), ops.Regex(`(?:\Qabc\E){2,3}?`)},
-		{ops.RegexRepeat(ops.Regex("a|b"), ops.NewPosIntRange(ops.Int(2), ops.Int(3)), true), ops.Regex(`(?:a|b){2,3}?`)},
+		{ops.RegexRepeat(ops.Runex("a"), newPosIntRange(ops.Int(2), ops.Inf), true), ops.Regex(`a{2,}?`)},
+		{ops.RegexRepeat(ops.Runex("a-z"), newPosIntRange(ops.Int(2), ops.Inf), true), ops.Regex(`[a-z]{2,}?`)},
+		{ops.RegexRepeat(u8.Text("abc"), newPosIntRange(ops.Int(2), ops.Inf), true), ops.Regex(`(?:\Qabc\E){2,}?`)},
+		{ops.RegexRepeat(ops.Regex("a|b"), newPosIntRange(ops.Int(2), ops.Inf), true), ops.Regex(`(?:a|b){2,}?`)},
+
+		//--------------------------------------------------------------------------------
+		{ops.RegexRepeat(ops.Runex("a"), newPosIntRange(ops.Int(2), ops.Int(3)), false), ops.Regex(`a{2,3}`)},
+		{ops.RegexRepeat(ops.Runex("a-z"), newPosIntRange(ops.Int(2), ops.Int(3)), false), ops.Regex(`[a-z]{2,3}`)},
+		{ops.RegexRepeat(u8.Text("abc"), newPosIntRange(ops.Int(2), ops.Int(3)), false), ops.Regex(`(?:\Qabc\E){2,3}`)},
+		{ops.RegexRepeat(ops.Regex("a|b"), newPosIntRange(ops.Int(2), ops.Int(3)), false), ops.Regex(`(?:a|b){2,3}`)},
+
+		{ops.RegexRepeat(ops.Runex("a"), newPosIntRange(ops.Int(2), ops.Int(3)), true), ops.Regex(`a{2,3}?`)},
+		{ops.RegexRepeat(ops.Runex("a-z"), newPosIntRange(ops.Int(2), ops.Int(3)), true), ops.Regex(`[a-z]{2,3}?`)},
+		{ops.RegexRepeat(u8.Text("abc"), newPosIntRange(ops.Int(2), ops.Int(3)), true), ops.Regex(`(?:\Qabc\E){2,3}?`)},
+		{ops.RegexRepeat(ops.Regex("a|b"), newPosIntRange(ops.Int(2), ops.Int(3)), true), ops.Regex(`(?:a|b){2,3}?`)},
 	} {
 		assertEqual(t, n.a, n.b)
 		validateRegex(t, n.b)
@@ -399,7 +402,7 @@ func TestRegexParenthesize(t *testing.T) {
 //================================================================================
 func TestRegexMisc(t *testing.T) {
 	pa := ops.ToParser(ops.Runex("a"))
-	_, _ = parsec.ParseItem(pa, u8.Text("abc"))
+	_, _ = ops.ParseItem(pa, u8.Text("abc"))
 
 }
 

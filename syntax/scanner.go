@@ -59,13 +59,15 @@ type scanner struct {
 	// current token, valid after calling next()
 	line, col uint
 	tok       nodes.Token
-	lit       string         // valid if tok is _Name, _Literal, or _Semi ("semicolon", "newline", or "EOF")
-	kind      nodes.LitKind  // valid if tok is _Literal
-	op        nodes.Operator // valid if tok is _Operator, _AssignOp, or _IncOp
-	prec      nodes.Prec     // valid if tok is _Operator, _AssignOp, or _IncOp
+	hash      bool           // valid if tok is NameT or a keyword
+	lit       string         // valid if tok is NameT, LiteralT, or SemiT ("semicolon", "newline", or "EOF")
+	kind      nodes.LitKind  // valid if tok is LiteralT
+	op        nodes.Operator // valid if tok is OperatorT, AssignOpT, or IncOpT
+	prec      nodes.Prec     // valid if tok is OperatorT, AssignOpT, or IncOpT
 
 	commentGroups [][]string
 	comments      []string
+	hashCmdMode   bool
 	dynamicMode   bool
 	dynCharSet    string
 }
@@ -77,6 +79,7 @@ func (s *scanner) init(src io.Reader, errh, pragh func(line, col uint, msg strin
 	s.source.init(src, errh)
 	s.pragh = pragh
 	s.nlsemi = false
+	s.hash = false
 }
 
 //--------------------------------------------------------------------------------
@@ -96,6 +99,7 @@ func (s *scanner) init(src io.Reader, errh, pragh func(line, col uint, msg strin
 func (s *scanner) Next() {
 	nlsemi := s.nlsemi
 	s.nlsemi = false
+	s.hash = false
 	s.commentGroups = nil
 	s.comments = []string{}
 
@@ -253,19 +257,18 @@ redo:
 		goto assignop
 
 	case '#':
-		if s.line != 1 || s.col != 1 {
-			s.error("#! not at first position")
-		}
 		c = s.getr()
-		if c != '!' {
-			s.error("# not followed by !")
+		if c == '!' {
+			r := s.getr()
+			s.startLit()
+			s.skipLine(r)
+			s.getr()
+			s.stopLit()
+			goto redo
+		} else {
+			s.ident()
+			s.hash = true
 		}
-		r := s.getr()
-		s.startLit()
-		s.skipLine(r)
-		s.getr()
-		s.stopLit()
-		goto redo
 
 	case '%':
 		s.op, s.prec = nodes.Rem, nodes.PrecMul

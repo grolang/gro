@@ -16,6 +16,22 @@ var (
 )
 
 //--------------------------------------------------------------------------------
+func InitGenerics(p nodes.GeneralParser, rets []string, args []string) {
+	if len(rets) > 1 {
+		p.SyntaxError("use \"generics\" has too many return values")
+		p.Advance(nodes.SemiT, nodes.RbraceT)
+		return
+	}
+	if len(args) > 1 {
+		p.SyntaxError("use \"generics\" has too many arguments")
+		p.Advance(nodes.SemiT, nodes.RbraceT)
+		return
+	}
+	p.SetPermit("genericCall")
+	p.SetPermit("genericDef")
+}
+
+//--------------------------------------------------------------------------------
 func InitDynamic(p nodes.GeneralParser, rets []string, args []string) {
 	if len(rets) > 1 {
 		p.SyntaxError("use \"dynamic\" has too many return values")

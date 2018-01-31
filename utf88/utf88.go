@@ -21,14 +21,12 @@ type (
 
 // String returns a string representation of the Codepoint between single quotes.
 func (r Codepoint) String() string {
-	return "'" + string(r) + "'"
+	return string(r)
 }
 
 // String returns a string representation of the Text.
 func (t Text) String() string {
 	return Surr(t)
-	//s := Surr(t)
-	//return "\"" + s + "\""
 }
 
 const (

@@ -9,6 +9,865 @@ import (
 )
 
 //================================================================================
+func TestHashCmds(t *testing.T) {
+	groTest(t, groTestData{
+		//--------------------------------------------------------------------------------
+		//hashbangs
+		{
+			num: 100,
+			fnm: "dud", // <--- no suffix is normal use case
+			src: `#!/usr/local/go/bin/gro
+package main
+func main(){
+	"fmt".Printf("\n")
+}
+`,
+
+			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+			prt: map[string]string{
+				"dud.go": `package main
+
+import (
+	fmt "fmt"
+)
+
+func main() {
+	fmt.Printf("\n")
+}
+`}},
+
+		//--------------------------------------------------------------------------------
+		{
+			num: 110,
+			fnm: "dud.gro",
+			src: `#unexpected name
+package main
+func main(){
+	"fmt".Printf("\n")
+}
+`,
+			err: "dud.gro:1:1: syntax error: unexpected name at top-level"},
+
+		//--------------------------------------------------------------------------------
+		//hash-cmds (both go-kw and gro-kw) incl #import, #const, #var, #type
+		{
+			num: 120,
+			fnm: "dud.grooy", // <---- ".grooy" extension for hash-cmds
+			src: `
+#project myproj
+package abc
+#import "fmt"
+#const const = 7890
+#const a = 789
+#var b = 123
+#var var = 1234
+#type (t = #int; u #string; range u )
+func run() {
+	fmt.Println("Hello, world!")
+	#const c, for = 777, 888
+	#var (d = "defg"; e ="hij")
+	#type v #struct{i, j, struct int}
+}`,
+
+			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+			prt: map[string]string{
+				"abc/abc.go": `package abc
+
+import (
+	groo "github.com/grolang/gro/ops"
+	_groo "github.com/grolang/gro/ops"
+)
+
+import _fmt "fmt"
+
+const _const = 7890
+const _a = 789
+
+var _b = 123
+var _var = 1234
+
+type (
+	_t = int
+	_u string
+	_range _u
+)
+
+func run() {
+	fmt.Println(groo.MakeText("Hello, world!"))
+	const _c, _for = 777, 888
+	var (
+		_d = _groo.MakeText("defg")
+		_e = _groo.MakeText("hij")
+	)
+	type _v struct {
+		_i, _j, _struct _int
+	}
+}
+
+type (
+	any = interface{}
+	void = struct{}
+)
+
+var inf = groo.Inf
+
+func init() {
+	groo.UseUtf88 = true
+}
+`}},
+
+		//--------------------------------------------------------------------------------
+		{
+			num: 121,
+			fnm: "dud.gro",
+			src: `
+package main
+const c, for = 777, 888
+func main(){
+	"fmt".Printf("\n")
+}
+`,
+			err: "dud.gro:3:10: syntax error: unexpected for, expecting name"},
+
+		//--------------------------------------------------------------------------------
+		//hash-cmds in combinations: #func, #proc, #do, #if, #else
+		{
+			num: 130,
+			fnm: "dud.grooy",
+			src: `#project myproj
+package abc
+#import fmt "fmt"
+
+	if 1==0 {do fmt.Println()}
+	if 1==0 {do fmt.Println()} else {do fmt.Println()}
+	if 1==0 {do fmt.Println()} #else {#do fmt.Println()}
+	#if 1==0 {#do fmt.Println()}
+	#if 1==0 {#do fmt.Println()} #else {#do fmt.Println()}
+
+	do if 1==0 {fmt.Println()}
+	do if 1==0 {fmt.Println()} else {fmt.Println()}
+	do if 1==0 {fmt.Println()} #else {fmt.Println()}
+	do #if 1==0 {fmt.Println()}
+	do #if 1==0 {fmt.Println()} #else {fmt.Println()}
+
+	#do #if 1==0 {fmt.Println()}
+	#do #if 1==0 {fmt.Println()} #else {fmt.Println()}
+	#do #if 1==0 {fmt.Println()}
+	#do #if 1==0 {fmt.Println()} #else {fmt.Println()}
+{
+	do if 1==0 {fmt.Println()}
+	do if 1==0 {fmt.Println()} else {fmt.Println()}
+	do if 1==0 {fmt.Println()} #else {fmt.Println()}
+	do #if 1==0 {fmt.Println()}
+	do #if 1==0 {fmt.Println()} #else {fmt.Println()}
+}
+{
+	#do #if 1==0 {fmt.Println()}
+	#do #if 1==0 {fmt.Println()} #else {fmt.Println()}
+}
+
+func run() {
+	fmt.Println("Hello, world!")
+	if 1==0 {fmt.Println()}
+	if 1==0 {fmt.Println()} else {fmt.Println()}
+	if 1==0 {fmt.Println()} #else {fmt.Println()}
+	#if 1==0 {fmt.Println()}
+	#if 1==0 {fmt.Println()} #else {fmt.Println()}
+}
+proc sim() {
+	do fmt.Println("Horray, world!")
+	do if 1==0 {fmt.Println()}
+	do if 1==0 {fmt.Println()} else {fmt.Println()}
+	do if 1==0 {fmt.Println()} #else {fmt.Println()}
+	do #if 1==0 {fmt.Println()}
+	do #if 1==0 {fmt.Println()} #else {fmt.Println()}
+}
+proc ted() {
+	#do fmt.Println("Horray, world!")
+	#do #if 1==0 {fmt.Println()}
+	#do #if 1==0 {fmt.Println()} #else {fmt.Println()}
+	#do #if 1==0 {fmt.Println()}
+	#do #if 1==0 {fmt.Println()} #else {fmt.Println()}
+}
+#func runner() {
+	fmt.Println("Hello, world!")
+	#if 1==0 {fmt.Println()}
+	#if 1==0 {fmt.Println()} #else {fmt.Println()}
+}
+#proc tedder() {
+	#do fmt.Println("Horray, world!")
+	#do #if 1==0 {fmt.Println()}
+	#do #if 1==0 {fmt.Println()} #else {fmt.Println()}
+}
+`,
+
+			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+			prt: map[string]string{
+				"abc/abc.go": `package abc
+
+import (
+	groo "github.com/grolang/gro/ops"
+	_groo "github.com/grolang/gro/ops"
+)
+
+import _fmt "fmt"
+
+func init() {
+	if groo.IsEqual(1, 0) {
+		fmt.Println()
+	}
+	if groo.IsEqual(1, 0) {
+		fmt.Println()
+	} else {
+		fmt.Println()
+	}
+	if groo.IsEqual(1, 0) {
+		fmt.Println()
+	} else {
+		_fmt.Println()
+	}
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	}
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	} else {
+		_fmt.Println()
+	}
+	if groo.IsEqual(1, 0) {
+		fmt.Println()
+	}
+	if groo.IsEqual(1, 0) {
+		fmt.Println()
+	} else {
+		fmt.Println()
+	}
+	if groo.IsEqual(1, 0) {
+		fmt.Println()
+	} else {
+		_fmt.Println()
+	}
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	}
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	} else {
+		_fmt.Println()
+	}
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	}
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	} else {
+		_fmt.Println()
+	}
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	}
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	} else {
+		_fmt.Println()
+	}
+	{
+		if groo.IsEqual(1, 0) {
+			fmt.Println()
+		}
+		if groo.IsEqual(1, 0) {
+			fmt.Println()
+		} else {
+			fmt.Println()
+		}
+		if groo.IsEqual(1, 0) {
+			fmt.Println()
+		} else {
+			_fmt.Println()
+		}
+		if _groo.IsEqual(1, 0) {
+			_fmt.Println()
+		}
+		if _groo.IsEqual(1, 0) {
+			_fmt.Println()
+		} else {
+			_fmt.Println()
+		}
+	}
+	{
+		if _groo.IsEqual(1, 0) {
+			_fmt.Println()
+		}
+		if _groo.IsEqual(1, 0) {
+			_fmt.Println()
+		} else {
+			_fmt.Println()
+		}
+	}
+}
+
+func run() {
+	fmt.Println(groo.MakeText("Hello, world!"))
+	if groo.IsEqual(1, 0) {
+		fmt.Println()
+	}
+	if groo.IsEqual(1, 0) {
+		fmt.Println()
+	} else {
+		fmt.Println()
+	}
+	if groo.IsEqual(1, 0) {
+		fmt.Println()
+	} else {
+		_fmt.Println()
+	}
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	}
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	} else {
+		_fmt.Println()
+	}
+}
+
+func sim() {
+	fmt.Println(groo.MakeText("Horray, world!"))
+	if groo.IsEqual(1, 0) {
+		fmt.Println()
+	}
+	if groo.IsEqual(1, 0) {
+		fmt.Println()
+	} else {
+		fmt.Println()
+	}
+	if groo.IsEqual(1, 0) {
+		fmt.Println()
+	} else {
+		_fmt.Println()
+	}
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	}
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	} else {
+		_fmt.Println()
+	}
+}
+
+func ted() {
+	_fmt.Println(_groo.MakeText("Horray, world!"))
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	}
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	} else {
+		_fmt.Println()
+	}
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	}
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	} else {
+		_fmt.Println()
+	}
+}
+
+func _runner() {
+	_fmt.Println(_groo.MakeText("Hello, world!"))
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	}
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	} else {
+		_fmt.Println()
+	}
+}
+
+func _tedder() {
+	_fmt.Println(_groo.MakeText("Horray, world!"))
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	}
+	if _groo.IsEqual(1, 0) {
+		_fmt.Println()
+	} else {
+		_fmt.Println()
+	}
+}
+
+type (
+	any = interface{}
+	void = struct{}
+)
+
+var inf = groo.Inf
+
+func init() {
+	groo.UseUtf88 = true
+}
+`}},
+
+		//--------------------------------------------------------------------------------
+		{
+			num: 131,
+			fnm: "dud.grooy",
+			src: `#project myproj
+package abc
+#import fmt "fmt"
+
+if 1==0 {do fmt.Println()} #else {do fmt.Println()}
+`,
+			err: "dud.grooy:5:35: syntax error: Keywords must be prepended with # within scope of other #-keywords"},
+
+		//--------------------------------------------------------------------------------
+		{
+			num: 132,
+			fnm: "dud.grooy",
+			src: `#project myproj
+package abc
+#import fmt "fmt"
+
+#do #if 1==0 {fmt.Println()} else {fmt.Println()}
+`,
+			err: "dud.grooy:5:30: syntax error: Keywords must be prepended with # within scope of other #-keywords"},
+
+		//--------------------------------------------------------------------------------
+		//hash-cmds in combinations: #for, #range, #continue, #goto
+		{
+			num: 140,
+			fnm: "dud.grooy",
+			src: `#project myproj
+package abc
+#import fmt "fmt"
+func run() {
+	fmt.Println("Hello, world!")
+	#goto sala
+	#for i:= 0; i<10; i++ {
+		fmt.Println("Goodbye, cruel world.")
+	}
+	#for n:= #range ns {
+		fmt.Println("Malah.")
+	}
+_sala:
+	for n:= #range ns {
+		fmt.Println("Malah.")
+		#continue sala
+	}
+	#for n:= #range ns {
+		fmt.Println("Malah.")
+	}
+}
+#for i:= 0; i<10; i++ {
+	#do fmt.Println("Goodbye, cruel world.")
+}
+#for n:= #range ns {
+	#do fmt.Println("Malah.")
+}
+for n:= #range ns {
+	do fmt.Println("Malah.")
+}
+#for n:= #range ns {
+	#do fmt.Println("Malah.")
+}
+`,
+
+			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+			prt: map[string]string{
+				"abc/abc.go": `package abc
+
+import (
+	groo "github.com/grolang/gro/ops"
+	_groo "github.com/grolang/gro/ops"
+)
+
+import _fmt "fmt"
+
+func run() {
+	fmt.Println(groo.MakeText("Hello, world!"))
+	goto _sala
+	for _i := 0; _groo.IsLessThan(_i, 10); _i++ {
+		_fmt.Println(_groo.MakeText("Goodbye, cruel world."))
+	}
+	for _n := range _ns {
+		_fmt.Println(_groo.MakeText("Malah."))
+	}
+_sala:
+	for n := range _ns {
+		fmt.Println(groo.MakeText("Malah."))
+		continue _sala
+	}
+	for _n := range _ns {
+		_fmt.Println(_groo.MakeText("Malah."))
+	}
+}
+
+func init() {
+	for _i := 0; _groo.IsLessThan(_i, 10); _i++ {
+		_fmt.Println(_groo.MakeText("Goodbye, cruel world."))
+	}
+	for _n := range _ns {
+		_fmt.Println(_groo.MakeText("Malah."))
+	}
+	for n := range _ns {
+		fmt.Println(groo.MakeText("Malah."))
+	}
+	for _n := range _ns {
+		_fmt.Println(_groo.MakeText("Malah."))
+	}
+}
+
+type (
+	any = interface{}
+	void = struct{}
+)
+
+var inf = groo.Inf
+
+func init() {
+	groo.UseUtf88 = true
+}
+`}},
+
+		//--------------------------------------------------------------------------------
+		//hash-cmds: #defer, #go
+		{
+			num: 150,
+			fnm: "dud.grooy",
+			src: `#project myproj
+package abc
+#import fmt "fmt"
+func run() {
+	fmt.Println("Hello, world!")
+	#defer #func(){
+		fmt.Println("Hello, world!")
+	}()
+	#defer{
+		fmt.Println("Hello, world!")
+	}
+	#go #func(){
+		fmt.Println("Hello, world!")
+	}()
+	#go{
+		fmt.Println("Hello, world!")
+	}
+}
+
+	#go #func(){
+		fmt.Println("Hello, world!")
+	}()
+	#go{
+		#do fmt.Println("Hello, world!")
+	}
+`,
+
+			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+			prt: map[string]string{
+				"abc/abc.go": `package abc
+
+import (
+	groo "github.com/grolang/gro/ops"
+	_groo "github.com/grolang/gro/ops"
+)
+
+import _fmt "fmt"
+
+func run() {
+	fmt.Println(groo.MakeText("Hello, world!"))
+	defer func() {
+		_fmt.Println(_groo.MakeText("Hello, world!"))
+	}()
+	defer func() {
+		_fmt.Println(_groo.MakeText("Hello, world!"))
+	}()
+	go func() {
+		_fmt.Println(_groo.MakeText("Hello, world!"))
+	}()
+	go func() {
+		_fmt.Println(_groo.MakeText("Hello, world!"))
+	}()
+}
+
+func init() {
+	go func() {
+		_fmt.Println(_groo.MakeText("Hello, world!"))
+	}()
+	go func() {
+		_fmt.Println(_groo.MakeText("Hello, world!"))
+	}()
+}
+
+type (
+	any = interface{}
+	void = struct{}
+)
+
+var inf = groo.Inf
+
+func init() {
+	groo.UseUtf88 = true
+}
+`}},
+
+		//--------------------------------------------------------------------------------
+		{
+			num: 151,
+			fnm: "dud.grooy",
+			src: `#project myproj
+package abc
+#import fmt "fmt"
+#go{
+	do fmt.Println("Hello, world!")
+}
+`,
+			err: "dud.grooy:5:2: syntax error: Keywords must be prepended with # within scope of other #-keywords"},
+
+		//--------------------------------------------------------------------------------
+		//hash-cmds: #switch, #select, #case, #default, #break, #fallthrough
+		{
+			num: 160,
+			fnm: "dud.grooy",
+			src: `#project myproj
+package abc
+#import fmt "fmt"
+func run() {
+	fmt.Println("Hello, world!")
+	#switch i {
+	#case 789:
+		fmt.Println("Hello, world!")
+	#default:
+		fmt.Println("Hello, world!")
+	}
+	#select {
+		#case <-a: #break
+		#case <-b: #break
+		#default: fmt.Println("abc")
+	}
+_mylab:
+	switch i {
+	case 123:
+		fmt.Println("Hello, world!")
+		#break mylab
+	#case 789:
+		fmt.Println("Hello, world!")
+	default:
+		fmt.Println("Hello, world!")
+	}
+}
+#switch i {
+#case 789:
+	#do fmt.Println("Hello, world!")
+#default:
+	#do fmt.Println("Hello, world!")
+}
+select {
+	case <-a: break
+	#case <-b: #break
+	default: do fmt.Println("abc")
+}
+switch i {
+#case 123:
+	#do fmt.Println("Hello, world!")
+case 789:
+	do fmt.Println("Hello, world!")
+	#fallthrough
+#default:
+	#do fmt.Println("Hello, world!")
+}
+`,
+
+			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+			prt: map[string]string{
+				"abc/abc.go": `package abc
+
+import (
+	groo "github.com/grolang/gro/ops"
+	_groo "github.com/grolang/gro/ops"
+)
+
+import _fmt "fmt"
+
+func run() {
+	fmt.Println(groo.MakeText("Hello, world!"))
+	switch _i {
+	case 789:
+		_fmt.Println(_groo.MakeText("Hello, world!"))
+	default:
+		_fmt.Println(_groo.MakeText("Hello, world!"))
+	}
+	select {
+	case <-_a:
+		break
+	case <-_b:
+		break
+	default:
+		_fmt.Println(_groo.MakeText("abc"))
+	}
+_mylab:
+	switch i {
+	case 123:
+		fmt.Println(groo.MakeText("Hello, world!"))
+		break _mylab
+	case 789:
+		_fmt.Println(_groo.MakeText("Hello, world!"))
+	default:
+		fmt.Println(groo.MakeText("Hello, world!"))
+	}
+}
+
+func init() {
+	switch _i {
+	case 789:
+		_fmt.Println(_groo.MakeText("Hello, world!"))
+	default:
+		_fmt.Println(_groo.MakeText("Hello, world!"))
+	}
+	select {
+	case <-a:
+		break
+	case <-_b:
+		break
+	default:
+		fmt.Println(groo.MakeText("abc"))
+	}
+	switch i {
+	case 123:
+		_fmt.Println(_groo.MakeText("Hello, world!"))
+	case 789:
+		fmt.Println(groo.MakeText("Hello, world!"))
+		fallthrough
+	default:
+		_fmt.Println(_groo.MakeText("Hello, world!"))
+	}
+}
+
+type (
+	any = interface{}
+	void = struct{}
+)
+
+var inf = groo.Inf
+
+func init() {
+	groo.UseUtf88 = true
+}
+`}},
+
+		//--------------------------------------------------------------------------------
+		{
+			num: 161,
+			fnm: "dud.grooy",
+			src: `#project myproj
+switch i {
+#case 123:
+	do fmt.Println("Hello, world!")
+}
+`,
+			err: "dud.grooy:4:2: syntax error: Keywords must be prepended with # within scope of other #-keywords"},
+
+		//--------------------------------------------------------------------------------
+		//hash-cmds: #struct, #map, #chan, #interface; also spec id's: #int, #string
+		{
+			num: 170,
+			fnm: "dud.grooy",
+			src: `#project myproj
+package abc
+#import fmt "fmt"
+func run() {
+	type St #struct{a, b #int}
+	var m #map[#string]#int = map[string]int{"abc":123}
+	type ch #chan #int
+	type ci <-#chan #int
+	type I #interface{f();g()}
+	fmt.Println("Hello, world!")
+}
+`,
+
+			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+			prt: map[string]string{
+				"abc/abc.go": `package abc
+
+import (
+	groo "github.com/grolang/gro/ops"
+)
+
+import _fmt "fmt"
+
+func run() {
+	type St struct {
+		_a, _b int
+	}
+	var m map[string]int = map[string]int{
+		groo.MakeText("abc"): 123,
+	}
+	type ch chan int
+	type ci <-chan int
+	type I interface {
+		_f()
+		_g()
+	}
+	fmt.Println(groo.MakeText("Hello, world!"))
+}
+
+type (
+	any = interface{}
+	void = struct{}
+)
+
+var inf = groo.Inf
+
+func init() {
+	groo.UseUtf88 = true
+}
+`}},
+
+		//--------------------------------------------------------------------------------
+		{
+			num: 180,
+			fnm: "dud.grooy",
+			src: `#project myproj
+package abc
+#import fmt "fmt"
+func run() {
+	fmt.Println("Hello, world!")
+}
+`,
+
+			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+			prt: map[string]string{
+				"abc/abc.go": `package abc
+
+import (
+	groo "github.com/grolang/gro/ops"
+)
+
+import _fmt "fmt"
+
+func run() {
+	fmt.Println(groo.MakeText("Hello, world!"))
+}
+
+type (
+	any = interface{}
+	void = struct{}
+)
+
+var inf = groo.Inf
+
+func init() {
+	groo.UseUtf88 = true
+}
+`}},
+
+		//--------------------------------------------------------------------------------
+	})
+}
+
+//================================================================================
 func TestComments(t *testing.T) {
 	groTest(t, groTestData{
 		//--------------------------------------------------------------------------------
@@ -729,55 +1588,6 @@ func main() {
 	b = 24 //and here
 }
 `}},
-
-		//--------------------------------------------------------------------------------
-		//hashbangs
-		{
-			num: 300,
-			fnm: "dud",
-			src: `#!/usr/local/go/bin/gro
-package main
-func main(){
-	"fmt".Printf("\n")
-}
-`,
-
-			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-			prt: map[string]string{
-				"dud.go": `package main
-
-import (
-	fmt "fmt"
-)
-
-func main() {
-	fmt.Printf("\n")
-}
-`}},
-
-		//--------------------------------------------------------------------------------
-		{
-			num: 301,
-			fnm: "dud.gro",
-			src: `#disallow this comment
-package main
-func main(){
-	"fmt".Printf("\n")
-}
-`,
-			err: "dud.gro:1:2: # not followed by !"},
-
-		//--------------------------------------------------------------------------------
-		{
-			num: 302,
-			fnm: "dud.gro",
-			src: `package main
-#!disallow this comment
-func main(){
-	"fmt".Printf("\n")
-}
-`,
-			err: "dud.gro:2:1: #! not at first position"},
 
 		//--------------------------------------------------------------------------------
 	})

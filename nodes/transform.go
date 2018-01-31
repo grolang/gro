@@ -8,7 +8,7 @@ import (
 	"fmt"
 )
 
-type Walker struct {
+type Walker struct { //####
 	inRhs         bool
 	shortFormFunc struct {
 		active bool
@@ -268,11 +268,7 @@ func (expr *BadExpr) Walk(w *Walker) Node {
 }
 
 func (expr *Name) Walk(w *Walker) Node {
-	if expr.Value == "_" {
-		//if w.shortFormFunc.active || w.inRhs {
-		//fmt.Printf(">>> %s, sff:%v, inRhs:%t\n", expr.Value, w.shortFormFunc, w.inRhs)
-	}
-	if expr.Value == "_" && w.shortFormFunc.active && w.inRhs {
+	if expr.Value == "_" && w.shortFormFunc.active && w.inRhs { //####
 		e := &IndexExpr{
 			X:     &Name{Value: "groo_it"},
 			Index: &BasicLit{Value: fmt.Sprint(w.shortFormFunc.count), Kind: IntLit},
@@ -307,15 +303,14 @@ func (expr *KeyValueExpr) Walk(w *Walker) Node {
 func (expr *FuncLit) Walk(w *Walker) Node {
 	expr.Type = expr.Type.Walk(w).(*FuncType)
 
-	oldShortFormFunc := w.shortFormFunc
+	oldShortFormFunc := w.shortFormFunc //####
 	w.shortFormFunc = struct {
 		active bool
 		count  int
 	}{active: true, count: 0}
-
 	expr.Body = expr.Body.Walk(w).(*BlockStmt)
-
 	w.shortFormFunc = oldShortFormFunc
+
 	return expr
 }
 
@@ -324,12 +319,10 @@ func (expr *ParenExpr) Walk(w *Walker) Node {
 	return expr
 }
 
-func (expr *RhsExpr) Walk(w *Walker) Node {
+func (expr *RhsExpr) Walk(w *Walker) Node { //####
 	oldRhs := w.inRhs
 	w.inRhs = true
-
 	newX := expr.X.Walk(w)
-
 	w.inRhs = oldRhs
 	return newX
 }

@@ -13,11 +13,11 @@ import (
 var permitErrorMsgs = map[string]string{
 	"inferPkg":      "infer-packages disabled but no explicit \"package\" keyword present",
 	"multiPkg":      "multi-packages disabled but more than one package present",
-	"genericCall":   "calling generic-type packages disabled but import arguments present",
-	"genericDef":    "defining generic packages is disabled but one is present",
 	"inplaceImps":   "inplace-imports disabled but are present",
 	"inferMain":     "infer-main disabled but no explicit \"main\" function present",
 	"pkgSectBlocks": "using block-style notation for packages and sections is disabled but it is being used",
+	"genericCall":   "calling generic-type packages disabled but import arguments present",
+	"genericDef":    "defining generic packages is disabled but one is present",
 
 	"projectKw":  "\"project\" keyword disabled but keyword is present",
 	"useKw":      "\"use\" keywords are disabled but keyword is present",
@@ -60,6 +60,20 @@ var permitErrorMsgs = map[string]string{
 }
 
 //--------------------------------------------------------------------------------
+func (p *parser) CheckHashCmd(hashFlag bool, f func()) {
+	if p.hashCmdBlock && !hashFlag {
+		p.SyntaxError("Keywords must be prepended with # within scope of other #-keywords")
+		return
+	}
+	oldHashCmdBlock := p.hashCmdBlock
+	if p.hashCmdMode && hashFlag {
+		p.hashCmdBlock = true
+	}
+	f()
+	p.hashCmdBlock = oldHashCmdBlock
+}
+
+//--------------------------------------------------------------------------------
 func (p *parser) checkPermit(permit string) bool {
 	if !p.permits[permit] {
 		p.SyntaxError(permitErrorMsgs[permit])
@@ -74,6 +88,11 @@ func (p *parser) setupProfile() {
 	p.permits = map[string]bool{}
 
 	switch p.currProj.FileExt {
+	//- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+	//hash-cmds, which rely on dynamic typing
+	case "grooy":
+		p.hashCmdMode = true
+		fallthrough
 
 	//- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 	//dynamic typing
@@ -81,6 +100,17 @@ func (p *parser) setupProfile() {
 		p.dynamicMode = true
 		p.dynamicBlock = "groo"
 		p.dynCharSet = "utf88"
+		fallthrough
+
+	//- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+	//generic typing
+	case "grog":
+		for _, kw := range [...]string{
+			"genericCall", //enable imports of generic packages
+			"genericDef",  //enable definitions of generic packages
+		} {
+			p.permits[kw] = true
+		}
 		fallthrough
 
 	//- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -96,8 +126,6 @@ func (p *parser) setupProfile() {
 
 			"inferPkg",      //enable package names to be inferred
 			"multiPkg",      //enable more than one package in a single file
-			"genericCall",   //enable imports of generic packages
-			"genericDef",    //enable definitions of generic packages
 			"inplaceImps",   //enable in-place spec strings for package names
 			"inferMain",     //enable main function to be inferred
 			"pkgSectBlocks", //enable block notation for packages and sections
@@ -110,9 +138,9 @@ func (p *parser) setupProfile() {
 			"mainKw",     //enable "main" keyword
 			"testcodeKw", //enable "testcode" keyword
 			"procKw",     //enable "proc" keyword
+			"doKw",       //enable "do" keyword
 
 			//TODO: yet to code blacklist for these...
-			"doKw",                  //enable "do" keyword
 			"escapeEscapeInStrings", //enable \e in runes/strings
 		} {
 			p.permits[kw] = true
@@ -606,6 +634,9 @@ func (p *parser) setupRegistries() {
 		},
 		"dynamic": func(rets []string, args []string) {
 			macros.InitDynamic(p, rets, args)
+		},
+		"generics": func(rets []string, args []string) {
+			macros.InitGenerics(p, rets, args)
 		},
 		"linedirectives": func(rets []string, args []string) {
 			macros.InitLineDirectives(p, rets, args)

@@ -1,4 +1,4 @@
-// Copyright 2016-17 The Go and Gro Authors. All rights reserved.
+// Copyright 2016-18 The Go and Gro Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	versionNo = "0.7.3"
+	versionNo = "0.8.1"
 	progDesc  = "managing Gro scripts"
 )
 

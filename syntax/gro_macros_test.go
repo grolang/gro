@@ -914,10 +914,10 @@ import (
 
 func init() {
 	{
-		fmt.Println(groo.NewMapEntryOrPosIntRange(2, 5))
-		fmt.Println(groo.NewMapEntryOrPosIntRange(0, 5))
-		fmt.Println(groo.NewMapEntryOrPosIntRange(2, groo.Inf))
-		fmt.Println(groo.NewMapEntryOrPosIntRange(0, groo.Inf))
+		fmt.Println(groo.NewPair(2, 5))
+		fmt.Println(groo.NewPair(0, 5))
+		fmt.Println(groo.NewPair(2, groo.Inf))
+		fmt.Println(groo.NewPair(0, groo.Inf))
 	}
 }
 
@@ -934,12 +934,13 @@ func init() {
 `}},
 
 		//--------------------------------------------------------------------------------
-		//check short slice literal syntax e.g. []{} to mean []any{}
+		//short slice and map literal syntax: []{} for []any{}, and map{} for map[any]any{}
 		{
 			num: 300,
 			fnm: "dud.groo", // <- note ".groo"
 			src: `package abc
-var a []any = []{1,'a',"abc",1.0}
+var a = []{1,'a',"abc",1.0}
+var m = map{1:'a', 789:"abc", 1.0:'z'}
 "fmt".Println(a)
 `,
 
@@ -952,7 +953,8 @@ import (
 	fmt "fmt"
 )
 
-var a []any = []any{1, groo.Runex("a"), groo.MakeText("abc"), 1.0}
+var a = []any{1, groo.Runex("a"), groo.MakeText("abc"), 1.0}
+var m = groo.InitMap(groo.NewPair(1, groo.Runex("a")), groo.NewPair(789, groo.MakeText("abc")), groo.NewPair(1.0, groo.Runex("z")))
 
 func init() {
 	fmt.Println(a)

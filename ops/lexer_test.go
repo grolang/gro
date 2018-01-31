@@ -1,14 +1,15 @@
 // Copyright 2017 The Gro authors. All rights reserved.
-// Portions translated from Armando Blancas' Clojure-based Kern parser.
+// Portions translated from Armando Blancas's Clojure-based Kern parser.
 // Use of this source code is governed by the same BSD-style
 // license as Go that can be found in the LICENSE file.
 
-package parsec
+package ops
 
 import (
+	"testing"
+
 	ts "github.com/grolang/gro/assert"
 	u8 "github.com/grolang/gro/utf88"
-	"testing"
 )
 
 //================================================================================

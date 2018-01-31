@@ -12,180 +12,27 @@ import (
 	u8 "github.com/grolang/gro/utf88"
 )
 
-//================================================================================
-func TestDictionary(t *testing.T) {
-	{
-		m1 := ops.NewMap()
-		m1.Add(1, "abc").Add(9, "zyx")
-		assertEqual(t, fmt.Sprint(m1), `{1: "abc", 9: "zyx"}`)
-	}
-}
-
-//================================================================================
-
-func TestMaps(t *testing.T) {
-	//InitMap
-	{
-		//a:= map[any]any{7:"NEW", 10:"Yeh"}
-		a := ops.InitMap(ops.NewMapEntry(7, "NEW"), ops.NewMapEntry(10, "Yeh"))
-
-		//a= map[any]any{7:"old", 9:"Measles"}
-		_ = *ops.Assign(&a, ops.InitMap(ops.NewMapEntry(7, "old"), ops.NewMapEntry(9, "Measles")))
-		assertEqual(t, a, ops.InitMap(ops.NewMapEntry(7, "old"), ops.NewMapEntry(9, "Measles")))
-
-		c := ops.InitMap(ops.NewMapEntry(7, "NEW"), ops.NewMapEntry(10, "Yeh"))
-		c = *ops.Assign(&c, ops.InitMap(ops.NewMapEntry(7, "old"), ops.NewMapEntry(9, "Measles")))
-		assertEqual(t, c, ops.InitMap(ops.NewMapEntry(7, "old"), ops.NewMapEntry(9, "Measles")))
-	}
-
-	//InitMap, NewMapEntry
-	{
-		//a:= map[any]any{7:"NEW", 10:"Yeh"}
-		a := ops.InitMap(ops.NewMapEntry(7, "NEW"), ops.NewMapEntry(10, "Yeh"))
-
-		b := ops.InitMap()
-		//b= a= map[any]any{7:"old", 9:"Measles"}
-		_ = *ops.Assign(&b, *ops.Assign(&a, ops.InitMap(ops.NewMapEntry(7, "old"), ops.NewMapEntry(9, "Measles"))))
-		assertEqual(t, a, ops.InitMap(ops.NewMapEntry(7, "old"), ops.NewMapEntry(9, "Measles")))
-		assertEqual(t, b, ops.InitMap(ops.NewMapEntry(7, "old"), ops.NewMapEntry(9, "Measles")))
-	}
-
-	//Copy, RightShiftAssign
-	{
-		m1 := ops.InitMap(ops.NewMapEntry(7, "Hey!"), ops.NewMapEntry(9, "Bye?"), ops.NewMapEntry(10, "Yeh"))
-		m2 := ops.Copy(m1)
-		m3 := m1
-		assertEqual(t, m1, ops.InitMap(
-			ops.NewMapEntry(7, "Hey!"), ops.NewMapEntry(9, "Bye?"), ops.NewMapEntry(10, "Yeh")))
-		assertEqual(t, m2, ops.InitMap(
-			ops.NewMapEntry(7, "Hey!"), ops.NewMapEntry(9, "Bye?"), ops.NewMapEntry(10, "Yeh")))
-		assertEqual(t, m3, ops.InitMap(
-			ops.NewMapEntry(7, "Hey!"), ops.NewMapEntry(9, "Bye?"), ops.NewMapEntry(10, "Yeh")))
-
-		//....found:{7: Hey!, 9: <nil>, 10: Yeh} (ops.Map){7: Hey!, 10: Yeh} (ops.Map)
-		//....found:{7: Hey!, 9: <nil>, 10: Yeh} (ops.Map){7: Hey!, 10: Yeh} (ops.Map)
-		//....found:{7: Hey!, 9: <nil>, 10: Yeh} (ops.Map){7: Hey!, 10: Yeh} (ops.Map)
-		m4 := *ops.RightShiftAssign(&m1, 9)
-		_ = m4
-		//t.Errorf("Hah!")
-		//assertEqual(t, m1, ops.InitMap(ops.NewMapEntry(7, "Hey!"), ops.NewMapEntry(10, "Yeh")))
-		assertEqual(t, m2, ops.InitMap(
-			ops.NewMapEntry(7, "Hey!"), ops.NewMapEntry(9, "Bye?"), ops.NewMapEntry(10, "Yeh")))
-		//assertEqual(t, m3, ops.InitMap(ops.NewMapEntry(7, "Hey!"), ops.NewMapEntry(10, "Yeh")))
-		//assertEqual(t, m4, ops.InitMap(ops.NewMapEntry(7, "Hey!"), ops.NewMapEntry(10, "Yeh")))
-	}
-
-	//MakeMap, LeftShiftAssign, Len
-	{
-		m := ops.MakeMap()
-		ops.LeftShiftAssign(&m, ops.NewMapEntry(7, "abc"))
-		ops.LeftShiftAssign(&m, ops.NewMapEntry(1+1i, "zyx"))
-		assertEqual(t, ops.Len(m), 2)
-		//....found:{map[7:[97 98 99] (1+1i):[122 121 120]] [7 (1+1i)]} (string) {7: abc, (1+1i): zyx} (string)
-		//assertEqual(t, fmt.Sprintf("%v", m), "{7: abc, (1+1i): zyx}")
-
-		m1 := ops.MakeMap()
-		//....found:{map[] []} (string) {} (string)
-		//assertEqual(t, fmt.Sprintf("%v", m1), "{}")
-
-		m2 := *ops.LeftShiftAssign(&m1, ops.NewMapEntry(7, "Hey!"))
-		_ = m2
-		//....found:{map[7:[72 101 121 33]] [7]} (string) {7: Hey!} (string)
-		//assertEqual(t, fmt.Sprintf("%v", m1), "{7: Hey!}")
-		//....found:{map[7:[72 101 121 33]] [7]} (string) {7: Hey!} (string)
-		//assertEqual(t, fmt.Sprintf("%v", m2), "{7: Hey!}")
-
-		m3 := *ops.LeftShiftAssign(&m1, ops.NewMapEntry(9, "Bye?"))
-		assertEqual(t, m1, ops.InitMap(ops.NewMapEntry(7, "Hey!"), ops.NewMapEntry(9, "Bye?")))
-		//....found:{7: Hey!} (ops.Map){7: Hey!, 9: Bye?} (ops.Map)
-		//assertEqual(t, m2, ops.InitMap(ops.NewMapEntry(7, "Hey!"), ops.NewMapEntry(9, "Bye?")))
-		assertEqual(t, m3, ops.InitMap(ops.NewMapEntry(7, "Hey!"), ops.NewMapEntry(9, "Bye?")))
-		assertEqual(t, ops.Len(m1), 2)
-		assertEqual(t, *ops.GetIndex(&m1, 9), u8.Text("Bye?"))
-
-		m4 := *ops.LeftShiftAssign(&m1, ops.NewMapEntry(10, "Yeh"))
-		assertEqual(t, m1, ops.InitMap(
-			ops.NewMapEntry(7, "Hey!"), ops.NewMapEntry(9, "Bye?"), ops.NewMapEntry(10, "Yeh")))
-		//....found:{7: Hey!} (ops.Map){7: Hey!, 9: Bye?, 10: Yeh} (ops.Map)
-		//assertEqual(t, m2, ops.InitMap(ops.NewMapEntry(7, "Hey!"), ops.NewMapEntry(9, "Bye?"), ops.NewMapEntry(10, "Yeh")))
-		//....found:{7: Hey!, 9: Bye?} (ops.Map){7: Hey!, 9: Bye?, 10: Yeh} (ops.Map)
-		//assertEqual(t, m3, ops.InitMap(ops.NewMapEntry(7, "Hey!"), ops.NewMapEntry(9, "Bye?"), ops.NewMapEntry(10, "Yeh")))
-		assertEqual(t, m4, ops.InitMap(
-			ops.NewMapEntry(7, "Hey!"), ops.NewMapEntry(9, "Bye?"), ops.NewMapEntry(10, "Yeh")))
-
-		m5 := *ops.LeftShiftAssign(&m1, ops.NewMapEntry(7, "NEW"))
-		_ = m5
-		//....found:{7: NEW, 9: Bye?, 10: Yeh, 7: NEW} (ops.Map){7: NEW, 9: Bye?, 10: Yeh} (ops.Map)
-		//assertEqual(t, m1, ops.InitMap(ops.NewMapEntry(7, "NEW"), ops.NewMapEntry(9, "Bye?"), ops.NewMapEntry(10, "Yeh")))
-		//....found:{7: NEW} (ops.Map){7: NEW, 9: Bye?, 10: Yeh} (ops.Map)
-		//assertEqual(t, m2, ops.InitMap(ops.NewMapEntry(7, "NEW"), ops.NewMapEntry(9, "Bye?"), ops.NewMapEntry(10, "Yeh")))
-		//....found:{7: NEW, 9: Bye?} (ops.Map){7: NEW, 9: Bye?, 10: Yeh} (ops.Map)
-		//assertEqual(t, m3, ops.InitMap(ops.NewMapEntry(7, "NEW"), ops.NewMapEntry(9, "Bye?"), ops.NewMapEntry(10, "Yeh")))
-		assertEqual(t, m4, ops.InitMap(ops.NewMapEntry(7, "NEW"), ops.NewMapEntry(9, "Bye?"), ops.NewMapEntry(10, "Yeh")))
-		//....found:{7: NEW, 9: Bye?, 10: Yeh, 7: NEW} (ops.Map){7: NEW, 9: Bye?, 10: Yeh} (ops.Map)
-		//assertEqual(t, m5, ops.InitMap(ops.NewMapEntry(7, "NEW"), ops.NewMapEntry(9, "Bye?"), ops.NewMapEntry(10, "Yeh")))
-	}
-
-	//RightShiftAssign
-	{
-		m1 := ops.InitMap(ops.NewMapEntry(7, "Hey!"), ops.NewMapEntry(9, "Bye?"), ops.NewMapEntry(10, "Yeh"))
-		assertEqual(t, m1,
-			ops.InitMap(ops.NewMapEntry(7, "Hey!"), ops.NewMapEntry(9, "Bye?"), ops.NewMapEntry(10, "Yeh")))
-
-		//....found:{7: Hey!, 9: <nil>, 10: Yeh} (ops.Map){7: Hey!, 10: Yeh} (ops.Map)
-		//....found:{7: Hey!, 9: <nil>, 10: Yeh} (ops.Map){7: Hey!, 10: Yeh} (ops.Map)
-		m2 := *ops.RightShiftAssign(&m1, 9)
-		_ = m2
-		//assertEqual(t, m1, ops.InitMap(ops.NewMapEntry(7, "Hey!"), ops.NewMapEntry(10, "Yeh")))
-		//assertEqual(t, m2, ops.InitMap(ops.NewMapEntry(7, "Hey!"), ops.NewMapEntry(10, "Yeh")))
-	}
-
-	//TODO: MakeMap, Plus/Assign, Minus/Assign
-}
-
-//================================================================================
-func TestMapIndexing(t *testing.T) {
-
-	// _=b['c'] and b['c']="Bye?"
-	{
-		vb := ops.Identity(map[interface{}]interface{}{
-			ops.Runex('a'): 75, ops.Runex('b'): 76, ops.Runex('c'): 77, ops.Runex('d'): 78, ops.Runex('e'): 79})
-		b := *ops.GetIndex(&vb, u8.Codepoint('c'))
-		assertEqual(t, b, ops.Int(77))
-		ops.SetIndex(&vb, u8.Codepoint('c'), "Bye?")
-
-		//....found:{'c': Bye?, 'd': 78, 'e': 79, 'a': 75, 'b': 76} (ops.Map)
-		/*assertEqual(t, vb, ops.InitMap(
-			ops.NewMapEntry(u8.Codepoint('a'), ops.Int(75)),
-			ops.NewMapEntry(u8.Codepoint('b'), ops.Int(76)),
-			ops.NewMapEntry(u8.Codepoint('c'), u8.Text("Bye?")),
-			ops.NewMapEntry(u8.Codepoint('d'), ops.Int(78)),
-			ops.NewMapEntry(u8.Codepoint('e'), ops.Int(79)),
-		))*/
-	}
-
-	//TODO: GetIndex, SetIndex - finish
+func newMapEntry(key, val interface{}) ops.MapEntry {
+	return ops.NewPair(key, val)
 }
 
 //================================================================================
 func TestSlices(t *testing.T) {
-	//NewSlice, Identity
+	//InitSlice(), Identity
 	{
-		assertEqual(t, fmt.Sprintf("%v", ops.NewSlice(2)), "{<nil>, <nil>}")
-		assertEqual(t, fmt.Sprintf("%v", ops.NewSlice(0)), "{}")
-
+		assertEqual(t, fmt.Sprintf("%v", ops.InitSlice()), "{}")
 		assertEqual(t, fmt.Sprintf("%v %[1]T", ops.Identity([]int{1, 2, 3})), "{1, 2, 3} ops.Slice")
 	}
 
 	//InitSlice, Assign
 	{
-		a := ops.InitSlice(u8.Codepoint('a'), u8.Codepoint('b'), u8.Codepoint('c')) //a:= []{'a', 'b', 'c'}
-		assertEqual(t, fmt.Sprintf("%v", a), "{'a', 'b', 'c'}")                     //
-		_ = ops.Assign(&a, ops.InitSlice(u8.Codepoint('d'), u8.Codepoint('e')))     //a = []{'d', 'e'}
-		assertEqual(t, fmt.Sprintf("%v", a), "{'d', 'e'}")                          //
-		b := ops.Assign(&a, ops.InitSlice(u8.Codepoint('f'), u8.Codepoint('g')))    //b = a = []{'f', 'g'}
-		assertEqual(t, fmt.Sprintf("%v", a), "{'f', 'g'}")
-		assertEqual(t, fmt.Sprintf("%v", *b), "{'f', 'g'}")
+		a := ops.InitSlice(u8.Codepoint('a'), u8.Codepoint('b'), u8.Codepoint('c'))
+		assertEqual(t, fmt.Sprintf("%v", a), "{a, b, c}")
+		_ = ops.Assign(&a, ops.InitSlice(u8.Codepoint('d'), u8.Codepoint('e')))
+		assertEqual(t, fmt.Sprintf("%v", a), "{d, e}")
+		b := ops.Assign(&a, ops.InitSlice(u8.Codepoint('f'), u8.Codepoint('g')))
+		assertEqual(t, fmt.Sprintf("%v", a), "{f, g}")
+		assertEqual(t, fmt.Sprintf("%v", *b), "{f, g}")
 	}
 
 	//Copy
@@ -207,11 +54,11 @@ func TestSlices(t *testing.T) {
 
 	//LeftShift, Len
 	{
-		a := ops.InitSlice(1, 3, 5, 7) //a:= []any{1,3,5,7}
+		a := ops.InitSlice(1, 3, 5, 7)
 		assertEqual(t, fmt.Sprintf("%v", a), "{1, 3, 5, 7}")
 		assertEqual(t, fmt.Sprintf("%v", ops.Len(a)), "4")
-		assertEqual(t, fmt.Sprintf("%v", ops.LeftShift(ops.LeftShift(ops.LeftShift(a, //a << "baa" << 99 << true
-			"baa"), 99), true)), "{1, 3, 5, 7, baa, 99, true}")
+		assertEqual(t, fmt.Sprintf("%v",
+			ops.LeftShift(ops.LeftShift(ops.LeftShift(a, "baa"), 99), true)), "{1, 3, 5, 7, baa, 99, true}")
 		assertEqual(t, fmt.Sprintf("%v", a), "{1, 3, 5, 7}") //still the same!
 
 		b := ops.LeftShift(ops.LeftShift(ops.LeftShift(a, "baa"), 99), true)
@@ -222,26 +69,26 @@ func TestSlices(t *testing.T) {
 
 	//RightShift, Minus
 	{
-		a := ops.InitSlice(1, 3, 5, 7)                       //a:= []any{1, 3, 5, 7}
-		assertEqual(t, fmt.Sprintf("%v", a), "{1, 3, 5, 7}") //
-		b := ops.RightShift(a, 5)                            //b = a >> 5
-		assertEqual(t, fmt.Sprintf("%v", b), "{1, 3, 7}")    //
-		c := ops.Minus(a, ops.InitSlice(3, 7))               //b = a - []any{3, 7}
+		a := ops.InitSlice(1, 3, 5, 7)
+		assertEqual(t, fmt.Sprintf("%v", a), "{1, 3, 5, 7}")
+		b := ops.RightShift(a, 5)
+		assertEqual(t, fmt.Sprintf("%v", b), "{1, 3, 7}")
+		c := ops.Minus(a, ops.InitSlice(3, 7))
 		assertEqual(t, fmt.Sprintf("%v", c), "{1}")
 	}
 
 	//LeftShiftAssign, PlusAssign
 	{
-		a := ops.InitSlice(1, 3, 5, 7)                                                    //a = []any{1, 3, 5, 7}
-		assertEqual(t, fmt.Sprintf("%v", a), "{1, 3, 5, 7}")                              //
-		assertEqual(t, fmt.Sprintf("%v", *ops.LeftShiftAssign(&a, 9)), "{1, 3, 5, 7, 9}") //a <<= 9
+		a := ops.InitSlice(1, 3, 5, 7)
+		assertEqual(t, fmt.Sprintf("%v", a), "{1, 3, 5, 7}")
+		assertEqual(t, fmt.Sprintf("%v", *ops.LeftShiftAssign(&a, 9)), "{1, 3, 5, 7, 9}")
 		assertEqual(t, fmt.Sprintf("%v", a), "{1, 3, 5, 7, 9}")
 
 		b := ops.InitSlice(1, 3, 5, 7)
 		c := ops.InitSlice(9, 11)
-		assertEqual(t, fmt.Sprintf("%v", b), "{1, 3, 5, 7}")                             //b = []any{1, 3, 5, 7}
-		assertEqual(t, fmt.Sprintf("%v", c), "{9, 11}")                                  //c = []any{9, 11}
-		assertEqual(t, fmt.Sprintf("%v", *ops.PlusAssign(&b, c)), "{1, 3, 5, 7, 9, 11}") //b += c
+		assertEqual(t, fmt.Sprintf("%v", b), "{1, 3, 5, 7}")
+		assertEqual(t, fmt.Sprintf("%v", c), "{9, 11}")
+		assertEqual(t, fmt.Sprintf("%v", *ops.PlusAssign(&b, c)), "{1, 3, 5, 7, 9, 11}")
 	}
 
 	{
@@ -253,21 +100,20 @@ func TestSlices(t *testing.T) {
 	{
 		a := ops.InitSlice(1, 3, 5, 7)
 		assertEqual(t, fmt.Sprintf("%v", a), "{1, 3, 5, 7}")
-		assertEqual(t, fmt.Sprintf("%v", *ops.LeftShiftAssign(&*ops.LeftShiftAssign(&a, 99), 9)), //a <<= 99 <<= 9
+		assertEqual(t, fmt.Sprintf("%v", *ops.LeftShiftAssign(&*ops.LeftShiftAssign(&a, 99), 9)),
 			"{1, 3, 5, 7, 99, 9}")
 	}
 
 	//LeftShiftAssign
 	{
-		a := ops.InitSlice(1, 3, 5, 7) //a:= []any{1,3,5,7}
+		a := ops.InitSlice(1, 3, 5, 7)
 		assertEqual(t, fmt.Sprintf("%v", a), "{1, 3, 5, 7}")
 		assertEqual(t, fmt.Sprintf("%v", ops.Len(a)), "4")
 		assertEqual(t, fmt.Sprintf("%v", *ops.LeftShiftAssign(&*ops.LeftShiftAssign(&*ops.LeftShiftAssign(
-			&a, "baa"), 99), true)), "{1, 3, 5, 7, baa, 99, true}") //a <<= "baa" <<= 99 <<= true
+			&a, "baa"), 99), true)), "{1, 3, 5, 7, baa, 99, true}")
 		assertEqual(t, fmt.Sprintf("%v", a), "{1, 3, 5, 7, baa, 99, true}") //updated!
 
-		b := *ops.LeftShiftAssign(&*ops.LeftShiftAssign(&*ops.LeftShiftAssign(
-			&a, "abba"), 911), false) //b:= a <<= "abba" <<= 911 <<= false
+		b := *ops.LeftShiftAssign(&*ops.LeftShiftAssign(&*ops.LeftShiftAssign(&a, "abba"), 911), false)
 		assertEqual(t, fmt.Sprintf("%v", a), "{1, 3, 5, 7, baa, 99, true, abba, 911, false}")
 		assertEqual(t, fmt.Sprintf("%v", b), "{1, 3, 5, 7, baa, 99, true, abba, 911, false}")
 
@@ -376,6 +222,154 @@ func TestSliceIndexing(t *testing.T) {
 		_ = *ops.Assign(&c, *ops.GetIndex(&d, 2, 4))
 		assertEqual(t, c, ops.Slice{ops.Int(12), ops.Int(13)})
 	}
+}
+
+//================================================================================
+func TestMapBase(t *testing.T) {
+	{
+		m1 := ops.NewMap()
+		m1.Add(1, u8.Text("abc")).Add(9, u8.Text("zyx")).Add(10, u8.Text("hoo"))
+		assertEqual(t, fmt.Sprint(m1), `{1: abc, 9: zyx, 10: hoo}`)
+		m1.Add(3, u8.Text("ohh"))
+		assertEqual(t, fmt.Sprint(m1), `{1: abc, 9: zyx, 10: hoo, 3: ohh}`)
+		m2 := m1.Copy()
+		assertEqual(t, fmt.Sprint(m1), `{1: abc, 9: zyx, 10: hoo, 3: ohh}`)
+		assertEqual(t, fmt.Sprint(m2), `{1: abc, 9: zyx, 10: hoo, 3: ohh}`)
+		m1.Delete(9)
+		assertEqual(t, fmt.Sprint(m1), `{1: abc, 10: hoo, 3: ohh}`)
+		assertEqual(t, fmt.Sprint(m2), `{1: abc, 9: zyx, 10: hoo, 3: ohh}`)
+		m2.SetVal(10, u8.Text("skip"))
+		assertEqual(t, fmt.Sprint(m1), `{1: abc, 10: hoo, 3: ohh}`)
+		assertEqual(t, fmt.Sprint(m2), `{1: abc, 9: zyx, 3: ohh, 10: skip}`)
+		m1.Add(22, u8.Text("whoah"))
+		assertEqual(t, fmt.Sprint(m1), `{1: abc, 10: hoo, 3: ohh, 22: whoah}`)
+		assertEqual(t, fmt.Sprint(m2), `{1: abc, 9: zyx, 3: ohh, 10: skip}`)
+		m3 := m1.Merge(m2)
+		assertEqual(t, fmt.Sprint(m1), `{22: whoah, 1: abc, 9: zyx, 3: ohh, 10: skip}`)
+		assertEqual(t, fmt.Sprint(m2), `{1: abc, 9: zyx, 3: ohh, 10: skip}`)
+		assertEqual(t, fmt.Sprint(m3), `{22: whoah, 1: abc, 9: zyx, 3: ohh, 10: skip}`)
+		m4 := ops.NewMap().Add(1, u8.Text("abc")).Add(9, u8.Text("zyx")).
+			Add(3, u8.Text("ohh")).Add(10, u8.Text("skip"))
+		assertEqual(t, m2.IsEqual(m4), true)
+		m5 := ops.NewMap().Add(9, u8.Text("zyx")).Add(1, u8.Text("abc")).
+			Add(3, u8.Text("ohh")).Add(10, u8.Text("skip"))
+		assertEqual(t, m2.IsEqual(m5), true)
+		assertEqual(t, m1.IsEqual(m5), false)
+	}
+}
+
+//================================================================================
+func TestMaps(t *testing.T) {
+	//InitMap, NewEntry, Assign
+	{
+		a := ops.InitMap(newMapEntry(7, "NEW"), newMapEntry(10, "Yeh"))
+		ops.Assign(&a, ops.InitMap(newMapEntry(7, "old"), newMapEntry(9, "Measles")))
+		assertEqual(t, a, ops.InitMap(newMapEntry(7, "old"), newMapEntry(9, "Measles")))
+
+		b := ops.InitMap()
+		ops.Assign(&b, *ops.Assign(&a, ops.InitMap(newMapEntry(7, "old"), newMapEntry(9, "Measles"))))
+		assertEqual(t, a, ops.InitMap(newMapEntry(7, "old"), newMapEntry(9, "Measles")))
+		assertEqual(t, b, ops.InitMap(newMapEntry(7, "old"), newMapEntry(9, "Measles")))
+
+		c := ops.InitMap(newMapEntry(7, "NEW"), newMapEntry(10, "Yeh"))
+		ops.Assign(&c, ops.InitMap(newMapEntry(7, "old"), newMapEntry(9, "Pox")))
+		assertEqual(t, c, ops.InitMap(newMapEntry(7, "old"), newMapEntry(9, "Pox")))
+	}
+
+	//Copy, RightShiftAssign
+	{
+		m1 := ops.InitMap(newMapEntry(7, "Hey!"), newMapEntry(9, "Bye?"), newMapEntry(10, "Yeh"))
+		assertEqual(t, m1, ops.InitMap(newMapEntry(7, "Hey!"), newMapEntry(9, "Bye?"), newMapEntry(10, "Yeh")))
+		m2 := ops.Copy(m1)
+		assertEqual(t, m1, ops.InitMap(newMapEntry(7, "Hey!"), newMapEntry(9, "Bye?"), newMapEntry(10, "Yeh")))
+		assertEqual(t, m2, ops.InitMap(newMapEntry(7, "Hey!"), newMapEntry(9, "Bye?"), newMapEntry(10, "Yeh")))
+		m4 := *ops.RightShiftAssign(&m1, 9)
+
+		assertEqual(t, m1, ops.InitMap(newMapEntry(7, "Hey!"), newMapEntry(10, "Yeh")))
+		assertEqual(t, m2, ops.InitMap(newMapEntry(7, "Hey!"), newMapEntry(9, "Bye?"), newMapEntry(10, "Yeh")))
+		assertEqual(t, m4, ops.InitMap(newMapEntry(7, "Hey!"), newMapEntry(10, "Yeh")))
+	}
+
+	//LeftShiftAssign, (LeftShift), Len
+	{
+		m := ops.InitMap()
+		ops.LeftShiftAssign(&m, newMapEntry(7, "abc"))
+		ops.LeftShiftAssign(&m, newMapEntry(1+1i, "zyx"))
+		assertEqual(t, ops.Len(m), 2)
+		assertEqual(t, m, ops.InitMap(newMapEntry(7, "abc"), newMapEntry(1+1i, "zyx")))
+
+		m1 := ops.InitMap()
+		assertEqual(t, m1, ops.InitMap())
+
+		m2 := *ops.LeftShiftAssign(&m1, newMapEntry(7, "Hey!"))
+		assertEqual(t, fmt.Sprintf("%v", m1), `{7: Hey!}`)
+		assertEqual(t, fmt.Sprintf("%v", m2), `{7: Hey!}`)
+
+		m3 := *ops.LeftShiftAssign(&m1, newMapEntry(9, "Bye?"))
+		assertEqual(t, m1, ops.InitMap(newMapEntry(7, "Hey!"), newMapEntry(9, "Bye?")))
+		assertEqual(t, fmt.Sprintf("%v", m1), `{7: Hey!, 9: Bye?}`)
+		assertEqual(t, m2, ops.InitMap(newMapEntry(7, "Hey!"), newMapEntry(9, "Bye?")))
+		assertEqual(t, m3, ops.InitMap(newMapEntry(7, "Hey!"), newMapEntry(9, "Bye?")))
+		assertEqual(t, ops.Len(m1), 2)
+		assertEqual(t, *ops.GetIndex(&m1, 9), u8.Text("Bye?"))
+
+		m4 := *ops.LeftShiftAssign(&m1, newMapEntry(10, "Yeh"))
+		assertEqual(t, m1, ops.InitMap(newMapEntry(7, "Hey!"), newMapEntry(9, "Bye?"), newMapEntry(10, "Yeh")))
+		assertEqual(t, m2, ops.InitMap(newMapEntry(7, "Hey!"), newMapEntry(9, "Bye?"), newMapEntry(10, "Yeh")))
+		assertEqual(t, m3, ops.InitMap(newMapEntry(7, "Hey!"), newMapEntry(9, "Bye?"), newMapEntry(10, "Yeh")))
+		assertEqual(t, m4, ops.InitMap(newMapEntry(7, "Hey!"), newMapEntry(9, "Bye?"), newMapEntry(10, "Yeh")))
+
+		m5 := *ops.LeftShiftAssign(&m1, newMapEntry(7, "NEW"))
+		assertEqual(t, m1, ops.InitMap(newMapEntry(9, "Bye?"), newMapEntry(10, "Yeh"), newMapEntry(7, "NEW")))
+		assertEqual(t, m2, ops.InitMap(newMapEntry(9, "Bye?"), newMapEntry(10, "Yeh"), newMapEntry(7, "NEW")))
+		assertEqual(t, m3, ops.InitMap(newMapEntry(9, "Bye?"), newMapEntry(10, "Yeh"), newMapEntry(7, "NEW")))
+		assertEqual(t, m4, ops.InitMap(newMapEntry(9, "Bye?"), newMapEntry(10, "Yeh"), newMapEntry(7, "NEW")))
+		assertEqual(t, m5, ops.InitMap(newMapEntry(9, "Bye?"), newMapEntry(10, "Yeh"), newMapEntry(7, "NEW")))
+	}
+
+	//RightShiftAssign
+	{
+		m1 := ops.InitMap(newMapEntry(7, "Hey!"), newMapEntry(9, "Bye?"), newMapEntry(10, "Yeh"))
+		assertEqual(t, m1, ops.InitMap(newMapEntry(7, "Hey!"), newMapEntry(9, "Bye?"), newMapEntry(10, "Yeh")))
+
+		m2 := *ops.RightShiftAssign(&m1, 9)
+		assertEqual(t, m1, ops.InitMap(newMapEntry(7, "Hey!"), newMapEntry(10, "Yeh")))
+		assertEqual(t, m2, ops.InitMap(newMapEntry(7, "Hey!"), newMapEntry(10, "Yeh")))
+
+		m3 := ops.InitMap(newMapEntry(2, "Two"), newMapEntry(19, "Wah!"), newMapEntry(10, "xxxx"))
+		m4 := ops.Plus(m1, m3)
+		assertEqual(t, m4, ops.InitMap(
+			newMapEntry(7, "Hey!"), newMapEntry(2, "Two"), newMapEntry(19, "Wah!"), newMapEntry(10, "xxxx")))
+	}
+
+	//TODO: PlusAssign, Minus/Assign
+}
+
+//================================================================================
+func TestMapIndexing(t *testing.T) {
+
+	{
+		vb := ops.Identity(ops.InitMap(
+			newMapEntry(u8.Codepoint('a'), ops.Int(75)),
+			newMapEntry(u8.Codepoint('b'), ops.Int(76)),
+			newMapEntry(u8.Codepoint('c'), ops.Int(77)),
+			newMapEntry(u8.Codepoint('d'), ops.Int(78)),
+			newMapEntry(u8.Codepoint('e'), ops.Int(79)),
+		))
+		b := *ops.GetIndex(&vb, u8.Codepoint('c'))
+		assertEqual(t, b, ops.Int(77))
+
+		ops.SetIndex(&vb, u8.Codepoint('c'), "Bye?")
+		assertEqual(t, vb, ops.InitMap(
+			newMapEntry(u8.Codepoint('a'), ops.Int(75)),
+			newMapEntry(u8.Codepoint('b'), ops.Int(76)),
+			newMapEntry(u8.Codepoint('d'), ops.Int(78)),
+			newMapEntry(u8.Codepoint('e'), ops.Int(79)),
+			newMapEntry(u8.Codepoint('c'), u8.Text("Bye?")),
+		))
+	}
+
+	//TODO: GetIndex, SetIndex - finish them
 }
 
 //================================================================================

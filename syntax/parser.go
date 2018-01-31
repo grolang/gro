@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/grolang/gro/nodes"
 	"github.com/grolang/gro/syntax/src"
@@ -51,6 +52,7 @@ type parser struct {
 	lineDirectives bool
 
 	dynamicBlock string
+	hashCmdBlock bool
 	permits      map[string]bool
 	paramdPkgs   map[string]*nodes.Package
 
@@ -170,13 +172,15 @@ func (p *parser) ProcImportAlias(lit *nodes.BasicLit, a string) string {
 	if a == "" {
 		_, a = filepath.Split(strings.Trim(lit.Value, "\""))
 	}
+	aa := p.NewName(a)
+	a = aa.Value //in hash-cmd mode, a could be prepended by underscore
 	if p.currSect.InfImpMap[a] != "" && p.currSect.InfImpMap[a] != lit.Value {
 		p.SyntaxError(fmt.Sprintf("import alias \"%s\" has already been used but with different import path", a))
 		return a
 	} else if p.currSect.InfImpMap[a] == "" {
 		p.currSect.InfImports = append(p.currSect.InfImports, &nodes.ImportDecl{
 			Path:         &nodes.BasicLit{Value: lit.Value, Kind: nodes.StringLit},
-			LocalPkgName: &nodes.Name{Value: a},
+			LocalPkgName: aa, //p.NewName(a),
 		})
 		p.currSect.InfImpMap[a] = lit.Value
 	}
@@ -235,7 +239,7 @@ func (p *parser) ProjToFiles(proj *nodes.Project) map[string]*nodes.File {
 						gStmt := &nodes.AssignStmt{
 							Op: 0, //=
 							Lhs: &nodes.SelectorExpr{
-								X:   &nodes.Name{Value: p.dynamicBlock},
+								X:   p.NewName(p.dynamicBlock),
 								Sel: &nodes.Name{Value: "UseUtf88"},
 							},
 							Rhs: &nodes.BasicLit{
@@ -491,7 +495,7 @@ func (p *parser) UseDecl() (proj *nodes.Project) {
 	}
 
 	rets := []string{}
-	for p.tok == nodes.NameT {
+	for p.tok == nodes.NameT || p.TokIsKeywordName() {
 		rets = append(rets, strings.Trim(p.Name().Value, "\""))
 	}
 	useStr := p.OLiteral()
@@ -639,7 +643,7 @@ func (p *parser) PkgOrNil() *nodes.Package {
 	dynTypeGroup := &nodes.DeclGroup{}
 	if p.dynamicMode && !pkg.IdsUsed["any"] && len(pkg.Files) > 0 {
 		d := &nodes.TypeDecl{
-			Name:  &nodes.Name{Value: "any"},
+			Name:  p.NewName("any"),
 			Alias: true,
 			Type:  &nodes.InterfaceType{MethodList: []*nodes.Field{}},
 			Group: dynTypeGroup,
@@ -650,7 +654,7 @@ func (p *parser) PkgOrNil() *nodes.Package {
 	}
 	if p.dynamicMode && !pkg.IdsUsed["void"] && len(pkg.Files) > 0 {
 		d := &nodes.TypeDecl{
-			Name:  &nodes.Name{Value: "void"},
+			Name:  p.NewName("void"),
 			Alias: true,
 			Type:  &nodes.StructType{FieldList: []*nodes.Field{}},
 			Group: dynTypeGroup,
@@ -662,20 +666,20 @@ func (p *parser) PkgOrNil() *nodes.Package {
 
 	if p.dynamicMode && !pkg.IdsUsed["inf"] && len(pkg.Files) > 0 {
 		vd := new(nodes.VarDecl)
-		vd.NameList = []*nodes.Name{&nodes.Name{Value: "inf"}}
+		vd.NameList = []*nodes.Name{p.NewName("inf")}
 		needDynImport := p.dynamicBlock == ""
 		if needDynImport {
 			p.dynamicBlock = "groo"
 		}
 		vd.Values = &nodes.SelectorExpr{
-			X:   &nodes.Name{Value: p.dynamicBlock},
+			X:   p.NewName(p.dynamicBlock),
 			Sel: &nodes.Name{Value: "Inf"},
 		}
 		pkg.Files[0].DeclList = append(pkg.Files[0].DeclList, vd)
 		if needDynImport {
 			id := &nodes.ImportDecl{
 				Path:         &nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit},
-				LocalPkgName: &nodes.Name{Value: p.dynamicBlock},
+				LocalPkgName: p.NewName(p.dynamicBlock),
 			}
 			pkg.Files[0].DeclList = append([]nodes.Decl{id}, pkg.Files[0].DeclList...)
 		}
@@ -731,12 +735,15 @@ func (p *parser) SectionOrNil(f *nodes.File) *nodes.File {
 	p.currSect = f
 
 	// { ImportDecl ";" }
+	isHash := p.hash
 	for p.Got(nodes.ImportT) {
 		if !p.checkPermit("importKw") {
 			p.Advance(nodes.SemiT, nodes.RbraceT)
 			return nil
 		}
-		f.DeclList = p.AppendGroup(f.DeclList, p.ImportDecl)
+		p.CheckHashCmd(isHash, func() {
+			f.DeclList = p.AppendGroup(f.DeclList, p.ImportDecl)
+		})
 		p.Want(nodes.SemiT)
 	}
 	if p.currSect.HeadKw == "testcode" {
@@ -802,8 +809,10 @@ func (p *parser) Decl(declList []nodes.Decl) []nodes.Decl {
 		if len(p.comments) > 0 {
 			p.docComments = strings.Join(p.comments, "\n")
 		}
-		p.Next()
-		declList = p.AppendGroup(declList, p.ConstDecl)
+		p.CheckHashCmd(p.hash, func() {
+			p.Next()
+			declList = p.AppendGroup(declList, p.ConstDecl)
+		})
 
 	case p.tok == nodes.TypeT:
 		if !p.checkPermit("typeKw") {
@@ -816,8 +825,10 @@ func (p *parser) Decl(declList []nodes.Decl) []nodes.Decl {
 		if len(p.comments) > 0 {
 			p.docComments = strings.Join(p.comments, "\n")
 		}
-		p.Next()
-		declList = p.AppendGroup(declList, p.TypeDecl)
+		p.CheckHashCmd(p.hash, func() {
+			p.Next()
+			declList = p.AppendGroup(declList, p.TypeDecl)
+		})
 
 	case p.tok == nodes.VarT:
 		if !p.checkPermit("varKw") {
@@ -830,8 +841,10 @@ func (p *parser) Decl(declList []nodes.Decl) []nodes.Decl {
 		if len(p.comments) > 0 {
 			p.docComments = strings.Join(p.comments, "\n")
 		}
-		p.Next()
-		declList = p.AppendGroup(declList, p.VarDecl)
+		p.CheckHashCmd(p.hash, func() {
+			p.Next()
+			declList = p.AppendGroup(declList, p.VarDecl)
+		})
 
 	case p.tok == nodes.FuncT:
 		if !p.checkPermit("funcKw") {
@@ -844,10 +857,12 @@ func (p *parser) Decl(declList []nodes.Decl) []nodes.Decl {
 		if len(p.comments) > 0 {
 			p.docComments = strings.Join(p.comments, "\n")
 		}
-		p.Next()
-		if d := p.FuncDeclOrNil(p.StmtOrNil); d != nil {
-			declList = append(declList, d)
-		}
+		p.CheckHashCmd(p.hash, func() {
+			p.Next()
+			if d := p.FuncDeclOrNil(p.StmtOrNil); d != nil {
+				declList = append(declList, d)
+			}
+		})
 
 	case p.IsName("proc"):
 		if !p.checkPermit("procKw") {
@@ -860,10 +875,12 @@ func (p *parser) Decl(declList []nodes.Decl) []nodes.Decl {
 		if len(p.comments) > 0 {
 			p.docComments = strings.Join(p.comments, "\n")
 		}
-		p.Next()
-		if d := p.FuncDeclOrNil(p.ProcStmt); d != nil {
-			declList = append(declList, d)
-		}
+		p.CheckHashCmd(p.hash, func() {
+			p.Next()
+			if d := p.FuncDeclOrNil(p.ProcStmt); d != nil {
+				declList = append(declList, d)
+			}
+		})
 
 	default:
 		if p.tok == nodes.LbraceT && len(declList) > 0 && isEmptyFuncDecl(declList[len(declList)-1]) {
@@ -963,16 +980,18 @@ func (p *parser) ImportDecl(group *nodes.DeclGroup) nodes.Decl {
 		d.TagLineDirect()
 	}
 
-	switch p.tok {
-	case nodes.NameT:
+	if p.tok == nodes.NameT || p.TokIsKeywordName() {
 		d.LocalPkgName = p.Name()
 		//only explicit local names of imports can be analyzed at the syntactic phase...
 		if d.LocalPkgName.Value != "_" {
 			p.currPkg.IdsUsed[d.LocalPkgName.Value] = true
 		}
-	case nodes.DotT:
-		d.LocalPkgName = p.NewName(".")
-		p.Next()
+	} else {
+		switch p.tok {
+		case nodes.DotT:
+			d.LocalPkgName = p.NewName(".")
+			p.Next()
+		}
 	}
 	d.Path = p.OLiteral()
 	if d.Path == nil {
@@ -1020,7 +1039,7 @@ func (p *parser) ImportDecl(group *nodes.DeclGroup) nodes.Decl {
 	}
 	if p.dynamicMode && d.LocalPkgName == nil {
 		_, a := filepath.Split(strings.Trim(d.Path.Value, "\""))
-		d.LocalPkgName = &nodes.Name{Value: a}
+		d.LocalPkgName = p.NewName(a)
 		p.currPkg.IdsUsed[a] = true
 	}
 	return d
@@ -1168,7 +1187,7 @@ func (p *parser) FuncDeclOrNil(stmt func() nodes.Stmt) *nodes.FuncDecl {
 		}
 	}
 
-	if p.tok != nodes.NameT {
+	if p.tok != nodes.NameT && !p.TokIsKeywordName() {
 		p.SyntaxError("expecting name or (")
 		p.Advance(nodes.LbraceT, nodes.SemiT)
 		return nil
@@ -1217,7 +1236,8 @@ forloop:
 	for {
 		switch p.tok {
 		//these keyword-based statements can be standalone
-		case nodes.IfT, nodes.ForT, nodes.SwitchT, nodes.SelectT, nodes.GoT, nodes.VarT, nodes.ConstT, nodes.TypeT, nodes.LbraceT, nodes.LiteralT:
+		case nodes.IfT, nodes.ForT, nodes.SwitchT, nodes.SelectT, nodes.GoT, nodes.VarT,
+			nodes.ConstT, nodes.TypeT, nodes.LbraceT, nodes.LiteralT:
 			l = append(l, p.TlStmt())
 		default:
 			if p.IsName("do") || (p.tok == nodes.NameT && p.stmtRegistry[p.lit] != nil) {
@@ -1239,7 +1259,8 @@ forloop:
 		// ";" is optional before "}"
 		if p.tok != nodes.EofT && !p.Got(nodes.SemiT) && p.tok != nodes.RbraceT {
 			p.SyntaxError("at end of statement")
-			p.Advance(nodes.ConstT, nodes.TypeT, nodes.VarT, nodes.FuncT, nodes.IfT, nodes.ForT, nodes.SwitchT, nodes.SelectT, nodes.GoT, nodes.SemiT, nodes.RbraceT, nodes.CaseT, nodes.DefaultT)
+			p.Advance(nodes.ConstT, nodes.TypeT, nodes.VarT, nodes.FuncT, nodes.IfT, nodes.ForT, nodes.SwitchT,
+				nodes.SelectT, nodes.GoT, nodes.SemiT, nodes.RbraceT, nodes.CaseT, nodes.DefaultT)
 			p.Got(nodes.SemiT) // avoid spurious empty statement
 			return nil
 		}
@@ -1327,31 +1348,38 @@ func (p *parser) TlStmt() nodes.Stmt {
 
 	default:
 		if p.IsName("do") {
-			p.Want(nodes.NameT)
-			switch p.tok {
-			//don't include labelled stmts, var, const, func, type,
-			// defer, fallthrough, continue, break, goto, return within do-statements
-			case nodes.IfT, nodes.ForT, nodes.SwitchT, nodes.SelectT, nodes.GoT:
-				return p.StmtOrNil()
-			case nodes.NameT:
-				lhs := p.ExprList(false)
-				t := p.DynamicAssignOpOrNil(lhs)
-				if t != nil {
-					return t
+			if !p.checkPermit("doKw") {
+				p.Advance(nodes.SemiT)
+				return nil
+			}
+			var r nodes.Stmt
+			p.CheckHashCmd(p.hash, func() {
+				p.Want(nodes.NameT)
+				if p.tok == nodes.NameT || p.TokIsKeywordName() {
+					lhs := p.ExprList(false)
+					r = p.DynamicAssignOpOrSimpleStmt(lhs)
 				} else {
-					return p.SimpleStmt(lhs, false)
+					switch p.tok {
+					//don't include labelled stmts, var, const, func, type,
+					// defer, fallthrough, continue, break, goto, return within do-statements
+					case nodes.IfT, nodes.ForT, nodes.SwitchT, nodes.SelectT, nodes.GoT:
+						r = p.StmtOrNil()
+					case nodes.LbraceT:
+						r = p.BlockStmt("", p.StmtOrNil)
+					case nodes.OperatorT, nodes.StarT:
+						switch p.op {
+						case nodes.Add, nodes.Sub, nodes.Mul, nodes.And, nodes.Xor, nodes.Not:
+							r = p.SimpleStmt(nil, false) // unary operators
+						}
+					case nodes.LiteralT, nodes.FuncT, nodes.LparenT, // operands
+						nodes.LbrackT, nodes.StructT, nodes.MapT, nodes.ChanT, nodes.InterfaceT, // composite types
+						nodes.ArrowT: // receive operator
+						r = p.SimpleStmt(nil, false)
+					}
 				}
-			case nodes.LbraceT:
-				return p.BlockStmt("", p.StmtOrNil)
-			case nodes.OperatorT, nodes.StarT:
-				switch p.op {
-				case nodes.Add, nodes.Sub, nodes.Mul, nodes.And, nodes.Xor, nodes.Not:
-					return p.SimpleStmt(nil, false) // unary operators
-				}
-			case nodes.LiteralT, nodes.FuncT, nodes.LparenT, // operands
-				nodes.LbrackT, nodes.StructT, nodes.MapT, nodes.ChanT, nodes.InterfaceT, // composite types
-				nodes.ArrowT: // receive operator
-				return p.SimpleStmt(nil, false)
+			})
+			if r != nil {
+				return r
 			}
 		}
 		if mac := p.stmtRegistry[p.lit]; p.tok == nodes.NameT && mac != nil {
@@ -1370,36 +1398,43 @@ func (p *parser) ProcStmt() nodes.Stmt {
 	}
 
 	if p.IsName("do") {
-		p.Want(nodes.NameT)
-		switch p.tok {
-		//don't include labelled stmts, var, const, func, type,
-		// fallthrough, continue, break, goto, return within do-statements
-		case nodes.IfT, nodes.ForT, nodes.SwitchT, nodes.SelectT, nodes.GoT, nodes.DeferT:
-			return p.StmtOrNil()
-		case nodes.NameT:
-			lhs := p.ExprList(false)
-			t := p.DynamicAssignOpOrNil(lhs)
-			if t != nil {
-				return t
+		if !p.checkPermit("doKw") {
+			p.Advance(nodes.SemiT)
+			return nil
+		}
+		var r nodes.Stmt
+		p.CheckHashCmd(p.hash, func() {
+			p.Want(nodes.NameT)
+			if p.tok == nodes.NameT || p.TokIsKeywordName() {
+				lhs := p.ExprList(false)
+				r = p.DynamicAssignOpOrSimpleStmt(lhs)
 			} else {
-				return p.SimpleStmt(lhs, false)
+				switch p.tok {
+				//don't include labelled stmts, var, const, func, type,
+				// fallthrough, continue, break, goto, return within do-statements
+				case nodes.IfT, nodes.ForT, nodes.SwitchT, nodes.SelectT, nodes.GoT, nodes.DeferT:
+					r = p.StmtOrNil()
+				case nodes.LbraceT:
+					r = p.BlockStmt("", p.StmtOrNil)
+				case nodes.OperatorT, nodes.StarT:
+					switch p.op {
+					case nodes.Add, nodes.Sub, nodes.Mul, nodes.And, nodes.Xor, nodes.Not:
+						r = p.SimpleStmt(nil, false) // unary operators
+					}
+				case nodes.LiteralT, nodes.FuncT, nodes.LparenT, // operands
+					nodes.LbrackT, nodes.StructT, nodes.MapT, nodes.ChanT, nodes.InterfaceT, // composite types
+					nodes.ArrowT: // receive operator
+					r = p.SimpleStmt(nil, false)
+				}
 			}
-		case nodes.LbraceT:
-			return p.BlockStmt("", p.StmtOrNil)
-		case nodes.OperatorT, nodes.StarT:
-			switch p.op {
-			case nodes.Add, nodes.Sub, nodes.Mul, nodes.And, nodes.Xor, nodes.Not:
-				return p.SimpleStmt(nil, false) // unary operators
-			}
-		case nodes.LiteralT, nodes.FuncT, nodes.LparenT, // operands
-			nodes.LbrackT, nodes.StructT, nodes.MapT, nodes.ChanT, nodes.InterfaceT, // composite types
-			nodes.ArrowT: // receive operator
-			return p.SimpleStmt(nil, false)
+		})
+		if r != nil {
+			return r
 		}
 	} else if mac := p.stmtRegistry[p.lit]; p.tok == nodes.NameT && mac != nil {
 		p.Next()
 		return mac(p, p.ProcStmt) //p.procStmt needed for "let"
-	} else if p.tok == nodes.NameT { //TODO: check label as first if-option
+	} else if p.tok == nodes.NameT || p.TokIsKeywordName() { //TODO: check label as first if-option
 		pos := p.Pos()
 		lhs := p.ExprList(false)
 		if label, ok := lhs.(*nodes.Name); ok && p.tok == nodes.ColonT {
@@ -1533,17 +1568,12 @@ func (p *parser) StmtOrNil() nodes.Stmt {
 
 	// Most statements (assignments) start with an identifier;
 	// look for it first before doing anything more expensive.
-	if p.tok == nodes.NameT {
+	if p.tok == nodes.NameT || p.TokIsKeywordName() {
 		lhs := p.ExprList(false)
 		if label, ok := lhs.(*nodes.Name); ok && p.tok == nodes.ColonT {
 			return p.LabeledStmtOrNil(label)
 		}
-		t := p.DynamicAssignOpOrNil(lhs)
-		if t != nil {
-			return t
-		} else {
-			return p.SimpleStmt(lhs, false)
-		}
+		return p.DynamicAssignOpOrSimpleStmt(lhs)
 	}
 
 	switch p.tok {
@@ -1597,8 +1627,10 @@ func (p *parser) StmtOrNil() nodes.Stmt {
 		}
 		s := new(nodes.BranchStmt)
 		s.SetPos(p.Pos())
-		p.Next()
-		s.Tok = nodes.FallthroughT
+		p.CheckHashCmd(p.hash, func() {
+			p.Next()
+			s.Tok = nodes.FallthroughT
+		})
 		return s
 
 	case nodes.BreakT, nodes.ContinueT:
@@ -1615,7 +1647,7 @@ func (p *parser) StmtOrNil() nodes.Stmt {
 }
 
 //--------------------------------------------------------------------------------
-func (p *parser) DynamicAssignOpOrNil(lhs nodes.Expr) nodes.Stmt {
+func (p *parser) DynamicAssignOpOrSimpleStmt(lhs nodes.Expr) nodes.Stmt {
 	if _, ok := lhs.(*nodes.ListExpr); !ok && p.tok == nodes.AssignOpT {
 		binOp := dynAssignOps[p.op]
 		if p.dynamicBlock != "" && binOp != "" {
@@ -1623,7 +1655,7 @@ func (p *parser) DynamicAssignOpOrNil(lhs nodes.Expr) nodes.Stmt {
 			rhs := &nodes.RhsExpr{X: p.Expr()}
 			t := &nodes.CallExpr{
 				Fun: &nodes.SelectorExpr{
-					X:   &nodes.Name{Value: p.dynamicBlock},
+					X:   p.NewName(p.dynamicBlock),
 					Sel: &nodes.Name{Value: binOp},
 				},
 				ArgList: []nodes.Expr{
@@ -1640,12 +1672,9 @@ func (p *parser) DynamicAssignOpOrNil(lhs nodes.Expr) nodes.Stmt {
 			return &nodes.ExprStmt{
 				X: t,
 			}
-		} else {
-			return nil
 		}
-	} else {
-		return nil
 	}
+	return p.SimpleStmt(lhs, false)
 }
 
 var dynAssignOps = map[nodes.Operator]string{
@@ -1656,8 +1685,8 @@ var dynAssignOps = map[nodes.Operator]string{
 	nodes.AndNot: "SeqXorAssign",     // &^=
 	nodes.Shl:    "LeftShiftAssign",  // <<=
 	nodes.Shr:    "RightShiftAssign", // >>=
-	nodes.LftAnd: "LeftAndAssign",    // <&=
-	nodes.AndRgt: "RightAndAssign",   // &>=
+	nodes.LftAnd: "LeftSeqAssign",    // <&=
+	nodes.AndRgt: "RightSeqAssign",   // &>=
 	nodes.Add:    "PlusAssign",       // +=
 	nodes.Sub:    "MinusAssign",      // -=
 	nodes.Or:     "AltAssign",        // |=
@@ -1800,14 +1829,16 @@ func (p *parser) SimpleStmt(lhs nodes.Expr, rangeOk bool) nodes.SimpleStmt {
 func (p *parser) NewRangeClause(lhs nodes.Expr, def bool) *nodes.RangeClause {
 	r := new(nodes.RangeClause)
 	r.SetPos(p.Pos())
-	p.Next() // consume _Range
-	r.Lhs = lhs
-	r.Def = def
-	rhs := p.Expr()
-	if p.dynamicBlock != "" {
-		rhs = &nodes.RhsExpr{X: rhs}
-	}
-	r.X = rhs
+	p.CheckHashCmd(p.hash, func() {
+		p.Next() // consume _Range
+		r.Lhs = lhs
+		r.Def = def
+		rhs := p.Expr()
+		if p.dynamicBlock != "" {
+			rhs = &nodes.RhsExpr{X: rhs}
+		}
+		r.X = rhs
+	})
 	return r
 }
 
@@ -1870,8 +1901,10 @@ func (p *parser) DeclStmt(f func(*nodes.DeclGroup) nodes.Decl) *nodes.DeclStmt {
 	if len(p.comments) > 0 {
 		s.SetAboveComment(strings.Join(p.comments, "\n"))
 	}
-	p.Next() // _Const, _Type, or _Var
-	s.DeclList = p.AppendGroup(nil, f)
+	p.CheckHashCmd(p.hash, func() {
+		p.Next() // ConstT, TypeT, or VarT
+		s.DeclList = p.AppendGroup(nil, f)
+	})
 
 	return s
 }
@@ -1888,13 +1921,15 @@ func (p *parser) ReturnStmt() *nodes.ReturnStmt {
 	if len(p.comments) > 0 {
 		s.SetAboveComment(strings.Join(p.comments, "\n"))
 	}
-	p.Next()
-	if p.tok != nodes.SemiT && p.tok != nodes.RbraceT {
-		s.Results = p.ExprList(true)
-	}
-	if len(p.comments) > 0 {
-		s.SetRightComment(strings.Join(p.comments, "\n"))
-	}
+	p.CheckHashCmd(p.hash, func() {
+		p.Next()
+		if p.tok != nodes.SemiT && p.tok != nodes.RbraceT {
+			s.Results = p.ExprList(true)
+		}
+		if len(p.comments) > 0 {
+			s.SetRightComment(strings.Join(p.comments, "\n"))
+		}
+	})
 	return s
 }
 
@@ -1913,13 +1948,15 @@ func (p *parser) BreakOrContinueStmt() *nodes.BranchStmt {
 	if len(p.comments) > 0 {
 		s.SetAboveComment(strings.Join(p.comments, "\n"))
 	}
-	p.Next()
-	if p.tok == nodes.NameT {
-		s.Label = p.Name()
-	}
-	if len(p.comments) > 0 {
-		s.SetRightComment(strings.Join(p.comments, "\n"))
-	}
+	p.CheckHashCmd(p.hash, func() {
+		p.Next()
+		if p.tok == nodes.NameT || p.TokIsKeywordName() {
+			s.Label = p.Name()
+		}
+		if len(p.comments) > 0 {
+			s.SetRightComment(strings.Join(p.comments, "\n"))
+		}
+	})
 	return s
 }
 
@@ -1936,11 +1973,13 @@ func (p *parser) GotoStmt() *nodes.BranchStmt {
 	if len(p.comments) > 0 {
 		s.SetAboveComment(strings.Join(p.comments, "\n"))
 	}
-	p.Next()
-	s.Label = p.Name()
-	if len(p.comments) > 0 {
-		s.SetRightComment(strings.Join(p.comments, "\n"))
-	}
+	p.CheckHashCmd(p.hash, func() {
+		p.Next()
+		s.Label = p.Name()
+		if len(p.comments) > 0 {
+			s.SetRightComment(strings.Join(p.comments, "\n"))
+		}
+	})
 	return s
 }
 
@@ -1963,40 +2002,42 @@ func (p *parser) CallStmt(stmt func() nodes.Stmt) *nodes.CallStmt {
 	if len(p.comments) > 0 {
 		s.SetAboveComment(strings.Join(p.comments, "\n"))
 	}
-	p.Next()
-	var x nodes.Expr
+	p.CheckHashCmd(p.hash, func() {
+		p.Next()
+		var x nodes.Expr
 
-	if p.tok == nodes.LbraceT {
-		t := new(nodes.FuncType)
-		t.SetPos(p.Pos())
-		t.ParamList = []*nodes.Field{}
-		t.ResultList = nil
-		f := new(nodes.FuncLit)
-		f.SetPos(p.Pos())
-		f.Type = t
-		f.Body = p.BlockStmt("", stmt)
-		e := new(nodes.CallExpr)
-		e.SetPos(p.Pos())
-		e.ArgList = []nodes.Expr{}
-		e.Fun = f
-		x = e
-	} else {
-		x = p.PExpr(p.tok == nodes.LparenT) // keep_parens so we can report error below
-		if t := unparen(x); t != x {
-			p.Error(fmt.Sprintf("expression in %s must not be parenthesized", s.Tok))
-			// already progressed, no need to advance
-			x = t
+		if p.tok == nodes.LbraceT {
+			t := new(nodes.FuncType)
+			t.SetPos(p.Pos())
+			t.ParamList = []*nodes.Field{}
+			t.ResultList = nil
+			f := new(nodes.FuncLit)
+			f.SetPos(p.Pos())
+			f.Type = t
+			f.Body = p.BlockStmt("", stmt)
+			e := new(nodes.CallExpr)
+			e.SetPos(p.Pos())
+			e.ArgList = []nodes.Expr{}
+			e.Fun = f
+			x = e
+		} else {
+			x = p.PExpr(p.tok == nodes.LparenT) // keep_parens so we can report error below
+			if t := unparen(x); t != x {
+				p.Error(fmt.Sprintf("expression in %s must not be parenthesized", s.Tok))
+				// already progressed, no need to advance
+				x = t
+			}
 		}
-	}
-	cx, ok := x.(*nodes.CallExpr)
-	if !ok {
-		p.Error(fmt.Sprintf("expression in %s must be function call", s.Tok))
-		// already progressed, no need to advance
-		cx = new(nodes.CallExpr)
-		cx.SetPos(x.Pos())
-		cx.Fun = p.BadExpr()
-	}
-	s.Call = cx
+		cx, ok := x.(*nodes.CallExpr)
+		if !ok {
+			p.Error(fmt.Sprintf("expression in %s must be function call", s.Tok))
+			// already progressed, no need to advance
+			cx = new(nodes.CallExpr)
+			cx.SetPos(x.Pos())
+			cx.Fun = p.BadExpr()
+		}
+		s.Call = cx
+	})
 	return s
 }
 
@@ -2017,48 +2058,54 @@ func (p *parser) IfStmt(stmt func() nodes.Stmt) *nodes.IfStmt {
 	if len(p.comments) > 0 {
 		s.SetAboveComment(strings.Join(p.comments, "\n"))
 	}
-	s.Init, s.Cond, _ = p.header(nodes.IfT)
-	s.Then = p.BlockStmt("if clause", stmt)
-
-	if !p.checkPermit("elseKw") {
-		p.Advance(nodes.SemiT, nodes.RbraceT)
-		return nil
-	}
-	if p.Got(nodes.ElseT) {
-		switch p.tok {
-		case nodes.IfT:
-			s.Else = p.IfStmt(stmt)
-		case nodes.SwitchT:
-			body := new(nodes.BlockStmt)
-			body.SetPos(p.Pos())
-			body.List = []nodes.Stmt{p.SwitchStmt(stmt)}
-			body.Rbrace = p.Pos()
-			s.Else = body
-		case nodes.ForT:
-			body := new(nodes.BlockStmt)
-			body.SetPos(p.Pos())
-			body.List = []nodes.Stmt{p.ForStmt(stmt)}
-			body.Rbrace = p.Pos()
-			s.Else = body
-		case nodes.SelectT:
-			body := new(nodes.BlockStmt)
-			body.SetPos(p.Pos())
-			body.List = []nodes.Stmt{p.SelectStmt(stmt)}
-			body.Rbrace = p.Pos()
-			s.Else = body
-		case nodes.GoT, nodes.DeferT:
-			body := new(nodes.BlockStmt)
-			body.SetPos(p.Pos())
-			body.List = []nodes.Stmt{p.CallStmt(stmt)}
-			body.Rbrace = p.Pos()
-			s.Else = body
-		case nodes.LbraceT:
-			s.Else = p.BlockStmt("", stmt)
-		default:
-			p.SyntaxError("else must be followed by if,switch,for,select,go,defer or statement block")
-			p.Advance(nodes.NameT, nodes.RbraceT)
+	p.CheckHashCmd(p.hash, func() {
+		s.Init, s.Cond, _ = p.header(nodes.IfT)
+		s.Then = p.BlockStmt("if clause", stmt)
+		if !p.checkPermit("elseKw") {
+			p.Advance(nodes.SemiT, nodes.RbraceT)
+			s = nil
+			return
 		}
-	}
+		if p.tok == nodes.ElseT {
+			p.CheckHashCmd(p.hash, func() {
+				if p.Got(nodes.ElseT) {
+					switch p.tok {
+					case nodes.IfT:
+						s.Else = p.IfStmt(stmt)
+					case nodes.SwitchT:
+						body := new(nodes.BlockStmt)
+						body.SetPos(p.Pos())
+						body.List = []nodes.Stmt{p.SwitchStmt(stmt)}
+						body.Rbrace = p.Pos()
+						s.Else = body
+					case nodes.ForT:
+						body := new(nodes.BlockStmt)
+						body.SetPos(p.Pos())
+						body.List = []nodes.Stmt{p.ForStmt(stmt)}
+						body.Rbrace = p.Pos()
+						s.Else = body
+					case nodes.SelectT:
+						body := new(nodes.BlockStmt)
+						body.SetPos(p.Pos())
+						body.List = []nodes.Stmt{p.SelectStmt(stmt)}
+						body.Rbrace = p.Pos()
+						s.Else = body
+					case nodes.GoT, nodes.DeferT:
+						body := new(nodes.BlockStmt)
+						body.SetPos(p.Pos())
+						body.List = []nodes.Stmt{p.CallStmt(stmt)}
+						body.Rbrace = p.Pos()
+						s.Else = body
+					case nodes.LbraceT:
+						s.Else = p.BlockStmt("", stmt)
+					default:
+						p.SyntaxError("else must be followed by if,switch,for,select,go,defer or statement block")
+						p.Advance(nodes.NameT, nodes.RbraceT)
+					}
+				}
+			})
+		}
+	})
 
 	return s
 }
@@ -2165,8 +2212,10 @@ func (p *parser) ForStmt(stmt func() nodes.Stmt) nodes.Stmt {
 	if len(p.comments) > 0 {
 		s.SetAboveComment(strings.Join(p.comments, "\n"))
 	}
-	s.Init, s.Cond, s.Post = p.header(nodes.ForT)
-	s.Body = p.BlockStmt("for clause", stmt)
+	p.CheckHashCmd(p.hash, func() {
+		s.Init, s.Cond, s.Post = p.header(nodes.ForT)
+		s.Body = p.BlockStmt("for clause", stmt)
+	})
 
 	return s
 }
@@ -2188,20 +2237,22 @@ func (p *parser) SwitchStmt(stmt func() nodes.Stmt) *nodes.SwitchStmt {
 	if len(p.comments) > 0 {
 		s.SetAboveComment(strings.Join(p.comments, "\n"))
 	}
-	s.Init, s.Tag, _ = p.header(nodes.SwitchT)
+	p.CheckHashCmd(p.hash, func() {
+		s.Init, s.Tag, _ = p.header(nodes.SwitchT)
 
-	if !p.Got(nodes.LbraceT) {
-		p.SyntaxError("missing { after switch clause")
-		p.Advance(nodes.CaseT, nodes.DefaultT, nodes.RbraceT)
-	}
-	for p.tok != nodes.EofT && p.tok != nodes.RbraceT {
-		s.Body = append(s.Body, p.CaseClause(stmt))
-	}
-	if len(s.Body) > 0 {
-		s.Body[len(s.Body)-1].Final = true
-	}
-	s.Rbrace = p.Pos()
-	p.Want(nodes.RbraceT)
+		if !p.Got(nodes.LbraceT) {
+			p.SyntaxError("missing { after switch clause")
+			p.Advance(nodes.CaseT, nodes.DefaultT, nodes.RbraceT)
+		}
+		for p.tok != nodes.EofT && p.tok != nodes.RbraceT {
+			s.Body = append(s.Body, p.CaseClause(stmt))
+		}
+		if len(s.Body) > 0 {
+			s.Body[len(s.Body)-1].Final = true
+		}
+		s.Rbrace = p.Pos()
+		p.Want(nodes.RbraceT)
+	})
 
 	return s
 }
@@ -2215,30 +2266,29 @@ func (p *parser) CaseClause(stmt func() nodes.Stmt) *nodes.CaseClause {
 	c := new(nodes.CaseClause)
 	c.SetPos(p.Pos())
 
-	switch p.tok {
-	case nodes.CaseT:
-		if !p.checkPermit("caseKw") {
-			p.Advance(nodes.SemiT)
-			return nil
-		}
-		p.Next()
-		c.Cases = p.ExprList(true)
-
-	case nodes.DefaultT:
-		if !p.checkPermit("defaultKw") {
-			p.Advance(nodes.SemiT)
-			return nil
-		}
-		p.Next()
-
-	default:
-		p.SyntaxError("expecting case or default or }")
-		p.Advance(nodes.ColonT, nodes.CaseT, nodes.DefaultT, nodes.RbraceT)
+	if p.tok == nodes.CaseT && !p.checkPermit("caseKw") ||
+		p.tok == nodes.DefaultT && !p.checkPermit("defaultKw") {
+		p.Advance(nodes.SemiT)
+		return nil
 	}
+	p.CheckHashCmd(p.hash, func() {
+		switch p.tok {
+		case nodes.CaseT:
+			p.Next()
+			c.Cases = p.ExprList(true)
 
-	c.Colon = p.Pos()
-	p.Want(nodes.ColonT)
-	c.Body = p.StmtList(stmt)
+		case nodes.DefaultT:
+			p.Next()
+
+		default:
+			p.SyntaxError("expecting case or default or }")
+			p.Advance(nodes.ColonT, nodes.CaseT, nodes.DefaultT, nodes.RbraceT)
+		}
+
+		c.Colon = p.Pos()
+		p.Want(nodes.ColonT)
+		c.Body = p.StmtList(stmt)
+	})
 
 	return c
 }
@@ -2260,19 +2310,21 @@ func (p *parser) SelectStmt(stmt func() nodes.Stmt) *nodes.SelectStmt {
 	if len(p.comments) > 0 {
 		s.SetAboveComment(strings.Join(p.comments, "\n"))
 	}
-	p.Want(nodes.SelectT)
-	if !p.Got(nodes.LbraceT) {
-		p.SyntaxError("missing { after select clause")
-		p.Advance(nodes.CaseT, nodes.DefaultT, nodes.RbraceT)
-	}
-	for p.tok != nodes.EofT && p.tok != nodes.RbraceT {
-		s.Body = append(s.Body, p.CommClause(stmt))
-	}
-	if len(s.Body) > 0 {
-		s.Body[len(s.Body)-1].Final = true
-	}
-	s.Rbrace = p.Pos()
-	p.Want(nodes.RbraceT)
+	p.CheckHashCmd(p.hash, func() {
+		p.Want(nodes.SelectT)
+		if !p.Got(nodes.LbraceT) {
+			p.SyntaxError("missing { after select clause")
+			p.Advance(nodes.CaseT, nodes.DefaultT, nodes.RbraceT)
+		}
+		for p.tok != nodes.EofT && p.tok != nodes.RbraceT {
+			s.Body = append(s.Body, p.CommClause(stmt))
+		}
+		if len(s.Body) > 0 {
+			s.Body[len(s.Body)-1].Final = true
+		}
+		s.Rbrace = p.Pos()
+		p.Want(nodes.RbraceT)
+	})
 
 	return s
 }
@@ -2286,42 +2338,41 @@ func (p *parser) CommClause(stmt func() nodes.Stmt) *nodes.CommClause {
 	c := new(nodes.CommClause)
 	c.SetPos(p.Pos())
 
-	switch p.tok {
-	case nodes.CaseT:
-		if !p.checkPermit("caseKw") {
-			p.Advance(nodes.SemiT)
-			return nil
-		}
-		p.Next()
-		c.Comm = p.SimpleStmt(nil, false)
-
-		// The syntax restricts the possible simple statements here to:
-		//
-		//     lhs <- x (send statement)
-		//     <-x
-		//     lhs = <-x
-		//     lhs := <-x
-		//
-		// All these (and more) are recognized by simpleStmt and invalid
-		// syntax trees are flagged later, during type checking.
-		// TODO(gri) eventually may want to restrict valid syntax trees
-		// here.
-
-	case nodes.DefaultT:
-		if !p.checkPermit("defaultKw") {
-			p.Advance(nodes.SemiT)
-			return nil
-		}
-		p.Next()
-
-	default:
-		p.SyntaxError("expecting case or default or }")
-		p.Advance(nodes.ColonT, nodes.CaseT, nodes.DefaultT, nodes.RbraceT)
+	if p.tok == nodes.CaseT && !p.checkPermit("caseKw") ||
+		p.tok == nodes.DefaultT && !p.checkPermit("defaultKw") {
+		p.Advance(nodes.SemiT)
+		return nil
 	}
+	p.CheckHashCmd(p.hash, func() {
+		switch p.tok {
+		case nodes.CaseT:
+			p.Next()
+			c.Comm = p.SimpleStmt(nil, false)
 
-	c.Colon = p.Pos()
-	p.Want(nodes.ColonT)
-	c.Body = p.StmtList(stmt)
+			// The syntax restricts the possible simple statements here to:
+			//
+			//     lhs <- x (send statement)
+			//     <-x
+			//     lhs = <-x
+			//     lhs := <-x
+			//
+			// All these (and more) are recognized by simpleStmt and invalid
+			// syntax trees are flagged later, during type checking.
+			// TODO(gri) eventually may want to restrict valid syntax trees
+			// here.
+
+		case nodes.DefaultT:
+			p.Next()
+
+		default:
+			p.SyntaxError("expecting case or default or }")
+			p.Advance(nodes.ColonT, nodes.CaseT, nodes.DefaultT, nodes.RbraceT)
+		}
+
+		c.Colon = p.Pos()
+		p.Want(nodes.ColonT)
+		c.Body = p.StmtList(stmt)
+	})
 
 	return c
 }
@@ -2390,7 +2441,7 @@ func (p *parser) BinaryExpr(prec nodes.Prec) nodes.Expr {
 		} else {
 			t := &nodes.CallExpr{
 				Fun: &nodes.SelectorExpr{
-					X:   &nodes.Name{Value: p.dynamicBlock},
+					X:   p.NewName(p.dynamicBlock),
 					Sel: &nodes.Name{Value: binOp},
 				},
 				ArgList: []nodes.Expr{x},
@@ -2426,8 +2477,8 @@ var dynBinOps = map[nodes.Operator]string{
 	nodes.AndNot: "SeqXor",           // &^
 	nodes.Shl:    "LeftShift",        // <<
 	nodes.Shr:    "RightShift",       // >>
-	nodes.LftAnd: "LeftAnd",          // <&
-	nodes.AndRgt: "RightAnd",         // &>
+	nodes.LftAnd: "LeftSeq",          // <&
+	nodes.AndRgt: "RightSeq",         // &>
 	nodes.Add:    "Plus",             // + //additive prec
 	nodes.Sub:    "Minus",            // -
 	nodes.Or:     "Alt",              // |
@@ -2467,7 +2518,7 @@ func (p *parser) UnaryExpr() nodes.Expr {
 			} else {
 				t := &nodes.CallExpr{
 					Fun: &nodes.SelectorExpr{
-						X:   &nodes.Name{Value: p.dynamicBlock},
+						X:   p.NewName(p.dynamicBlock),
 						Sel: &nodes.Name{Value: unaryOp},
 					},
 					ArgList: []nodes.Expr{},
@@ -2592,34 +2643,35 @@ loop:
 		switch p.tok {
 		case nodes.DotT:
 			p.Next()
-			switch p.tok {
-			case nodes.NameT:
+			if p.tok == nodes.NameT || p.TokIsKeywordName() {
 				// pexpr '.' sym
 				t := new(nodes.SelectorExpr)
 				t.SetPos(pos)
 				t.X = x
 				t.Sel = p.Name()
 				x = t
+			} else {
+				switch p.tok {
+				case nodes.LparenT:
+					p.Next()
+					if p.Got(nodes.TypeT) {
+						t := new(nodes.TypeSwitchGuard)
+						t.SetPos(pos)
+						t.X = x
+						x = t
+					} else {
+						t := new(nodes.AssertExpr)
+						t.SetPos(pos)
+						t.X = x
+						t.Type = p.Expr()
+						x = t
+					}
+					p.Want(nodes.RparenT)
 
-			case nodes.LparenT:
-				p.Next()
-				if p.Got(nodes.TypeT) {
-					t := new(nodes.TypeSwitchGuard)
-					t.SetPos(pos)
-					t.X = x
-					x = t
-				} else {
-					t := new(nodes.AssertExpr)
-					t.SetPos(pos)
-					t.X = x
-					t.Type = p.Expr()
-					x = t
+				default:
+					p.SyntaxError("expecting name or (")
+					p.Advance(nodes.SemiT, nodes.RparenT)
 				}
-				p.Want(nodes.RparenT)
-
-			default:
-				p.SyntaxError("expecting name or (")
-				p.Advance(nodes.SemiT, nodes.RparenT)
 			}
 
 		case nodes.LbrackT:
@@ -2660,15 +2712,53 @@ loop:
 				p.SyntaxError("cannot parenthesize type in composite literal")
 				// already progressed, no need to advance
 			}
-			n := p.CompLitExpr()
-			n.Type = x
-			x = n
+			if u, ok := t.(*nodes.MapType); ok && u.Dyn {
+				x = p.DynMapExpr()
+			} else {
+				n := p.CompLitExpr()
+				n.Type = x
+				x = n
+			}
 
 		default:
 			break loop
 		}
 	}
 
+	return x
+}
+
+//--------------------------------------------------------------------------------
+// LiteralValue = "{" [ ElementList [ "," ] ] "}" .
+func (p *parser) DynMapExpr() *nodes.CallExpr {
+	if trace {
+		defer p.trace("dynMapExpr")("")
+	}
+
+	x := &nodes.CallExpr{
+		Fun: &nodes.SelectorExpr{
+			X:   p.NewName(p.dynamicBlock),
+			Sel: &nodes.Name{Value: "InitMap"},
+		},
+	}
+	_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock)
+
+	x.SetPos(p.Pos())
+	p.xnest++
+	p.List(nodes.LbraceT, nodes.CommaT, nodes.RbraceT, func() bool {
+		e := &nodes.CallExpr{
+			Fun: &nodes.SelectorExpr{
+				X:   p.NewName(p.dynamicBlock),
+				Sel: &nodes.Name{Value: "NewPair"},
+			},
+		}
+		e.ArgList = append(e.ArgList, p.BareCompLitExpr())
+		p.Want(nodes.ColonT)
+		e.ArgList = append(e.ArgList, p.BareCompLitExpr())
+		x.ArgList = append(x.ArgList, e)
+		return false
+	})
+	p.xnest--
 	return x
 }
 
@@ -2682,187 +2772,189 @@ func (p *parser) Operand(keep_parens bool) nodes.Expr {
 		defer p.trace("operand " + p.tok.String())("")
 	}
 
-	switch p.tok {
-	case nodes.NameT:
+	if p.tok == nodes.NameT || p.TokIsKeywordName() {
 		return p.Name()
-	case nodes.LiteralT:
-		lit := p.OLiteral()
-		if lit.Kind == nodes.StringLit && p.tok == nodes.DotT {
-			if !p.checkPermit("inplaceImps") {
+	} else {
+		switch p.tok {
+		case nodes.LiteralT:
+			lit := p.OLiteral()
+			if lit.Kind == nodes.StringLit && p.tok == nodes.DotT {
+				if !p.checkPermit("inplaceImps") {
+					p.Advance(nodes.SemiT)
+					return nil
+				}
+				a := p.ProcImportAlias(lit, "")
+				lit.Value = a
+				return lit
+			}
+			if p.dynamicBlock != "" {
+				switch lit.Kind {
+				case nodes.StringLit:
+					t := &nodes.CallExpr{
+						Fun: &nodes.SelectorExpr{
+							X:   p.NewName(p.dynamicBlock),
+							Sel: &nodes.Name{Value: "MakeText"},
+						},
+						ArgList: []nodes.Expr{lit},
+					}
+					t.SetPos(p.Pos())
+					_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock)
+					return t
+				case nodes.RuneLit:
+					t := &nodes.CallExpr{
+						Fun: &nodes.SelectorExpr{
+							X:   p.NewName(p.dynamicBlock),
+							Sel: &nodes.Name{Value: "Runex"},
+						},
+						ArgList: []nodes.Expr{&nodes.BasicLit{Value: strconv.Quote(strings.Trim(lit.Value, "'")), Kind: nodes.StringLit}},
+					}
+					t.SetPos(p.Pos())
+					_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock)
+					return t
+				case nodes.IntLit, nodes.FloatLit, nodes.ImagLit:
+					lit.Value = strings.Replace(lit.Value, "_", "", -1)
+					return lit
+				case nodes.DateLit:
+					lit.Value = strings.Replace(lit.Value, "_", "", -1)
+					vals := strings.Split(lit.Value, ".")
+					if len(vals) != 3 {
+						p.SyntaxError("invalid date format")
+					}
+					t := &nodes.CallExpr{
+						Fun: &nodes.SelectorExpr{
+							X:   p.NewName("time"),
+							Sel: &nodes.Name{Value: "Date"},
+						},
+						ArgList: []nodes.Expr{
+							&nodes.BasicLit{Value: vals[0], Kind: nodes.IntLit},
+							&nodes.BasicLit{Value: vals[1], Kind: nodes.IntLit},
+							&nodes.BasicLit{Value: vals[2], Kind: nodes.IntLit},
+							&nodes.BasicLit{Value: "0", Kind: nodes.IntLit},
+							&nodes.BasicLit{Value: "0", Kind: nodes.IntLit},
+							&nodes.BasicLit{Value: "0", Kind: nodes.IntLit},
+							&nodes.BasicLit{Value: "0", Kind: nodes.IntLit},
+							&nodes.SelectorExpr{
+								X:   p.NewName("time"),
+								Sel: &nodes.Name{Value: "UTC"},
+							},
+						},
+					}
+					t.SetPos(p.Pos())
+					_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock)
+					_ = p.ProcImportAlias(&nodes.BasicLit{Value: "\"time\"", Kind: nodes.StringLit}, "time")
+					return t
+				}
+			}
+			return lit
+
+		case nodes.LparenT:
+			pos := p.Pos()
+			p.Next()
+			p.xnest++
+			x := p.Expr()
+			p.xnest--
+			p.Want(nodes.RparenT)
+
+			// Optimization: Record presence of ()'s only where needed
+			// for error reporting. Don't bother in other cases; it is
+			// just a waste of memory and time.
+
+			// Parentheses are not permitted on lhs of := .
+			// switch x.Op {
+			// case ONAME, ONONAME, OPACK, OTYPE, OLITERAL, OTYPESW:
+			// 	keep_parens = true
+			// }
+
+			// Parentheses are not permitted around T in a composite
+			// literal T{}. If the next token is a {, assume x is a
+			// composite literal type T (it may not be, { could be
+			// the opening brace of a block, but we don't know yet).
+			if p.tok == nodes.LbraceT {
+				keep_parens = true
+			}
+
+			// Parentheses are also not permitted around the expression
+			// in a go/defer statement. In that case, operand is called
+			// with keep_parens set.
+			if keep_parens {
+				px := new(nodes.ParenExpr)
+				px.SetPos(pos)
+				px.X = x
+				x = px
+			}
+			return x
+
+		case nodes.FuncT:
+			pos := p.Pos()
+			if !p.checkPermit("funcKw") {
 				p.Advance(nodes.SemiT)
 				return nil
 			}
-			a := p.ProcImportAlias(lit, "")
-			lit.Value = a
-			return lit
-		}
-		if p.dynamicBlock != "" {
-			switch lit.Kind {
-			case nodes.StringLit:
-				t := &nodes.CallExpr{
-					Fun: &nodes.SelectorExpr{
-						X:   &nodes.Name{Value: p.dynamicBlock},
-						Sel: &nodes.Name{Value: "MakeText"},
-					},
-					ArgList: []nodes.Expr{lit},
+			p.Next()
+			if p.tok == nodes.LparenT {
+				t := p.FuncType()
+				if p.tok == nodes.LbraceT {
+					p.xnest++
+
+					f := new(nodes.FuncLit)
+					f.SetPos(pos)
+					f.Type = t
+					/*f.Body = p.blockStmt("", p.stmtOrNil)
+					if p.mode&CheckBranches != 0 {
+						checkBranches(f.Body, p.errh)
+					}*/
+					f.Body = p.FuncBody(p.StmtOrNil)
+
+					p.xnest--
+					return f
 				}
-				t.SetPos(p.Pos())
-				_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock)
 				return t
-			case nodes.RuneLit:
-				t := &nodes.CallExpr{
-					Fun: &nodes.SelectorExpr{
-						X:   &nodes.Name{Value: p.dynamicBlock},
-						Sel: &nodes.Name{Value: "Runex"},
-					},
-					ArgList: []nodes.Expr{&nodes.BasicLit{Value: strconv.Quote(strings.Trim(lit.Value, "'")), Kind: nodes.StringLit}},
-				}
-				t.SetPos(p.Pos())
-				_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock)
-				return t
-			case nodes.IntLit, nodes.FloatLit, nodes.ImagLit:
-				lit.Value = strings.Replace(lit.Value, "_", "", -1)
-				return lit
-			case nodes.DateLit:
-				lit.Value = strings.Replace(lit.Value, "_", "", -1)
-				vals := strings.Split(lit.Value, ".")
-				if len(vals) != 3 {
-					p.SyntaxError("invalid date format")
-				}
-				t := &nodes.CallExpr{
-					Fun: &nodes.SelectorExpr{
-						X:   &nodes.Name{Value: "time"},
-						Sel: &nodes.Name{Value: "Date"},
-					},
-					ArgList: []nodes.Expr{
-						&nodes.BasicLit{Value: vals[0], Kind: nodes.IntLit},
-						&nodes.BasicLit{Value: vals[1], Kind: nodes.IntLit},
-						&nodes.BasicLit{Value: vals[2], Kind: nodes.IntLit},
-						&nodes.BasicLit{Value: "0", Kind: nodes.IntLit},
-						&nodes.BasicLit{Value: "0", Kind: nodes.IntLit},
-						&nodes.BasicLit{Value: "0", Kind: nodes.IntLit},
-						&nodes.BasicLit{Value: "0", Kind: nodes.IntLit},
-						&nodes.SelectorExpr{
-							X:   &nodes.Name{Value: "time"},
-							Sel: &nodes.Name{Value: "UTC"},
-						},
+
+			} else if p.dynamicBlock != "" { //short-form function
+				t := &nodes.FuncType{
+					ParamList: []*nodes.Field{{
+						Name: p.NewName("groo_it"),
+						Type: &nodes.DotsType{Elem: &nodes.InterfaceType{MethodList: []*nodes.Field{}}},
+					}},
+					ResultList: []*nodes.Field{
+						{Type: &nodes.InterfaceType{MethodList: []*nodes.Field{}}},
 					},
 				}
 				t.SetPos(p.Pos())
-				_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock) //XXXX
-				_ = p.ProcImportAlias(&nodes.BasicLit{Value: "\"time\"", Kind: nodes.StringLit}, "time")
-				return t
-			}
-		}
-		return lit
-
-	case nodes.LparenT:
-		pos := p.Pos()
-		p.Next()
-		p.xnest++
-		x := p.Expr()
-		p.xnest--
-		p.Want(nodes.RparenT)
-
-		// Optimization: Record presence of ()'s only where needed
-		// for error reporting. Don't bother in other cases; it is
-		// just a waste of memory and time.
-
-		// Parentheses are not permitted on lhs of := .
-		// switch x.Op {
-		// case ONAME, ONONAME, OPACK, OTYPE, OLITERAL, OTYPESW:
-		// 	keep_parens = true
-		// }
-
-		// Parentheses are not permitted around T in a composite
-		// literal T{}. If the next token is a {, assume x is a
-		// composite literal type T (it may not be, { could be
-		// the opening brace of a block, but we don't know yet).
-		if p.tok == nodes.LbraceT {
-			keep_parens = true
-		}
-
-		// Parentheses are also not permitted around the expression
-		// in a go/defer statement. In that case, operand is called
-		// with keep_parens set.
-		if keep_parens {
-			px := new(nodes.ParenExpr)
-			px.SetPos(pos)
-			px.X = x
-			x = px
-		}
-		return x
-
-	case nodes.FuncT:
-		pos := p.Pos()
-		if !p.checkPermit("funcKw") {
-			p.Advance(nodes.SemiT)
-			return nil
-		}
-		p.Next()
-		if p.tok == nodes.LparenT {
-			t := p.FuncType()
-			if p.tok == nodes.LbraceT {
-				p.xnest++
-
-				f := new(nodes.FuncLit)
-				f.SetPos(pos)
-				f.Type = t
-				/*f.Body = p.blockStmt("", p.stmtOrNil)
-				if p.mode&CheckBranches != 0 {
-					checkBranches(f.Body, p.errh)
-				}*/
-				f.Body = p.FuncBody(p.StmtOrNil)
-
-				p.xnest--
-				return f
-			}
-			return t
-
-		} else if p.dynamicBlock != "" { //short-form function
-			t := &nodes.FuncType{
-				ParamList: []*nodes.Field{{
-					Name: &nodes.Name{Value: "groo_it"},
-					Type: &nodes.DotsType{Elem: &nodes.InterfaceType{MethodList: []*nodes.Field{}}},
-				}},
-				ResultList: []*nodes.Field{
-					{Type: &nodes.InterfaceType{MethodList: []*nodes.Field{}}},
-				},
-			}
-			t.SetPos(p.Pos())
-			if p.tok == nodes.LbraceT {
-				p.xnest++
-				f := new(nodes.FuncLit)
-				f.SetPos(pos)
-				f.Type = t
-				f.ShortForm = true
-				f.Body = p.FuncBody(p.StmtOrNil)
-				p.xnest--
-				if len(f.Body.List) > 0 {
-					lastStmt := f.Body.List[len(f.Body.List)-1]
-					switch lastStmt := lastStmt.(type) {
-					case *nodes.ExprStmt:
-						f.Body.List[len(f.Body.List)-1] = &nodes.ReturnStmt{Results: lastStmt.X}
-					//TODO: case nodes.LabeledStmt, etc
-					default:
+				if p.tok == nodes.LbraceT {
+					p.xnest++
+					f := new(nodes.FuncLit)
+					f.SetPos(pos)
+					f.Type = t
+					f.ShortForm = true
+					f.Body = p.FuncBody(p.StmtOrNil)
+					p.xnest--
+					if len(f.Body.List) > 0 {
+						lastStmt := f.Body.List[len(f.Body.List)-1]
+						switch lastStmt := lastStmt.(type) {
+						case *nodes.ExprStmt:
+							f.Body.List[len(f.Body.List)-1] = &nodes.ReturnStmt{Results: lastStmt.X}
+						//TODO: case nodes.LabeledStmt, etc
+						default:
+						}
 					}
+					return f
 				}
-				return f
+				return t
+			} else {
+				p.SyntaxError("invalid func literal syntax")
+				return nil
 			}
-			return t
-		} else {
-			p.SyntaxError("invalid func literal syntax")
-			return nil
+
+		case nodes.LbrackT, nodes.ChanT, nodes.MapT, nodes.StructT, nodes.InterfaceT:
+			return p.Type() // othertype
+
+		default:
+			x := p.BadExpr()
+			p.SyntaxError("expecting expression")
+			p.Advance()
+			return x
 		}
-
-	case nodes.LbrackT, nodes.ChanT, nodes.MapT, nodes.StructT, nodes.InterfaceT:
-		return p.Type() // othertype
-
-	default:
-		x := p.BadExpr()
-		p.SyntaxError("expecting expression")
-		p.Advance()
-		return x
 	}
 
 	// Syntactically, composite literals are operands. Because a complit
@@ -3019,11 +3111,12 @@ func (p *parser) DynamicIndexing(x nodes.Expr) nodes.Expr { //TODO: mustn't be l
 		i = p.Expr()
 		if p.tok == nodes.RbrackT {
 			// x[i]
+
 			t := &nodes.ParenExpr{X: &nodes.Operation{ //work around bug in printer.go ?
 				Op: nodes.Mul,
 				X: &nodes.CallExpr{
 					Fun: &nodes.SelectorExpr{
-						X:   &nodes.Name{Value: p.dynamicBlock},
+						X:   p.NewName(p.dynamicBlock),
 						Sel: &nodes.Name{Value: "GetIndex"},
 					},
 					ArgList: []nodes.Expr{
@@ -3034,8 +3127,8 @@ func (p *parser) DynamicIndexing(x nodes.Expr) nodes.Expr { //TODO: mustn't be l
 			}
 			t.SetPos(pos)
 			x = t
-			_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock)
 
+			_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock)
 			p.Want(nodes.RbrackT)
 			p.xnest--
 			return x
@@ -3051,20 +3144,19 @@ func (p *parser) DynamicIndexing(x nodes.Expr) nodes.Expr { //TODO: mustn't be l
 	} else {
 		// x[i:...
 		j = &nodes.SelectorExpr{
-			X:   &nodes.Name{Value: p.dynamicBlock},
+			X:   p.NewName(p.dynamicBlock),
 			Sel: &nodes.Name{Value: "Inf"},
 		}
 	}
 	if p.Got(nodes.ColonT) {
 		p.Error("no more than 2 indexes can be used in a dynamic slice index")
 	}
-
 	t := &nodes.ParenExpr{
 		X: &nodes.Operation{ //work around bug in printer.go ?
 			Op: nodes.Mul,
 			X: &nodes.CallExpr{
 				Fun: &nodes.SelectorExpr{
-					X:   &nodes.Name{Value: p.dynamicBlock},
+					X:   p.NewName(p.dynamicBlock),
 					Sel: &nodes.Name{Value: "GetIndex"},
 				},
 				ArgList: []nodes.Expr{
@@ -3121,163 +3213,178 @@ func (p *parser) TypeOrNil() nodes.Expr {
 	}
 
 	pos := p.Pos()
-	switch p.tok {
-	case nodes.StarT:
-		// ptrtype
-		p.Next()
-		return newIndirect(pos, p.Type())
+	if p.tok == nodes.NameT || p.TokIsKeywordName() {
+		return p.DotName(p.Name())
+	} else {
+		switch p.tok {
+		case nodes.StarT:
+			// ptrtype
+			p.Next()
+			return newIndirect(pos, p.Type())
 
-	case nodes.ArrowT:
-		// recvchantype
-		p.Next()
-		p.Want(nodes.ChanT)
-		t := new(nodes.ChanType)
-		t.SetPos(pos)
-		t.Dir = nodes.RecvOnly
-		t.Elem = p.ChanElem()
-		return t
-
-	case nodes.FuncT:
-		// fntype
-		p.Next()
-		return p.FuncType()
-
-	case nodes.LbrackT:
-		// '[' oexpr ']' ntype
-		// '[' _DotDotDot ']' ntype
-		// and if dynamic mode, could be [m:n] or [:n] or [m:] or [:]
-		p.Next()
-		p.xnest++
-		if p.Got(nodes.RbrackT) {
-			// []T
-			p.xnest--
-			t := new(nodes.SliceType)
-			t.SetPos(pos)
-			if p.tok == nodes.LbraceT {
-				t.Elem = &nodes.Name{Value: "any"}
-			} else {
-				t.Elem = p.Type()
-			}
+		case nodes.ArrowT:
+			// recvchantype
+			p.Next()
+			t := new(nodes.ChanType)
+			p.CheckHashCmd(p.hash, func() {
+				p.Want(nodes.ChanT)
+				t.SetPos(pos)
+				t.Dir = nodes.RecvOnly
+				t.Elem = p.ChanElem()
+			})
 			return t
-		}
 
-		// [n]T or [...]T
-		// or, in dynamic mode, [m:n] or [:n] or [m:] or [:]
-		var fromval nodes.Expr
-		if p.dynamicBlock != "" && p.Got(nodes.ColonT) {
-			//[:n] or [:]
-			fromval = &nodes.BasicLit{
-				Value: "0",
-				Kind:  nodes.IntLit,
-			}
-			var toval nodes.Expr
+		case nodes.FuncT:
+			// fntype
+			p.Next()
+			return p.FuncType()
+
+		case nodes.LbrackT:
+			// '[' oexpr ']' ntype
+			// '[' _DotDotDot ']' ntype
+			// and if dynamic mode, could be [m:n] or [:n] or [m:] or [:]
+			p.Next()
+			p.xnest++
 			if p.Got(nodes.RbrackT) {
-				toval = &nodes.SelectorExpr{
-					X:   &nodes.Name{Value: p.dynamicBlock},
-					Sel: &nodes.Name{Value: "Inf"},
-				}
-			} else {
-				toval = p.Expr()
-				p.Want(nodes.RbrackT)
-			}
-			p.xnest--
-			t := &nodes.CallExpr{
-				Fun: &nodes.SelectorExpr{
-					X:   &nodes.Name{Value: p.dynamicBlock},
-					Sel: &nodes.Name{Value: "NewMapEntryOrPosIntRange"},
-				},
-				ArgList: []nodes.Expr{fromval, toval},
-			}
-			_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock)
-			return t
-		}
-		if !p.Got(nodes.DotDotDotT) {
-			fromval = p.Expr()
-			if p.dynamicBlock != "" {
-				//[m:] or [m:n]
-				p.Want(nodes.ColonT)
-				var toval nodes.Expr
-				if p.tok != nodes.RbrackT {
-					toval = p.Expr()
+				// []T
+				p.xnest--
+				t := new(nodes.SliceType)
+				t.SetPos(pos)
+				if p.dynamicBlock != "" && p.tok == nodes.LbraceT {
+					//short slice syntax in literals: "[]" instead of "[T]"
+					t.Elem = p.NewName("any")
 				} else {
+					t.Elem = p.Type()
+				}
+				return t
+			}
+
+			// [n]T or [...]T
+			// or, in dynamic mode, [m:n] or [:n] or [m:] or [:]
+			var fromval nodes.Expr
+			if p.dynamicBlock != "" && p.Got(nodes.ColonT) {
+				//[:n] or [:]
+				fromval = &nodes.BasicLit{
+					Value: "0",
+					Kind:  nodes.IntLit,
+				}
+				var toval nodes.Expr
+				if p.Got(nodes.RbrackT) {
 					toval = &nodes.SelectorExpr{
-						X:   &nodes.Name{Value: p.dynamicBlock},
+						X:   p.NewName(p.dynamicBlock),
 						Sel: &nodes.Name{Value: "Inf"},
 					}
+				} else {
+					toval = p.Expr()
+					p.Want(nodes.RbrackT)
 				}
-				p.Want(nodes.RbrackT)
 				p.xnest--
-				t := &nodes.CallExpr{
-					Fun: &nodes.SelectorExpr{
-						X:   &nodes.Name{Value: p.dynamicBlock},
-						Sel: &nodes.Name{Value: "NewMapEntryOrPosIntRange"},
+				t := &nodes.CallExpr{ //prev: CompositeLit
+					Fun: &nodes.SelectorExpr{ //prev: Type
+						X:   p.NewName(p.dynamicBlock),
+						Sel: &nodes.Name{Value: "NewPair"},
 					},
-					ArgList: []nodes.Expr{fromval, toval},
+					ArgList: []nodes.Expr{fromval, toval}, //prev: ElemList
 				}
 				_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock)
 				return t
 			}
-		}
-		p.Want(nodes.RbrackT)
-		p.xnest--
-		t := new(nodes.ArrayType)
-		t.SetPos(pos)
-		t.Len = fromval
-		t.Elem = p.Type()
-		return t
+			if !p.Got(nodes.DotDotDotT) {
+				fromval = p.Expr()
+				if p.dynamicBlock != "" {
+					//[m:] or [m:n]
+					p.Want(nodes.ColonT)
+					var toval nodes.Expr
+					if p.tok != nodes.RbrackT {
+						toval = p.Expr()
+					} else {
+						toval = &nodes.SelectorExpr{
+							X:   p.NewName(p.dynamicBlock),
+							Sel: &nodes.Name{Value: "Inf"},
+						}
+					}
+					p.Want(nodes.RbrackT)
+					p.xnest--
+					t := &nodes.CallExpr{
+						Fun: &nodes.SelectorExpr{
+							X:   p.NewName(p.dynamicBlock),
+							Sel: &nodes.Name{Value: "NewPair"},
+						},
+						ArgList: []nodes.Expr{fromval, toval},
+					}
+					_ = p.ProcImportAlias(&nodes.BasicLit{Value: dynLib, Kind: nodes.StringLit}, p.dynamicBlock)
+					return t
+				}
+			}
+			p.Want(nodes.RbrackT)
+			p.xnest--
+			t := new(nodes.ArrayType)
+			t.SetPos(pos)
+			t.Len = fromval
+			t.Elem = p.Type()
+			return t
 
-	case nodes.ChanT:
-		// _Chan non_recvchantype
-		// _Chan _Comm ntype
-		if !p.checkPermit("chanKw") {
-			return nil
-		}
-		p.Next()
-		t := new(nodes.ChanType)
-		t.SetPos(pos)
-		if p.Got(nodes.ArrowT) {
-			t.Dir = nodes.SendOnly
-		}
-		t.Elem = p.ChanElem()
-		return t
+		case nodes.ChanT:
+			// _Chan non_recvchantype
+			// _Chan _Comm ntype
+			if !p.checkPermit("chanKw") {
+				return nil
+			}
+			t := new(nodes.ChanType)
+			p.CheckHashCmd(p.hash, func() {
+				p.Next()
+				t.SetPos(pos)
+				if p.Got(nodes.ArrowT) {
+					t.Dir = nodes.SendOnly
+				}
+				t.Elem = p.ChanElem()
+			})
+			return t
 
-	case nodes.MapT:
-		// _Map '[' ntype ']' ntype
-		if !p.checkPermit("mapKw") {
-			p.Advance(nodes.SemiT)
-			return nil
-		}
-		p.Next()
-		p.Want(nodes.LbrackT)
-		t := new(nodes.MapType)
-		t.SetPos(pos)
-		t.Key = p.Type()
-		p.Want(nodes.RbrackT)
-		t.Value = p.Type()
-		return t
+		case nodes.MapT:
+			// _Map '[' ntype ']' ntype
+			if !p.checkPermit("mapKw") {
+				p.Advance(nodes.SemiT)
+				return nil
+			}
+			t := new(nodes.MapType)
+			p.CheckHashCmd(p.hash, func() {
+				p.Next()
+				t.SetPos(pos)
+				if p.dynamicBlock != "" && p.tok == nodes.LbraceT {
+					//short map syntax in literals: "map" instead of "map[T]U" with backing slice "[]T"
+					t.Key = p.NewName("any")
+					t.Value = p.NewName("any")
+					t.Dyn = true
+				} else {
+					p.Want(nodes.LbrackT)
+					t.Key = p.Type()
+					p.Want(nodes.RbrackT)
+					t.Value = p.Type()
+				}
+			})
+			return t
 
-	case nodes.StructT:
-		return p.StructType()
+		case nodes.StructT:
+			return p.StructType()
 
-	case nodes.InterfaceT:
-		return p.InterfaceType()
+		case nodes.InterfaceT:
+			return p.InterfaceType()
 
-	case nodes.NameT:
-		return p.DotName(p.Name())
+		case nodes.LparenT:
+			p.Next()
+			t := p.Type()
+			p.Want(nodes.RparenT)
+			return t
 
-	case nodes.LparenT:
-		p.Next()
-		t := p.Type()
-		p.Want(nodes.RparenT)
-		return t
-
-	case nodes.LiteralT:
-		lit := p.OLiteral()
-		if lit.Kind == nodes.StringLit {
-			a := p.ProcImportAlias(lit, "")
-			return p.DotName(&nodes.Name{Value: a})
-		} else {
-			return nil
+		case nodes.LiteralT:
+			lit := p.OLiteral()
+			if lit.Kind == nodes.StringLit {
+				a := p.ProcImportAlias(lit, "")
+				return p.DotName(p.NewName(a))
+			} else {
+				return nil
+			}
 		}
 	}
 
@@ -3387,37 +3494,44 @@ func (p *parser) ParamDeclOrNil() *nodes.Field {
 	f := new(nodes.Field)
 	f.SetPos(p.Pos())
 
-	switch p.tok {
-	case nodes.NameT:
+	if p.tok == nodes.NameT || p.TokIsKeywordName() {
 		f.Name = p.Name()
+		if p.tok == nodes.NameT || p.TokIsKeywordName() {
+			f.Type = p.Type()
+		} else {
+			switch p.tok {
+			//case nodes.NameT, nodes.StarT, nodes.ArrowT, nodes.FuncT, nodes.LbrackT,
+			case nodes.StarT, nodes.ArrowT, nodes.FuncT, nodes.LbrackT,
+				nodes.ChanT, nodes.MapT, nodes.StructT, nodes.InterfaceT, nodes.LparenT:
+				// sym name_or_type
+				f.Type = p.Type()
+
+			case nodes.DotDotDotT:
+				// sym dotdotdot
+				f.Type = p.DotsType()
+
+			case nodes.DotT:
+				// name_or_type
+				// from dotname
+				f.Type = p.DotName(f.Name)
+				f.Name = nil
+			}
+		}
+	} else {
 		switch p.tok {
-		case nodes.NameT, nodes.StarT, nodes.ArrowT, nodes.FuncT, nodes.LbrackT, nodes.ChanT, nodes.MapT, nodes.StructT, nodes.InterfaceT, nodes.LparenT:
-			// sym name_or_type
+		case nodes.ArrowT, nodes.StarT, nodes.FuncT, nodes.LbrackT, nodes.ChanT, nodes.MapT, nodes.StructT, nodes.InterfaceT, nodes.LparenT:
+			// name_or_type
 			f.Type = p.Type()
 
 		case nodes.DotDotDotT:
-			// sym dotdotdot
+			// dotdotdot
 			f.Type = p.DotsType()
 
-		case nodes.DotT:
-			// name_or_type
-			// from dotname
-			f.Type = p.DotName(f.Name)
-			f.Name = nil
+		default:
+			p.SyntaxError("expecting )")
+			p.Advance(nodes.CommaT, nodes.RparenT)
+			return nil
 		}
-
-	case nodes.ArrowT, nodes.StarT, nodes.FuncT, nodes.LbrackT, nodes.ChanT, nodes.MapT, nodes.StructT, nodes.InterfaceT, nodes.LparenT:
-		// name_or_type
-		f.Type = p.Type()
-
-	case nodes.DotDotDotT:
-		// dotdotdot
-		f.Type = p.DotsType()
-
-	default:
-		p.SyntaxError("expecting )")
-		p.Advance(nodes.CommaT, nodes.RparenT)
-		return nil
 	}
 
 	return f
@@ -3495,10 +3609,13 @@ func (p *parser) StructType() *nodes.StructType {
 		p.Advance(nodes.SemiT)
 		return nil
 	}
-	p.Want(nodes.StructT)
-	p.List(nodes.LbraceT, nodes.SemiT, nodes.RbraceT, func() bool {
-		p.FieldDecl(typ)
-		return false
+
+	p.CheckHashCmd(p.hash, func() {
+		p.Want(nodes.StructT)
+		p.List(nodes.LbraceT, nodes.SemiT, nodes.RbraceT, func() bool {
+			p.FieldDecl(typ)
+			return false
+		})
 	})
 	return typ
 }
@@ -3513,8 +3630,7 @@ func (p *parser) FieldDecl(styp *nodes.StructType) {
 	}
 
 	pos := p.Pos()
-	switch p.tok {
-	case nodes.NameT:
+	if p.tok == nodes.NameT || p.TokIsKeywordName() {
 		name := p.Name()
 		if p.tok == nodes.DotT || p.tok == nodes.LiteralT || p.tok == nodes.SemiT || p.tok == nodes.RbraceT {
 			// embed oliteral
@@ -3532,48 +3648,50 @@ func (p *parser) FieldDecl(styp *nodes.StructType) {
 		for _, name := range names {
 			p.AddField(styp, name.Pos(), name, typ, tag)
 		}
-
-	case nodes.LparenT:
-		p.Next()
-		if p.tok == nodes.StarT {
-			// '(' '*' embed ')' oliteral
-			pos := p.Pos()
+	} else {
+		switch p.tok {
+		case nodes.LparenT:
 			p.Next()
-			typ := newIndirect(pos, p.QualifiedName(nil))
-			p.Want(nodes.RparenT)
-			tag := p.OLiteral()
-			p.AddField(styp, pos, nil, typ, tag)
-			p.SyntaxError("cannot parenthesize embedded type")
+			if p.tok == nodes.StarT {
+				// '(' '*' embed ')' oliteral
+				pos := p.Pos()
+				p.Next()
+				typ := newIndirect(pos, p.QualifiedName(nil))
+				p.Want(nodes.RparenT)
+				tag := p.OLiteral()
+				p.AddField(styp, pos, nil, typ, tag)
+				p.SyntaxError("cannot parenthesize embedded type")
 
-		} else {
-			// '(' embed ')' oliteral
-			typ := p.QualifiedName(nil)
-			p.Want(nodes.RparenT)
-			tag := p.OLiteral()
-			p.AddField(styp, pos, nil, typ, tag)
-			p.SyntaxError("cannot parenthesize embedded type")
+			} else {
+				// '(' embed ')' oliteral
+				typ := p.QualifiedName(nil)
+				p.Want(nodes.RparenT)
+				tag := p.OLiteral()
+				p.AddField(styp, pos, nil, typ, tag)
+				p.SyntaxError("cannot parenthesize embedded type")
+			}
+
+		case nodes.StarT:
+			p.Next()
+			if p.Got(nodes.LparenT) {
+				// '*' '(' embed ')' oliteral
+				typ := newIndirect(pos, p.QualifiedName(nil))
+				p.Want(nodes.RparenT)
+				tag := p.OLiteral()
+				p.AddField(styp, pos, nil, typ, tag)
+				p.SyntaxError("cannot parenthesize embedded type")
+
+			} else {
+				// '*' embed oliteral
+				typ := newIndirect(pos, p.QualifiedName(nil))
+				tag := p.OLiteral()
+				p.AddField(styp, pos, nil, typ, tag)
+			}
+
+		default:
+			p.SyntaxError("expecting field name or embedded type")
+			p.Advance(nodes.SemiT, nodes.RbraceT)
 		}
-
-	case nodes.StarT:
-		p.Next()
-		if p.Got(nodes.LparenT) {
-			// '*' '(' embed ')' oliteral
-			typ := newIndirect(pos, p.QualifiedName(nil))
-			p.Want(nodes.RparenT)
-			tag := p.OLiteral()
-			p.AddField(styp, pos, nil, typ, tag)
-			p.SyntaxError("cannot parenthesize embedded type")
-
-		} else {
-			// '*' embed oliteral
-			typ := newIndirect(pos, p.QualifiedName(nil))
-			tag := p.OLiteral()
-			p.AddField(styp, pos, nil, typ, tag)
-		}
-
-	default:
-		p.SyntaxError("expecting field name or embedded type")
-		p.Advance(nodes.SemiT, nodes.RbraceT)
 	}
 }
 
@@ -3610,12 +3728,14 @@ func (p *parser) InterfaceType() *nodes.InterfaceType {
 	}
 	typ := new(nodes.InterfaceType)
 	typ.SetPos(p.Pos())
-	p.Want(nodes.InterfaceT)
-	p.List(nodes.LbraceT, nodes.SemiT, nodes.RbraceT, func() bool {
-		if m := p.MethodDecl(); m != nil {
-			typ.MethodList = append(typ.MethodList, m)
-		}
-		return false
+	p.CheckHashCmd(p.hash, func() {
+		p.Want(nodes.InterfaceT)
+		p.List(nodes.LbraceT, nodes.SemiT, nodes.RbraceT, func() bool {
+			if m := p.MethodDecl(); m != nil {
+				typ.MethodList = append(typ.MethodList, m)
+			}
+			return false
+		})
 	})
 	return typ
 }
@@ -3629,8 +3749,7 @@ func (p *parser) MethodDecl() *nodes.Field {
 		defer p.trace("methodDecl")("")
 	}
 
-	switch p.tok {
-	case nodes.NameT:
+	if p.tok == nodes.NameT || p.TokIsKeywordName() {
 		name := p.Name()
 
 		// accept potential name list but complain
@@ -3656,19 +3775,22 @@ func (p *parser) MethodDecl() *nodes.Field {
 		f.Type = p.FuncType()
 		return f
 
-	case nodes.LparenT:
-		p.SyntaxError("cannot parenthesize embedded type")
-		f := new(nodes.Field)
-		f.SetPos(p.Pos())
-		p.Next()
-		f.Type = p.QualifiedName(nil)
-		p.Want(nodes.RparenT)
-		return f
+	} else {
+		switch p.tok {
+		case nodes.LparenT:
+			p.SyntaxError("cannot parenthesize embedded type")
+			f := new(nodes.Field)
+			f.SetPos(p.Pos())
+			p.Next()
+			f.Type = p.QualifiedName(nil)
+			p.Want(nodes.RparenT)
+			return f
 
-	default:
-		p.SyntaxError("expecting method or interface name")
-		p.Advance(nodes.SemiT, nodes.RbraceT)
-		return nil
+		default:
+			p.SyntaxError("expecting method or interface name")
+			p.Advance(nodes.SemiT, nodes.RbraceT)
+			return nil
+		}
 	}
 }
 
@@ -3731,7 +3853,22 @@ func (p *parser) NewName(value string) *nodes.Name {
 	n := new(nodes.Name)
 	n.SetPos(p.Pos())
 	n.Value = value
+
+	//if p.hashCmdBlock {
+	if p.hashCmdBlock && !p.hash {
+		for _, r := range value { //look at 1st rune only
+			if unicode.IsLower(r) {
+				n.Value = "_" + n.Value
+			}
+			break
+		}
+	}
 	return n
+}
+
+//--------------------------------------------------------------------------------
+func (p *parser) TokIsKeywordName() bool {
+	return p.hashCmdMode && p.hashCmdBlock && !p.hash && p.tok.IsKeyword()
 }
 
 //--------------------------------------------------------------------------------
@@ -3740,6 +3877,10 @@ func (p *parser) Name() *nodes.Name {
 
 	if p.tok == nodes.NameT {
 		n := p.NewName(p.lit)
+		p.Next()
+		return n
+	} else if p.TokIsKeywordName() {
+		n := p.NewName(p.tok.String())
 		p.Next()
 		return n
 	}
@@ -3780,7 +3921,7 @@ func (p *parser) QualifiedName(name *nodes.Name) nodes.Expr {
 	switch {
 	case name != nil:
 		// name is provided
-	case p.tok == nodes.NameT:
+	case p.tok == nodes.NameT, p.TokIsKeywordName():
 		name = p.Name()
 	default:
 		name = p.NewName("_")

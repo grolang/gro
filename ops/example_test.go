@@ -2,12 +2,12 @@
 // Use of this source code is governed by the same BSD-style
 // license as Go that can be found in the LICENSE file.
 
-package parsec_test
+package ops_test
 
 import (
 	"fmt"
 
-	kern "github.com/grolang/gro/parsec"
+	kern "github.com/grolang/gro/ops"
 	"github.com/grolang/gro/utf88"
 )
 
@@ -194,11 +194,11 @@ func ExampleFwd() {
 				kern.Token(utf88.Text(string(')')))))
 	}
 	expr = func(...interface{}) interface{} { // will parse string enclosed in parenthesis pairs to any depth
-		return kern.Alt(kern.Token(utf88.Text(string('a'))), paren().(kern.Parser))
+		return kern.AltParse(kern.Token(utf88.Text(string('a'))), paren().(kern.Parsec))
 	}
 
 	t := utf88.Text("(((a)))")
-	r, err := kern.ParseItem(expr().(kern.Parser), t)
+	r, err := kern.ParseItem(expr().(kern.Parsec), t)
 	if err == nil {
 		fmt.Printf("Result: %s\n", utf88.Surr(r.(utf88.Text)))
 	} else {
@@ -219,11 +219,11 @@ func ExampleFwdWithParams() {
 				kern.Token(utf88.Text(string(')')))))
 	}
 	expr = func(as ...interface{}) interface{} { // will parse string enclosed in parenthesis pairs to any depth
-		return kern.Alt(kern.Token(utf88.Text(string('a'))), paren(as...).(kern.Parser))
+		return kern.AltParse(kern.Token(utf88.Text(string('a'))), paren(as...).(kern.Parsec))
 	}
 
 	t := utf88.Text("(((a)))")
-	r, err := kern.ParseItem(expr(101, 102).(kern.Parser), t) // call expr with extra (unused in this e.g.) args
+	r, err := kern.ParseItem(expr(101, 102).(kern.Parsec), t) // call expr with extra (unused in this e.g.) args
 	if err == nil {
 		fmt.Printf("Result: %s\n", utf88.Surr(r.(utf88.Text)))
 	} else {
@@ -252,10 +252,10 @@ func ExampleTry() {
 		}
 	}
 
-	r, err = kern.ParseItem(kern.Alt(p, q).(kern.Parser), t)
+	r, err = kern.ParseItem(kern.AltParse(p, q).(kern.Parsec), t)
 	prt()
 
-	r, err = kern.ParseItem(kern.Alt(kern.Try(p), q).(kern.Parser), t)
+	r, err = kern.ParseItem(kern.AltParse(kern.Try(p), q).(kern.Parsec), t)
 	prt()
 
 	// Output:
@@ -300,8 +300,8 @@ func ExampleAlt() {
 	upper := kern.Regexp(`\p{Lu}`)
 	digit := kern.Regexp(`\p{Nd}`)
 
-	p := kern.Alt(lower, digit).(kern.Parser)
-	q := kern.Alt(lower, digit, upper).(kern.Parser)
+	p := kern.AltParse(lower, digit).(kern.Parsec)
+	q := kern.AltParse(lower, digit, upper).(kern.Parsec)
 
 	t := utf88.Text("7ef")
 	u := utf88.Text(";ef")
@@ -337,9 +337,9 @@ func ExampleBind() {
 	lower := kern.Regexp(`\p{Ll}`)
 	intNum := kern.Regexp(`\p{Nd}*`)
 
-	p := kern.Bind(lower, func(c interface{}) kern.Parser {
-		return kern.Bind(intNum, func(d interface{}) kern.Parser {
-			return kern.Bind(lower, func(e interface{}) kern.Parser {
+	p := kern.Bind(lower, func(c interface{}) kern.Parsec {
+		return kern.Bind(intNum, func(d interface{}) kern.Parsec {
+			return kern.Bind(lower, func(e interface{}) kern.Parsec {
 				return kern.Return(utf88.Surr(c.(utf88.Text)) + "," +
 					utf88.Surr(d.(utf88.Text)) + "," +
 					utf88.Surr(e.(utf88.Text)))
@@ -361,7 +361,7 @@ func ExampleSeqLeft() {
 	digit := kern.Regexp(`\p{Nd}`)
 	letter := kern.Regexp(`\pL`)
 
-	p := kern.SeqLeft(digit, letter).(kern.Parser)
+	p := kern.SeqLeft(digit, letter).(kern.Parsec)
 
 	t := utf88.Text("7efg")
 	r, err := kern.ParseItem(p, t)
@@ -381,7 +381,7 @@ func ExampleSeqRight() {
 	digit := kern.Regexp(`\p{Nd}`)
 	letter := kern.Regexp(`\pL`)
 
-	p := kern.SeqRight(digit, letter).(kern.Parser)
+	p := kern.SeqRight(digit, letter).(kern.Parsec)
 
 	t := utf88.Text("7efg")
 	r, err := kern.ParseItem(p, t)

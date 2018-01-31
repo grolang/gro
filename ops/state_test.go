@@ -1,9 +1,9 @@
 // Copyright 2017 The Gro authors. All rights reserved.
-// Portions translated from Armando Blancas' Clojure-based Kern parser.
+// Portions translated from Armando Blancas's Clojure-based Kern parser.
 // Use of this source code is governed by the same BSD-style
 // license as Go that can be found in the LICENSE file.
 
-package parsec
+package ops
 
 import (
 	"testing"
@@ -18,38 +18,38 @@ func TestInputAndPosition(t *testing.T) {
 		letter := Regexp(`\pL`)
 		p1 := Flatten(letter, letter, letter)
 
-		tt.AssertEqual(parseStr(SeqRight(SetInput(u8.Desur("Hi!")), GetInput).(Parser), "abcdefg"),
+		tt.AssertEqual(parseStr(SeqRight(SetInput(u8.Desur("Hi!")), GetInput).(Parsec), "abcdefg"),
 			PState{input: "Hi!", pos: 0, value: u8.Desur("Hi!"), empty: true, ok: true})
-		tt.AssertEqual(parseStr(SeqRight(letter, GetInput).(Parser), "abcdefg"),
+		tt.AssertEqual(parseStr(SeqRight(letter, GetInput).(Parsec), "abcdefg"),
 			PState{input: "bcdefg", pos: 1, value: u8.Desur("bcdefg"), ok: true})
 
-		tt.AssertEqual(parseStr(SeqRight(SetPosition(100), GetPosition).(Parser), "abcdefg"),
+		tt.AssertEqual(parseStr(SeqRight(SetPosition(100), GetPosition).(Parsec), "abcdefg"),
 			PState{input: "abcdefg", pos: 100, value: uint64(100), empty: true, ok: true})
 
-		tt.AssertEqual(parseStr(SeqRight(SetInputAndPosition(InputAndPosition{u8.Desur("Hi there!"), 5}), GetInputAndPosition).(Parser), "abcdefg"),
+		tt.AssertEqual(parseStr(SeqRight(SetInputAndPosition(InputAndPosition{u8.Desur("Hi there!"), 5}), GetInputAndPosition).(Parsec), "abcdefg"),
 			PState{input: "Hi there!", pos: 5, value: InputAndPosition{u8.Desur("Hi there!"), 5}, empty: true, ok: true})
 
-		tt.AssertEqual(parseStr(Collect(p1, SeqRight(SetInput(u8.Desur("XYZ")), p1).(Parser)), "ABCDEFG"),
+		tt.AssertEqual(parseStr(Collect(p1, SeqRight(SetInput(u8.Desur("XYZ")), p1).(Parsec)), "ABCDEFG"),
 			PState{input: "", pos: 6, value: arrText("ABC", "XYZ"), ok: true}) //TODO: what should pos be?
-		tt.AssertEqual(parseStr(Collect(p1, SeqRight(SetInput(u8.Desur("XYZ")), p1).(Parser)), "ABC"),
+		tt.AssertEqual(parseStr(Collect(p1, SeqRight(SetInput(u8.Desur("XYZ")), p1).(Parsec)), "ABC"),
 			PState{input: "", pos: 6, value: arrText("ABC", "XYZ"), ok: true}) //TODO: ditto
 
 		tt.AssertEqual(parseStr(Collect(p1), "ABC"),
 			PState{input: "", pos: 3, value: arrText("ABC"), ok: true})
 
 		p2 := SeqRight(Skip(SetInput(u8.Text("XY0")), SetPosition(0)), p1)
-		tt.AssertEqual(parseStr(Collect(p1, p2.(Parser)), "ABC"),
+		tt.AssertEqual(parseStr(Collect(p1, p2.(Parsec)), "ABC"),
 			PState{input: "0", pos: 2, value: nil, error: makeUnexpInp("0")})
 
 		p3 := SeqRight(Skip(SetInput(u8.Text("WXYZ")), SetPosition(0)), GetPosition)
-		tt.AssertEqual(parseStr(SeqRight(p1, p3).(Parser), "ABC"),
+		tt.AssertEqual(parseStr(SeqRight(p1, p3).(Parsec), "ABC"),
 			PState{input: "WXYZ", pos: 0, value: uint64(0), ok: true})
 
 		p4 := SeqRight(SetInput(u8.Text("XYZ")), GetInput)
-		tt.AssertEqual(parseStr(SeqRight(p1, p4).(Parser), "ABC"),
+		tt.AssertEqual(parseStr(SeqRight(p1, p4).(Parsec), "ABC"),
 			PState{input: "XYZ", pos: 3, value: u8.Text("XYZ"), ok: true})
 
-		tt.AssertEqual(parseStr(Collect(p1, SeqRight(SetInputAndPosition(InputAndPosition{u8.Desur("XYZ"), 2}), p1).(Parser)), "ABCDEFG"), //posn changed from 3 to 2...
+		tt.AssertEqual(parseStr(Collect(p1, SeqRight(SetInputAndPosition(InputAndPosition{u8.Desur("XYZ"), 2}), p1).(Parsec)), "ABCDEFG"), //posn changed from 3 to 2...
 			PState{input: "", pos: 5, value: arrText("ABC", "XYZ"), ok: true}) //...so posn is 5 instead of 6
 
 	})
@@ -58,7 +58,7 @@ func TestInputAndPosition(t *testing.T) {
 //================================================================================
 func TestState(t *testing.T) {
 	ts.LogAsserts("State", t, func(tt *ts.T) {
-		incrIfNewline := func(x interface{}) Parser {
+		incrIfNewline := func(x interface{}) Parsec {
 			if x.(u8.Codepoint) == u8.Codepoint('\n') {
 				return ModifyState(func(n interface{}, _ ...interface{}) interface{} {
 					return n.(int) + 1
@@ -69,7 +69,7 @@ func TestState(t *testing.T) {
 		}
 
 		p2 := SeqRight(PutState(21),
-			Bind(AnyChar, incrIfNewline)).(Parser)
+			Bind(AnyChar, incrIfNewline)).(Parsec)
 		tt.AssertEqual(parseStr(p2, "\naa"),
 			PState{input: "aa", pos: 1, value: u8.Codepoint('\n'), ok: true, user: 22})
 		tt.AssertEqual(parseStr(p2, "aaa"),
@@ -79,7 +79,7 @@ func TestState(t *testing.T) {
 
 		p1 := SeqRight(PutState(21),
 			Bind(AnyChar, incrIfNewline),
-			GetState).(Parser)
+			GetState).(Parsec)
 		tt.AssertEqual(parseStr(p1, "\naa"),
 			PState{input: "aa", pos: 1, value: 22, ok: true, user: 22})
 		tt.AssertEqual(parseStr(p1, "aaa"),
@@ -89,7 +89,7 @@ func TestState(t *testing.T) {
 
 		p3 := SeqRight(PutState(21),
 			Bind(AnyChar, incrIfNewline),
-			AnyChar).(Parser)
+			AnyChar).(Parsec)
 		tt.AssertEqual(parseStr(p3, "\naa"),
 			PState{input: "a", pos: 2, value: u8.Codepoint('a'), ok: true, user: 22})
 		tt.AssertEqual(parseStr(p3, "aaa"),
@@ -107,7 +107,7 @@ func TestStateMap(t *testing.T) {
 		init := PutStateMapEntry("counter", 123)
 
 		//--------------------------------------------------------------------------------
-		getB := func(x interface{}) Parser {
+		getB := func(x interface{}) Parsec {
 			if x.(u8.Codepoint) == u8.Codepoint('\n') {
 				return GetStateMapEntry("counter")
 			} else {
@@ -115,14 +115,14 @@ func TestStateMap(t *testing.T) {
 			}
 		}
 
-		p1 := SeqRight(init, Bind(AnyChar, getB)).(Parser)
+		p1 := SeqRight(init, Bind(AnyChar, getB)).(Parsec)
 		tt.AssertEqual(parseStr(p1, "\nbc"),
 			PState{input: "bc", pos: 1, value: 123, ok: true, user: map[string]interface{}{"counter": 123}})
 		tt.AssertEqual(parseStr(p1, "abc"),
 			PState{input: "bc", pos: 1, value: nil, ok: true, user: map[string]interface{}{"counter": 123}})
 
 		//--------------------------------------------------------------------------------
-		solePutB := func(x interface{}) (p Parser) {
+		solePutB := func(x interface{}) (p Parsec) {
 			if x.(u8.Codepoint) == u8.Codepoint('\n') {
 				return Return(nil)
 			} else {
@@ -130,22 +130,22 @@ func TestStateMap(t *testing.T) {
 			}
 		}
 
-		p2 := SeqRight(init, Bind(AnyChar, solePutB)).(Parser)
+		p2 := SeqRight(init, Bind(AnyChar, solePutB)).(Parsec)
 		tt.AssertEqual(parseStr(p2, "\nbc"),
 			PState{input: "bc", pos: 1, value: nil, ok: true, user: map[string]interface{}{"counter": 123}})
 		tt.AssertEqual(parseStr(p2, "abc"),
 			PState{input: "bc", pos: 1, value: map[string]interface{}{"counter": 123}, ok: true, user: map[string]interface{}{"counter": 777}})
 
 		//--------------------------------------------------------------------------------
-		putB := func(x interface{}) (p Parser) {
+		putB := func(x interface{}) (p Parsec) {
 			if x.(u8.Codepoint) == u8.Codepoint('\n') {
 				return GetStateMapEntry("counter")
 			} else {
-				return Bind(PutStateMapEntry("counter", 777), func(_ interface{}) Parser { return GetStateMapEntry("counter") })
+				return Bind(PutStateMapEntry("counter", 777), func(_ interface{}) Parsec { return GetStateMapEntry("counter") })
 			}
 		}
 
-		p3 := SeqRight(init, Bind(AnyChar, putB)).(Parser)
+		p3 := SeqRight(init, Bind(AnyChar, putB)).(Parsec)
 		tt.AssertEqual(parseStr(p3, "\nbc"),
 			PState{input: "bc", pos: 1, value: 123, ok: true, user: map[string]interface{}{"counter": 123}})
 		tt.AssertEqual(parseStr(p3, "abc"),
@@ -157,14 +157,14 @@ func TestStateMap(t *testing.T) {
 		tt.AssertEqual(parseStr(p4, "abc"),
 			PState{input: "bc", pos: 1, value: 777, ok: true, user: map[string]interface{}{"counter": 777}})
 
-		p5 := SeqRight(Return(nil), Bind(AnyChar, putB)).(Parser)
+		p5 := SeqRight(Return(nil), Bind(AnyChar, putB)).(Parsec)
 		tt.AssertEqual(parseStr(p5, "\nbc"),
 			PState{input: "bc", pos: 1, value: nil, ok: true})
 		tt.AssertEqual(parseStr(p5, "abc"),
 			PState{input: "bc", pos: 1, value: 777, ok: true, user: map[string]interface{}{"counter": 777}})
 
 		//--------------------------------------------------------------------------------
-		soleIncrIfNewline := func(x interface{}) Parser {
+		soleIncrIfNewline := func(x interface{}) Parsec {
 			if x.(u8.Codepoint) == u8.Codepoint('\n') {
 				return ModifyStateMapEntry("counter", func(n interface{}, _ ...interface{}) interface{} {
 					return n.(int) + 1
@@ -174,25 +174,25 @@ func TestStateMap(t *testing.T) {
 			}
 		}
 
-		p20 := SeqRight(init, Bind(AnyChar, soleIncrIfNewline)).(Parser)
+		p20 := SeqRight(init, Bind(AnyChar, soleIncrIfNewline)).(Parsec)
 		tt.AssertEqual(parseStr(p20, "\nbc"),
 			PState{input: "bc", pos: 1, value: map[string]interface{}{"counter": 123}, ok: true, user: map[string]interface{}{"counter": 124}})
 		tt.AssertEqual(parseStr(p20, "abc"),
 			PState{input: "bc", pos: 1, value: nil, ok: true, user: map[string]interface{}{"counter": 123}})
 
 		//--------------------------------------------------------------------------------
-		incrIfNewline := func(x interface{}) Parser {
+		incrIfNewline := func(x interface{}) Parsec {
 			if x.(u8.Codepoint) == u8.Codepoint('\n') {
 				return Bind(ModifyStateMapEntry("counter", func(n interface{}, _ ...interface{}) interface{} {
 					return n.(int) + 1
 				}),
-					func(_ interface{}) Parser { return GetStateMapEntry("counter") })
+					func(_ interface{}) Parsec { return GetStateMapEntry("counter") })
 			} else {
 				return GetStateMapEntry("counter")
 			}
 		}
 
-		p21 := SeqRight(init, Bind(AnyChar, incrIfNewline)).(Parser)
+		p21 := SeqRight(init, Bind(AnyChar, incrIfNewline)).(Parsec)
 		tt.AssertEqual(parseStr(p21, "\nbc"),
 			PState{input: "bc", pos: 1, value: 124, ok: true, user: map[string]interface{}{"counter": 124}})
 		tt.AssertEqual(parseStr(p21, "abc"),
@@ -203,21 +203,21 @@ func TestStateMap(t *testing.T) {
 //================================================================================
 func TestStateStack(t *testing.T) {
 	ts.LogAsserts("StateStack", t, func(tt *ts.T) {
-		p0 := Bind(PushStateStack(555), func(c1 interface{}) Parser {
-			return Bind(PushStateStack(556), func(c2 interface{}) Parser {
+		p0 := Bind(PushStateStack(555), func(c1 interface{}) Parsec {
+			return Bind(PushStateStack(556), func(c2 interface{}) Parsec {
 				return PushStateStack(557)
 			})
 		})
 
 		p2 := SeqRight(
-			SeqRight(p0, Bind(AnyChar, func(x interface{}) (p Parser) {
+			SeqRight(p0, Bind(AnyChar, func(x interface{}) (p Parsec) {
 				if u8.Sur(x.(u8.Codepoint)) == "\n" {
 					return PopStateStack()
 				} else {
 					return Return(nil)
 				}
 			})),
-			GetState).(Parser)
+			GetState).(Parsec)
 
 		tt.AssertEqual(parseStr(p2, "\naa"),
 			PState{input: "aa", pos: 1, value: []interface{}{555, 556},
@@ -226,20 +226,20 @@ func TestStateStack(t *testing.T) {
 			PState{input: "bba", pos: 1, value: []interface{}{555, 556, 557},
 				ok: true, user: []interface{}{555, 556, 557}})
 
-		p3 := SeqRight(p0, Bind(AnyChar, func(x interface{}) (p Parser) {
+		p3 := SeqRight(p0, Bind(AnyChar, func(x interface{}) (p Parsec) {
 			if u8.Sur(x.(u8.Codepoint)) == "\n" {
 				return AlterTopStateStack(777)
 			} else {
 				return PeekStateStack()
 			}
-		})).(Parser)
+		})).(Parsec)
 
 		tt.AssertEqual(parseStr(p3, "\nbc"),
 			PState{input: "bc", pos: 1, ok: true, user: []interface{}{555, 556, 777}})
 		tt.AssertEqual(parseStr(p3, "abc"),
 			PState{input: "bc", pos: 1, value: 557, ok: true, user: []interface{}{555, 556, 557}})
 
-		p4 := Bind(AnyChar, func(x interface{}) (p Parser) {
+		p4 := Bind(AnyChar, func(x interface{}) (p Parsec) {
 			if u8.Sur(x.(u8.Codepoint)) == "\n" {
 				return AlterTopStateStack(777)
 			} else {
@@ -281,14 +281,14 @@ func TestStateStruct(t *testing.T) {
 			return u
 		}
 
-		modifyUserStateP := func(f func(UserState) UserState) Parser {
-			return Bind(GetState, func(s interface{}) Parser {
+		modifyUserStateP := func(f func(UserState) UserState) Parsec {
+			return Bind(GetState, func(s interface{}) Parsec {
 				r := f(s.(UserState))
-				return SeqRight(PutState(r), Return(nil)).(Parser)
+				return SeqRight(PutState(r), Return(nil)).(Parsec)
 			})
 		}
 
-		tt.AssertEqual(parseStr(SeqRight(PutState(newUserState), modifyUserStateP(unsetNlFound)).(Parser), ""),
+		tt.AssertEqual(parseStr(SeqRight(PutState(newUserState), modifyUserStateP(unsetNlFound)).(Parsec), ""),
 			PState{ok: true, empty: true, user: UserState{imports: map[string]string{}}})
 
 	})

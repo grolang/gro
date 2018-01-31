@@ -42,6 +42,8 @@ const (
 	DotDotDotT
 
 	// keywords
+	keyword_start
+
 	BreakT
 	CaseT
 	ChanT
@@ -68,11 +70,18 @@ const (
 	TypeT
 	VarT
 
+	keyword_end
+
 	tokenCount
 )
 
 // Make sure we have at most 64 tokens so we can use them in a set.
 const _ uint64 = 1 << (tokenCount - 1)
+
+//--------------------------------------------------------------------------------
+func (tok Token) IsKeyword() bool {
+	return tok > keyword_start && tok < keyword_end
+}
 
 //--------------------------------------------------------------------------------
 func (tok Token) String() string {

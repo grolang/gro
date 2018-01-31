@@ -371,7 +371,7 @@ func TestNegate(t *testing.T) {
 		{ops.Int(0), ops.Int(0)},
 		{newBigInt(0), newBigInt(0)},
 		{newBigInt(-7), newBigInt(7)},
-		{newBigRat(0, 1), newBigRat(0, 1)},
+		{newBigRat(0, 1), newBigInt(0)},
 		{newBigRat(1, 7), newBigRat(1, -7)},
 		{ops.Float(0), ops.Float(0)},
 		{ops.Float(-7.0), ops.Float(7.0)},
@@ -752,11 +752,11 @@ func TestPosIntRange(t *testing.T) {
 		r       ops.PosIntRange
 		a, b, c interface{}
 	}{
-		{ops.NewPosIntRange(1, 3), ops.Int(1), ops.Int(3), false},
-		{ops.NewPosIntRange(1, 1), ops.Int(1), ops.Int(1), false},
-		{ops.NewPosIntRange(17, ops.BigInt(maxUint64)),
+		{newPosIntRange(1, 3), ops.Int(1), ops.Int(3), false},
+		{newPosIntRange(1, 1), ops.Int(1), ops.Int(1), false},
+		{newPosIntRange(17, ops.BigInt(maxUint64)),
 			ops.Int(17), ops.Int(0x7fffffffffffffff /*maxInt64*/), false},
-		{ops.NewPosIntRange(7, ops.Inf), ops.Int(7), ops.Int(0x7fffffffffffffff), true},
+		{newPosIntRange(7, ops.Inf), ops.Int(7), ops.Int(0x7fffffffffffffff), true},
 	} {
 		//TODO: more tests
 		if !reflect.DeepEqual(n.r.From(), n.a) {
@@ -770,7 +770,7 @@ func TestPosIntRange(t *testing.T) {
 		}
 	}
 
-	if !(ops.NewPosIntRange(789, ops.Inf).IsToInf()) {
+	if !(newPosIntRange(789, ops.Inf).IsToInf()) {
 		t.Error("Failure in one-off test")
 	}
 }

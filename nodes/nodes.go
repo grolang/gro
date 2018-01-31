@@ -552,6 +552,7 @@ type (
 	MapType struct {
 		Key   Expr
 		Value Expr
+		Dyn   bool
 		expr
 	}
 

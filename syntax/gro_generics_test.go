@@ -16,7 +16,8 @@ func TestGenerics(t *testing.T) {
 		{
 			num: 10,
 			fnm: "dud.gro",
-			src: `package abc
+			src: `use"generics"
+package abc
 import "fmt"
 func run() {
 	fmt.Println("Hello, world!")
@@ -43,7 +44,8 @@ func run() {
 		{
 			num: 20,
 			fnm: "dud.gro",
-			src: `package abc
+			src: `use"generics"
+package abc
 section "myfile"
 import "fmt"
 func run() {
@@ -70,7 +72,7 @@ func run() {
 		//one 2-param package
 		{
 			num: 30,
-			fnm: "dud.gro",
+			fnm: "dud.grog", // <--- .grog for generics
 			src: `package def (T, U)
 import "fmt"
 func run() {
@@ -86,7 +88,7 @@ func run() {
 		//one plain "package" (with explicit section), and one 2-param package (with explicit section), both in block-style
 		{
 			num: 40,
-			fnm: "dud.gro",
+			fnm: "dud.grog",
 			src: `package abc {
   section "myfile" {
     import "fmt"
@@ -117,7 +119,7 @@ func run() {
 		//a 1-param package and a calling package
 		{
 			num: 100,
-			fnm: "dud.gro",
+			fnm: "dud.grog",
 			src: `package defg (T) //package with parameter...
 import "fmt"
 func run() {
@@ -158,7 +160,7 @@ type T = int
 		//calling & 1-param packages, gro-file in subdir
 		{
 			num: 101,
-			fnm: "adir/dud.gro",
+			fnm: "adir/dud.grog",
 			src: `package defg (T) //package with parameter...
 import "fmt"
 func run() {
@@ -199,7 +201,7 @@ type T = int
 		//one plain "package", a 1-param package, and one calling package
 		{
 			num: 110,
-			fnm: "dud.gro",
+			fnm: "dud.grog",
 			src: `package abc
 import "fmt"
 func run() {
@@ -254,7 +256,7 @@ type T = int
 		//an implicit plain package, a 1-param package, and a package calling it twice
 		{
 			num: 120,
-			fnm: "dud.gro",
+			fnm: "dud.grog",
 			src: `import "fmt"
 func run() {
 	fmt.Println("Hello, world!")
@@ -326,7 +328,7 @@ type T = float
 		//a 2-param package, and an implicit package calling it
 		{
 			num: 130,
-			fnm: "dud.gro",
+			fnm: "dud.grog",
 			src: `import "fmt"
 import dintfl "github.com/grolang/gro/syntax/defg" (int, float)
 func run() {
@@ -369,7 +371,7 @@ type U = float
 		//a 2-param package, and an implicit package calling it twice
 		{
 			num: 140,
-			fnm: "dud.gro",
+			fnm: "dud.grog",
 			src: `import "fmt"
 import (
 	dint   "github.com/grolang/gro/syntax/defg" (int, float)
@@ -434,7 +436,7 @@ type U = int
 		//a 2-param package, and an implicit package calling it twice (with same first arg in each call)
 		{
 			num: 150,
-			fnm: "dud.gro",
+			fnm: "dud.grog",
 			src: `import "fmt"
 import (
 	dif   "github.com/grolang/gro/syntax/defg" (int, float)
@@ -499,7 +501,7 @@ type U = byte
 		//one 1-param package, and two calling packages (each using same arg and alias name)
 		{
 			num: 200,
-			fnm: "dud.gro",
+			fnm: "dud.grog",
 			src: `package abc
 import "fmt"
 import dint "github.com/grolang/gro/syntax/defg" (int)
@@ -571,7 +573,7 @@ type T = int
 		//one 1-param package, and two calling packages (each using same arg, but different alias name)
 		{
 			num: 210,
-			fnm: "dud.gro",
+			fnm: "dud.grog",
 			src: `package abc
 import "fmt"
 import dint "github.com/grolang/gro/syntax/xyz/defg" (int)
@@ -642,7 +644,7 @@ type T = int
 		//one 1-param package, and two calling packages (each using different arg, but same alias name)
 		{
 			num: 220,
-			fnm: "dud.gro",
+			fnm: "dud.grog",
 			src: `package abc
 import "fmt"
 import dparam "github.com/grolang/gro/syntax/defg" (int)
@@ -713,7 +715,7 @@ type T = float
 		//a 2-param package, and 2 packages each calling it twice (with same first arg in each call)
 		{
 			num: 230,
-			fnm: "dud.gro",
+			fnm: "dud.grog",
 			src: `import "fmt"
 import (
 	dif   "github.com/grolang/gro/syntax/defg" (int, float)
@@ -831,7 +833,7 @@ type U = byte
 		//a 1-param package and a calling package using in-place string package names
 		{
 			num: 300,
-			fnm: "dud.gro",
+			fnm: "dud.grog",
 			src: `package defg (T)
 import "fmt"
 func run() {
@@ -876,7 +878,7 @@ type T = path.MyStruct
 		//a 2-param package and a calling package using 2 in-place string package names
 		{
 			num: 310,
-			fnm: "dud.gro",
+			fnm: "dud.grog",
 			src: `package defg (T, U)
 import "fmt"
 func run() {
@@ -926,7 +928,7 @@ type U = another.Strooct
 		//a two parameterized packages and a calling package calling both using in-place string package names
 		{
 			num: 320,
-			fnm: "dud.gro",
+			fnm: "dud.grog",
 			src: `package abc (S)
 func pow() {
 	fmt.Println("Pow wow!")
@@ -999,7 +1001,7 @@ type U = another.Strooct
 		//a package calling a parameterized package supplied in another file
 		{
 			num: 330,
-			fnm: "dud.gro",
+			fnm: "dud.grog",
 			src: `include "defg.gro"
 package hij
 import dint "github.com/grolang/gro/syntax/defg" (int)
@@ -1009,7 +1011,41 @@ func run() {
 `,
 
 			xtr: map[string]string{
-				"defg.gro": `package defg (T)
+				"defg.gro": `use "generics"
+package defg (T)
+`},
+			// - - - - - - - - - - - - - - - - - - - -
+			prt: map[string]string{
+				"hij/hij.go": `package hij
+
+import dint "github.com/grolang/gro/syntax/generics/hij/hij/dint"
+
+func run() {
+	fmt.Println("Hello, world!")
+}
+`,
+				"generics/hij/hij/dint/defg.go": `package defg
+`,
+				"generics/hij/hij/dint/generic_args.go": `package defg
+
+type T = int
+`}},
+
+		//--------------------------------------------------------------------------------
+		//a package calling a parameterized package supplied in another file
+		{
+			num: 331,
+			fnm: "dud.grog",
+			src: `include "defg.grog"
+package hij
+import dint "github.com/grolang/gro/syntax/defg" (int)
+func run() {
+	fmt.Println("Hello, world!")
+}
+`,
+
+			xtr: map[string]string{
+				"defg.grog": `package defg (T)
 `},
 			// - - - - - - - - - - - - - - - - - - - -
 			prt: map[string]string{
@@ -1032,7 +1068,7 @@ type T = int
 		//a 1-param "internal" package and a calling package
 		{
 			num: 410,
-			fnm: "dud.gro",
+			fnm: "dud.grog",
 			src: `internal defg (T) //internal package with parameter...
 import "fmt"
 func run() {
@@ -1074,21 +1110,21 @@ type T = int
 		// param to package must be type
 		{
 			num: 510,
-			fnm: "dud.gro",
+			fnm: "dud.grog",
 			src: `package def ("bad param")
 import "fmt"
 func run() {
 	fmt.Println("Hello, world!")
 }
 `,
-			err: "dud.gro:1:14: syntax error: unexpected literal \"bad param\", expecting name",
+			err: "dud.grog:1:14: syntax error: unexpected literal \"bad param\", expecting name",
 		},
 
 		//--------------------------------------------------------------------------------
 		// imported arg pkgs need local name
 		{
 			num: 520,
-			fnm: "dud.gro",
+			fnm: "dud.grog",
 			src: `package abc (T)
 func run() T {
 	"fmt".Println("abc")
@@ -1099,14 +1135,14 @@ func run() {
 	fmt.Println("Hello, world!")
 }
 `,
-			err: "dud.gro:6:14: syntax error: imported parameterized packages need a local name",
+			err: "dud.grog:6:14: syntax error: imported parameterized packages need a local name",
 		},
 
 		//--------------------------------------------------------------------------------
 		//nested generics
 		{
 			num: 530,
-			fnm: "grotest/dud.gro",
+			fnm: "grotest/dud.grog",
 			src: `import yourstruct "github.com/grolang/gro/syntax/grotest/yourthree" (float64, struct{a,b int})
 "fmt".Println("'Hi' from src/grotest/sixthseashell.gro")
 do yourstruct.RunIt()
@@ -1196,7 +1232,7 @@ type T = complex128
 		//nested generics: parameterized package has 2 invoked imports
 		{
 			num: 540,
-			fnm: "grotest/dud.gro",
+			fnm: "grotest/dud.grog",
 			src: `import yourstruct "github.com/grolang/gro/syntax/grotest/yourthree" (float64, struct{a,b int})
 "fmt".Println("'Hi' from src/grotest/sixthseashell.gro")
 do yourstruct.RunIt()
@@ -1307,7 +1343,7 @@ type T = int
 		//nested generics: using package parameter as invoked import argument
 		{
 			num: 550,
-			fnm: "grotest/dud.gro",
+			fnm: "grotest/dud.grog",
 			src: `import yourstruct "github.com/grolang/gro/syntax/grotest/yourthree" (float64, struct{a,b int})
 "fmt".Println("'Hi' from src/grotest/sixthseashell.gro")
 do yourstruct.RunIt()
@@ -1420,7 +1456,7 @@ type T = float64
 		//nested generics: using package parameter as invoked import argument -- two such imports both with two pass-thru args
 		{
 			num: 560,
-			fnm: "grotest/dud.gro",
+			fnm: "grotest/dud.grog",
 			src: `import yourstruct "github.com/grolang/gro/syntax/grotest/yourthree" (
 	complex128, int, float64, struct{a,b int},
 )
@@ -1548,7 +1584,7 @@ type U = struct {
 		//nested generics
 		{
 			num: 570,
-			fnm: "grotest/dud.gro",
+			fnm: "grotest/dud.grog",
 			src: `import yourstruct "github.com/grolang/gro/syntax/grotest/yourthree" (float64, struct{a,b int})
 "fmt".Println("'Hi' from src/grotest/sixthseashell.gro")
 do yourstruct.RunIt()
@@ -1668,7 +1704,7 @@ type U = float64
 		//nested generics: using package parameter as invoked import argument, with a cycle
 		{
 			num: 580,
-			fnm: "grotest/dud.gro",
+			fnm: "grotest/dud.grog",
 			src: `import yourstruct "github.com/grolang/gro/syntax/grotest/yourthree" (complex128, int, float64, struct{a,b int})
 "fmt".Println("'Hi' from src/grotest/sixthseashell.gro")
 do yourstruct.RunIt()
@@ -1694,8 +1730,8 @@ func DoIt(){
 	"fmt".Printf("'Hi' from src/grotest/sixthseashell.gro:somedir/myfour(%T, %T).DoIt\n", t, u)
 }
 `,
-			//err: "grotest/dud.gro:25:1: syntax error: cycles not allowed for parameterized imports",
-			err: "grotest/dud.gro:25:1: syntax error: parameterized package not present in file, or there's a cycle in the parameterized imports",
+			//err: "grotest/dud.grog:25:1: syntax error: cycles not allowed for parameterized imports",
+			err: "grotest/dud.grog:25:1: syntax error: parameterized package not present in file, or there's a cycle in the parameterized imports",
 		},
 
 		//--------------------------------------------------------------------------------
